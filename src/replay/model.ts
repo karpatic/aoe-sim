@@ -163,30 +163,100 @@ export interface ReplayScenarioV1 {
 }
 
 export interface RulesetUnit {
+  readonly id?: number;
   readonly kind: string;
+  readonly label?: string;
+  readonly labels?: RulesetLabels;
+  readonly type?: number;
+  readonly typeName?: string;
+  readonly classId?: number;
+  readonly baseId?: number;
+  readonly copyId?: number;
   readonly maxHp: number;
   readonly speedFpPerSecond: number;
   readonly radiusTiles: number;
   readonly token: "scout" | "villager" | "marker" | "resource";
+  readonly movement?: JsonRecord;
+  readonly collision?: JsonRecord;
+  readonly economy?: JsonRecord;
+  readonly combat?: JsonRecord;
+  readonly projectile?: JsonRecord;
+  readonly production?: JsonRecord;
+  readonly building?: JsonRecord;
+  readonly rawBase?: JsonRecord;
 }
 
 export interface RulesetTerrain {
+  readonly id?: number;
   readonly kind: string;
   readonly color: string;
   readonly passable: boolean;
+  readonly labels?: RulesetLabels;
+  readonly raw?: JsonRecord;
+}
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonRecord | JsonValue[];
+export interface JsonRecord {
+  readonly [key: string]: JsonValue;
+}
+
+export interface RulesetLabels {
+  readonly localizedName?: string;
+  readonly internalName?: string;
+  readonly languageDllName?: number;
+  readonly [key: string]: string | number | undefined;
+}
+
+export interface RulesetFidelity {
+  readonly status: "exact-build" | "mapped-build" | "current-rules-approximation";
+  readonly reason: string;
+  readonly replayEvidence?: JsonRecord;
+  readonly sourceEvidence?: JsonRecord;
+  readonly auditNotes?: readonly string[];
+  readonly unsupportedClaim?: string;
+}
+
+export interface RulesetDiagnosticsSummary {
+  readonly counts?: Record<string, number>;
+  readonly unresolved?: JsonRecord;
+  readonly fieldCoverage?: JsonRecord;
+}
+
+export interface RulesetGeneratedArtifact extends ArtifactReference {
+  readonly semanticSha256?: string;
 }
 
 export interface RulesetV1 {
   readonly schemaVersion: "aoe-sim.ruleset.v1";
   readonly rulesetId: string;
+  readonly displayName?: string;
   readonly sourceBuild: string;
+  readonly datVersion?: string;
+  readonly fidelity?: RulesetFidelity;
   readonly fixedPointScale: number;
   readonly stepMs: SimTimeMs;
   readonly terrain: readonly RulesetTerrain[];
+  readonly terrainRestrictions?: readonly JsonRecord[];
   readonly units: readonly RulesetUnit[];
+  readonly technologies?: readonly JsonRecord[];
+  readonly effects?: readonly JsonRecord[];
+  readonly civilizations?: readonly JsonRecord[];
+  readonly techTree?: JsonRecord;
+  readonly entityIndex?: JsonRecord;
+  readonly diagnostics?: RulesetDiagnosticsSummary;
   readonly provenance: {
     readonly dat: ArtifactReference;
+    readonly localization?: ArtifactReference;
+    readonly appmanifest?: ArtifactReference & {
+      readonly steamAppId?: number | string;
+      readonly steamBuildId?: string;
+      readonly steamLastUpdatedUnix?: number | string;
+      readonly mtimeUtc?: string;
+    };
+    readonly parser?: ParserReference;
     readonly extractor: ArtifactReference;
+    readonly generatedArtifact?: RulesetGeneratedArtifact;
   };
 }
 
@@ -213,6 +283,9 @@ export interface SnapshotTask {
 export interface EntitySnapshot {
   readonly id: EntityId;
   readonly kind: string;
+  readonly dataId?: number;
+  readonly classId?: number;
+  readonly label?: string;
   readonly playerId: PlayerId;
   readonly hp: number;
   readonly facing: -1 | 1;

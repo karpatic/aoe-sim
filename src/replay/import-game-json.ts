@@ -5,6 +5,7 @@ import type {
   EvidenceClass,
   EvidencePoint,
   InitialEntity,
+  JsonRecord,
   MapBounds,
   MapTileGrid,
   MoveCommand,
@@ -55,16 +56,21 @@ export function assertRulesetV1(value: unknown): RulesetV1 {
   const root = requireRecord(value, "ruleset");
   requireLiteral(root.schemaVersion, "aoe-sim.ruleset.v1", "ruleset.schemaVersion");
 
-  return {
+  return dropUndefined({
     schemaVersion: "aoe-sim.ruleset.v1",
     rulesetId: requireString(root.rulesetId, "ruleset.rulesetId"),
+    displayName: optionalString(root.displayName, "ruleset.displayName"),
     sourceBuild: requireString(root.sourceBuild, "ruleset.sourceBuild"),
+    datVersion: optionalString(root.datVersion, "ruleset.datVersion"),
+    fidelity: root.fidelity === undefined ? undefined : readFidelity(root.fidelity, "ruleset.fidelity"),
     fixedPointScale: requirePositiveNumber(root.fixedPointScale, "ruleset.fixedPointScale"),
     stepMs: requirePositiveInteger(root.stepMs, "ruleset.stepMs"),
     terrain: readArray(root.terrain, "ruleset.terrain", readTerrain),
     units: readArray(root.units, "ruleset.units", readUnit),
+    diagnostics:
+      root.diagnostics === undefined ? undefined : readRulesetDiagnostics(root.diagnostics, "ruleset.diagnostics"),
     provenance: readRulesetProvenance(root.provenance, "ruleset.provenance")
-  };
+  }) as RulesetV1;
 }
 
 function readMap(value: unknown, path: string): MapBounds {
@@ -273,10 +279,17 @@ function readScenarioProvenance(value: unknown, path: string): ScenarioProvenanc
 
 function readRulesetProvenance(value: unknown, path: string): RulesetV1["provenance"] {
   const record = requireRecord(value, path);
-  return {
+  return dropUndefined({
     dat: readArtifact(record.dat, `${path}.dat`),
+    localization:
+      record.localization === undefined ? undefined : readArtifact(record.localization, `${path}.localization`),
+    appmanifest:
+      record.appmanifest === undefined
+        ? undefined
+        : readAppmanifestArtifact(record.appmanifest, `${path}.appmanifest`),
+    parser: record.parser === undefined ? undefined : readParser(record.parser, `${path}.parser`),
     extractor: readArtifact(record.extractor, `${path}.extractor`)
-  };
+  }) as RulesetV1["provenance"];
 }
 
 function readArtifact(value: unknown, path: string): ArtifactReference {
@@ -301,13 +314,105 @@ function readParser(value: unknown, path: string): ParserReference {
   }) as ParserReference;
 }
 
+function readAppmanifestArtifact(value: unknown, path: string): RulesetV1["provenance"]["appmanifest"] {
+  const record = requireRecord(value, path);
+  return dropUndefined({
+    ...readArtifact(record, path),
+    steamAppId: optionalStringOrNumber(record.steamAppId, `${path}.steamAppId`),
+    steamBuildId: optionalString(record.steamBuildId, `${path}.steamBuildId`),
+    steamLastUpdatedUnix: optionalStringOrNumber(record.steamLastUpdatedUnix, `${path}.steamLastUpdatedUnix`),
+    mtimeUtc: optionalString(record.mtimeUtc, `${path}.mtimeUtc`)
+  }) as RulesetV1["provenance"]["appmanifest"];
+}
+
+function readFidelity(value: unknown, path: string): RulesetV1["fidelity"] {
+  const record = requireRecord(value, path);
+  const status = requireString(record.status, `${path}.status`);
+  if (status !== "exact-build" && status !== "mapped-build" && status !== "current-rules-approximation") {
+    throw new Error(`${path}.status is not a supported fidelity status`);
+  }
+
+  return dropUndefined({
+    status,
+    reason: requireString(record.reason, `${path}.reason`),
+    replayEvidence:
+      record.replayEvidence === undefined ? undefined : readJsonRecord(record.replayEvidence, `${path}.replayEvidence`),
+    sourceEvidence:
+      record.sourceEvidence === undefined ? undefined : readJsonRecord(record.sourceEvidence, `${path}.sourceEvidence`),
+    auditNotes:
+      record.auditNotes === undefined ? undefined : readArray(record.auditNotes, `${path}.auditNotes`, requireString),
+    unsupportedClaim: optionalString(record.unsupportedClaim, `${path}.unsupportedClaim`)
+  }) as RulesetV1["fidelity"];
+}
+
+function readRulesetDiagnostics(value: unknown, path: string): RulesetV1["diagnostics"] {
+  const record = requireRecord(value, path);
+  return dropUndefined({
+    counts: record.counts === undefined ? undefined : readNumberRecord(record.counts, `${path}.counts`),
+    unresolved: record.unresolved === undefined ? undefined : readJsonRecord(record.unresolved, `${path}.unresolved`),
+    fieldCoverage:
+      record.fieldCoverage === undefined ? undefined : readJsonRecord(record.fieldCoverage, `${path}.fieldCoverage`)
+  }) as RulesetV1["diagnostics"];
+}
+
+function readLabels(value: unknown, path: string): NonNullable<RulesetUnit["labels"]> {
+  const record = requireRecord(value, path);
+  const labels: Record<string, string | number> = {};
+
+  for (const [key, item] of Object.entries(record)) {
+    if (item === undefined) {
+      continue;
+    }
+    if (typeof item !== "string" && typeof item !== "number") {
+      throw new Error(`${path}.${key} must be a string or number`);
+    }
+    labels[key] = item;
+  }
+
+  return labels;
+}
+
+function readJsonRecord(value: unknown, path: string): JsonRecord {
+  const record = requireRecord(value, path);
+  for (const [key, item] of Object.entries(record)) {
+    requireJsonValue(item, `${path}.${key}`);
+  }
+
+  return record as JsonRecord;
+}
+
+function requireJsonValue(value: unknown, path: string): void {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error(`${path} must be a finite number`);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => requireJsonValue(item, `${path}[${index}]`));
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      requireJsonValue(item, `${path}.${key}`);
+    }
+    return;
+  }
+
+  throw new Error(`${path} must be JSON-compatible`);
+}
+
 function readTerrain(value: unknown, path: string): RulesetTerrain {
   const record = requireRecord(value, path);
-  return {
+  return dropUndefined({
+    id: optionalNonNegativeInteger(record.id, `${path}.id`),
     kind: requireString(record.kind, `${path}.kind`),
     color: requireString(record.color, `${path}.color`),
-    passable: requireBoolean(record.passable, `${path}.passable`)
-  };
+    passable: requireBoolean(record.passable, `${path}.passable`),
+    labels: record.labels === undefined ? undefined : readLabels(record.labels, `${path}.labels`)
+  }) as RulesetTerrain;
 }
 
 function readUnit(value: unknown, path: string): RulesetUnit {
@@ -317,13 +422,21 @@ function readUnit(value: unknown, path: string): RulesetUnit {
     throw new Error(`${path}.token is not a supported renderer token`);
   }
 
-  return {
+  return dropUndefined({
+    id: optionalNonNegativeInteger(record.id, `${path}.id`),
     kind: requireString(record.kind, `${path}.kind`),
-    maxHp: requirePositiveNumber(record.maxHp, `${path}.maxHp`),
+    label: optionalString(record.label, `${path}.label`),
+    labels: record.labels === undefined ? undefined : readLabels(record.labels, `${path}.labels`),
+    type: optionalNonNegativeInteger(record.type, `${path}.type`),
+    typeName: optionalString(record.typeName, `${path}.typeName`),
+    classId: optionalInteger(record.classId, `${path}.classId`),
+    baseId: optionalInteger(record.baseId, `${path}.baseId`),
+    copyId: optionalInteger(record.copyId, `${path}.copyId`),
+    maxHp: requireNonNegativeNumber(record.maxHp, `${path}.maxHp`),
     speedFpPerSecond: requireNonNegativeInteger(record.speedFpPerSecond, `${path}.speedFpPerSecond`),
     radiusTiles: requirePositiveNumber(record.radiusTiles, `${path}.radiusTiles`),
     token: token as RulesetUnit["token"]
-  };
+  }) as RulesetUnit;
 }
 
 function readEvidencePoint(value: unknown, path: string): EvidencePoint {
@@ -414,6 +527,16 @@ function optionalString(value: unknown, path: string): string | undefined {
   return value === undefined ? undefined : requireString(value, path);
 }
 
+function optionalStringOrNumber(value: unknown, path: string): string | number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return requireNumber(value, path);
+}
+
 function requireBoolean(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") {
     throw new Error(`${path} must be a boolean`);
@@ -434,6 +557,15 @@ function requirePositiveNumber(value: unknown, path: string): number {
   const numberValue = requireNumber(value, path);
   if (numberValue <= 0) {
     throw new Error(`${path} must be positive`);
+  }
+
+  return numberValue;
+}
+
+function requireNonNegativeNumber(value: unknown, path: string): number {
+  const numberValue = requireNumber(value, path);
+  if (numberValue < 0) {
+    throw new Error(`${path} must be non-negative`);
   }
 
   return numberValue;

@@ -14,6 +14,12 @@ export function applyReplayCommand(world: WorldState, command: ReplayCommand, ru
 
 function applyMoveCommand(world: WorldState, command: MoveCommand, ruleset: RulesetV1): void {
   const knownKinds = new Set(ruleset.units.map((unit) => unit.kind));
+  const knownDataIds = new Set<number>();
+  for (const unit of ruleset.units) {
+    if (unit.id !== undefined) {
+      knownDataIds.add(unit.id);
+    }
+  }
   const destination = {
     xFp: toFixedPoint(command.intentDestination.x),
     yFp: toFixedPoint(command.intentDestination.y)
@@ -26,8 +32,10 @@ function applyMoveCommand(world: WorldState, command: MoveCommand, ruleset: Rule
       continue;
     }
 
-    if (!knownKinds.has(entity.kind)) {
-      world.warn(`Move command ${command.id} references actor with unresolved kind ${entity.kind}`);
+    const resolved = entity.dataId === undefined ? knownKinds.has(entity.kind) : knownDataIds.has(entity.dataId);
+    if (!resolved) {
+      const identity = entity.dataId === undefined ? entity.kind : `${entity.dataId}:${entity.kind}`;
+      world.warn(`Move command ${command.id} references actor with unresolved unit rule ${identity}`);
     }
 
     entity.task = {

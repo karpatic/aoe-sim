@@ -55,8 +55,10 @@ async function main() {
   const importerBytes = await readFile(fileURLToPath(import.meta.url));
   const rulesetBytes = await readFile(options.ruleset);
   const source = parseJson(gameJsonBytes, options.gameJson);
+  const rulesetSource = parseJson(rulesetBytes, options.ruleset);
 
   validateSourceDocument(source);
+  const rulesetId = requireString(rulesetSource.rulesetId, "ruleset.rulesetId");
 
   const recordingStat = await stat(options.recording);
   const gameJsonStat = await stat(options.gameJson);
@@ -140,7 +142,7 @@ async function main() {
         aocrefVersion: source.parser.aocref_version
       }),
       ruleset: {
-        id: "m0-original-ruleset",
+        id: rulesetId,
         sha256: `sha256:${rulesetSha}`,
         sizeBytes: rulesetBytes.length
       },
