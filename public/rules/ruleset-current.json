@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "aoe-sim.ruleset.v1",
+  "rulesetId": "m0-original-ruleset",
+  "sourceBuild": "synthetic-milestone-0",
+  "fixedPointScale": 1000,
+  "stepMs": 50,
+  "terrain": [
+    {
+      "kind": "grass",
+      "color": "#2b3b20",
+      "passable": true
+    }
+  ],
+  "units": [
+    {
+      "kind": "scout",
+      "maxHp": 45,
+      "speedFpPerSecond": 3200,
+      "radiusTiles": 0.22,
+      "token": "scout"
+    },
+    {
+      "kind": "villager",
+      "maxHp": 25,
+      "speedFpPerSecond": 2200,
+      "radiusTiles": 0.2,
+      "token": "villager"
+    },
+    {
+      "kind": "berry-node",
+      "maxHp": 1,
+      "speedFpPerSecond": 0,
+      "radiusTiles": 0.25,
+      "token": "resource"
+    },
+    {
+      "kind": "reconciliation-marker",
+      "maxHp": 1,
+      "speedFpPerSecond": 0,
+      "radiusTiles": 0.18,
+      "token": "marker"
+    }
+  ],
+  "provenance": {
+    "dat": {
+      "id": "not-used-synthetic-m0",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "extractor": {
+      "id": "manual-original-m0",
+      "sha256": "sha256:not-applicable-manual"
+    }
+  }
+}

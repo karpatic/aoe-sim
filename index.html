@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>AoE Sim</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <h1>AoE Sim</h1>
+        <p id="status" class="status">Booting worker</p>
+      </header>
+
+      <section class="workbench" aria-label="Simulation workbench">
+        <div class="viewport">
+          <canvas id="world" width="320" height="180" aria-label="Simulation viewport"></canvas>
+        </div>
+
+        <aside class="inspector" aria-label="Simulation controls and diagnostics">
+          <div class="control-row">
+            <button id="play-pause" type="button" disabled>Play</button>
+            <button id="step" type="button" disabled>Step</button>
+            <button id="sync" type="button" disabled>Sync</button>
+          </div>
+
+          <label class="timeline">
+            <span id="time-label">0.000s</span>
+            <input id="seek" type="range" min="0" max="0" step="50" value="0" disabled />
+            <span id="duration-label">0.000s</span>
+          </label>
+
+          <dl id="diagnostics" class="diagnostics"></dl>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="/src/app.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "aoe-sim.scenario.v1",
+  "scenarioId": "m0-original-two-team-trace",
+  "displayName": "Milestone 0 deterministic trace",
+  "durationMs": 12000,
+  "map": {
+    "widthTiles": 24,
+    "heightTiles": 16
+  },
+  "players": [
+    {
+      "id": "gaia",
+      "name": "Gaia",
+      "team": 0,
+      "color": "#8aa15f"
+    },
+    {
+      "id": "p1",
+      "name": "Blue",
+      "team": 1,
+      "color": "#3f7ecb"
+    },
+    {
+      "id": "p2",
+      "name": "Red",
+      "team": 2,
+      "color": "#b84d4a"
+    }
+  ],
+  "entities": [
+    {
+      "id": "blue-scout-1",
+      "kind": "scout",
+      "playerId": "p1",
+      "hp": 45,
+      "position": {
+        "x": 3.5,
+        "y": 3.25,
+        "evidence": "observed"
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "blue-villager-1",
+      "kind": "villager",
+      "playerId": "p1",
+      "hp": 25,
+      "position": {
+        "x": 4.5,
+        "y": 4.5,
+        "evidence": "observed"
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "red-scout-1",
+      "kind": "scout",
+      "playerId": "p2",
+      "hp": 45,
+      "position": {
+        "x": 20.5,
+        "y": 12.75,
+        "evidence": "observed"
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "red-villager-1",
+      "kind": "villager",
+      "playerId": "p2",
+      "hp": 25,
+      "position": {
+        "x": 19.5,
+        "y": 11.25,
+        "evidence": "observed"
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "gaia-berries-1",
+      "kind": "berry-node",
+      "playerId": "gaia",
+      "hp": 1,
+      "position": {
+        "x": 12,
+        "y": 8,
+        "evidence": "observed"
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "reconciled-marker-1",
+      "kind": "reconciliation-marker",
+      "playerId": "gaia",
+      "hp": 1,
+      "position": {
+        "x": 11,
+        "y": 7,
+        "evidence": "reconciled"
+      },
+      "evidence": "reconciled"
+    }
+  ],
+  "commands": [
+    {
+      "id": "cmd-0001-blue-villager-move",
+      "kind": "move",
+      "issuedAtMs": 500,
+      "sourceSequence": 1,
+      "actorIds": ["blue-villager-1"],
+      "intentDestination": {
+        "x": 14.75,
+        "y": 9.5
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "cmd-0002-red-villager-move",
+      "kind": "move",
+      "issuedAtMs": 1000,
+      "sourceSequence": 2,
+      "actorIds": ["red-villager-1"],
+      "intentDestination": {
+        "x": 8.75,
+        "y": 7.75
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "cmd-0003-blue-scout-move",
+      "kind": "move",
+      "issuedAtMs": 1800,
+      "sourceSequence": 3,
+      "actorIds": ["blue-scout-1"],
+      "intentDestination": {
+        "x": 20,
+        "y": 13
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "cmd-0004-red-scout-move",
+      "kind": "move",
+      "issuedAtMs": 2600,
+      "sourceSequence": 4,
+      "actorIds": ["red-scout-1"],
+      "intentDestination": {
+        "x": 5,
+        "y": 12
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "cmd-0005-blue-group-move",
+      "kind": "move",
+      "issuedAtMs": 3600,
+      "sourceSequence": 5,
+      "actorIds": ["blue-villager-1", "blue-scout-1"],
+      "intentDestination": {
+        "x": 12,
+        "y": 4
+      },
+      "evidence": "observed"
+    },
+    {
+      "id": "cmd-0006-red-group-move",
+      "kind": "move",
+      "issuedAtMs": 4700,
+      "sourceSequence": 6,
+      "actorIds": ["red-villager-1", "red-scout-1"],
+      "intentDestination": {
+        "x": 12.5,
+        "y": 11
+      },
+      "evidence": "observed"
+    }
+  ],
+  "provenance": {
+    "replay": {
+      "id": "synthetic-m0-original-fixture",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "parser": {
+      "id": "manual-original-m0",
+      "sha256": "sha256:not-applicable-manual"
+    },
+    "ruleset": {
+      "id": "m0-original-ruleset",
+      "sha256": "sha256:f926ac00da1d203df035ed1199605a475567ac6256ed4b1d7fa23ad0671098bc"
+    },
+    "generatedArtifact": {
+      "id": "m0-original-two-team-trace",
+      "sha256": "sha256:cc17075e6b9c810340c97caab333093c856ad71156590d7ffb18d8521e273433"
+    }
+  }
+}
