@@ -117,9 +117,11 @@ h1 {
 }
 
 canvas {
-  width: min(100%, calc((100vh - 7rem) * 16 / 9));
+  --map-aspect: 1.7778;
+  --map-ratio: 16 / 9;
+  width: min(100%, calc((100vh - 7rem) * var(--map-aspect)));
   max-height: calc(100vh - 7rem);
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--map-ratio);
   border: 1px solid #4e4633;
   background: #232819;
   image-rendering: pixelated;
@@ -175,6 +177,35 @@ input[type="range"] {
   margin: 0;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
+}
+
+.diagnostics details {
+  min-width: 0;
+}
+
+.diagnostics summary {
+  width: fit-content;
+  color: #eee0bd;
+  cursor: pointer;
+}
+
+.diagnostics summary:hover,
+.diagnostics summary:focus-visible {
+  color: #f6d77f;
+}
+
+.diagnostics ul,
+.diagnostics ol,
+.diagnostics p {
+  max-height: 9rem;
+  margin: 0.45rem 0 0;
+  padding-left: 1.15rem;
+  overflow: auto;
+  color: #d5c8aa;
+}
+
+.diagnostics li + li {
+  margin-top: 0.35rem;
 }
 
 @media (max-width: 820px) {

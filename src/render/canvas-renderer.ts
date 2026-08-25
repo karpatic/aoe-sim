@@ -24,6 +24,8 @@ export class CanvasRenderer {
   }
 
   public draw(snapshot: WorldSnapshot): void {
+    this.syncCanvasLayout(snapshot.map);
+
     const { context, canvas } = this;
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvas.width, canvas.height);
@@ -151,6 +153,28 @@ export class CanvasRenderer {
       canvas: terrainCanvas
     };
     return this.terrainCache;
+  }
+
+  private syncCanvasLayout(map: MapBounds): void {
+    const widthTiles = Math.max(1, map.widthTiles);
+    const heightTiles = Math.max(1, map.heightTiles);
+    this.canvas.style.setProperty("--map-aspect", (widthTiles / heightTiles).toFixed(4));
+    this.canvas.style.setProperty("--map-ratio", `${widthTiles} / ${heightTiles}`);
+
+    const bounds = this.canvas.getBoundingClientRect();
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const width = bounds.width || this.canvas.clientWidth || this.canvas.width;
+    const height = bounds.height || this.canvas.clientHeight || this.canvas.height;
+    const targetWidth = Math.max(1, Math.round(width * pixelRatio));
+    const targetHeight = Math.max(1, Math.round(height * pixelRatio));
+
+    if (this.canvas.width === targetWidth && this.canvas.height === targetHeight) {
+      return;
+    }
+
+    this.canvas.width = targetWidth;
+    this.canvas.height = targetHeight;
+    this.context.imageSmoothingEnabled = false;
   }
 }
 
