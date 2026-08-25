@@ -30,6 +30,7 @@ export function renderDiagnostics(
       `${diagnostics.observedIntentCount} intent / ${diagnostics.commandCount}`
   );
   appendRow(root, "unsupported", `${diagnostics.unsupportedCommandCount} observed intent commands`);
+  appendRow(root, "routes", routeSummary(diagnostics.routes));
   appendRow(root, "step", `${diagnostics.stepMs}ms`);
   appendRow(
     root,
@@ -39,6 +40,13 @@ export function renderDiagnostics(
   );
   appendRow(root, "seek", diagnostics.lastSeekRepeat ? seekStatus(diagnostics.lastSeekRepeat) : "not sampled");
   appendRow(root, "seed", String(diagnostics.seed));
+  appendDisclosureRow(
+    root,
+    "route log",
+    `${diagnostics.routes.lastEvents.length} route ${pluralize("event", diagnostics.routes.lastEvents.length)}`,
+    diagnostics.routes.lastEvents,
+    disclosureState["route log"]
+  );
   appendDisclosureRow(
     root,
     "provenance",
@@ -106,15 +114,25 @@ function appendDisclosureRow(
   root.append(term, detail);
 }
 
-type DisclosureKey = "provenance" | "warnings";
+type DisclosureKey = "provenance" | "route log" | "warnings";
 
 function readDisclosureState(root: HTMLElement): Record<DisclosureKey, boolean> {
   return {
     provenance: Boolean(
       root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="provenance"]')?.open
     ),
+    "route log": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="route log"]')?.open
+    ),
     warnings: Boolean(root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="warnings"]')?.open)
   };
+}
+
+function routeSummary(routes: SimulationDiagnostics["routes"]): string {
+  return (
+    `${routes.active} active, ${routes.planned} planned, ${routes.completed} done, ` +
+    `${routes.failed} failed, ${routes.replanned} replanned, ${routes.unresolvedActors} unresolved`
+  );
 }
 
 function warningSummary(warnings: readonly string[]): string {

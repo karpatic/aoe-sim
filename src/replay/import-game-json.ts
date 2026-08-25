@@ -66,7 +66,22 @@ export function assertRulesetV1(value: unknown): RulesetV1 {
     fixedPointScale: requirePositiveNumber(root.fixedPointScale, "ruleset.fixedPointScale"),
     stepMs: requirePositiveInteger(root.stepMs, "ruleset.stepMs"),
     terrain: readArray(root.terrain, "ruleset.terrain", readTerrain),
+    terrainRestrictions:
+      root.terrainRestrictions === undefined
+        ? undefined
+        : readArray(root.terrainRestrictions, "ruleset.terrainRestrictions", readJsonRecord),
     units: readArray(root.units, "ruleset.units", readUnit),
+    technologies:
+      root.technologies === undefined
+        ? undefined
+        : readArray(root.technologies, "ruleset.technologies", readJsonRecord),
+    effects: root.effects === undefined ? undefined : readArray(root.effects, "ruleset.effects", readJsonRecord),
+    civilizations:
+      root.civilizations === undefined
+        ? undefined
+        : readArray(root.civilizations, "ruleset.civilizations", readJsonRecord),
+    techTree: root.techTree === undefined ? undefined : readJsonRecord(root.techTree, "ruleset.techTree"),
+    entityIndex: root.entityIndex === undefined ? undefined : readJsonRecord(root.entityIndex, "ruleset.entityIndex"),
     diagnostics:
       root.diagnostics === undefined ? undefined : readRulesetDiagnostics(root.diagnostics, "ruleset.diagnostics"),
     provenance: readRulesetProvenance(root.provenance, "ruleset.provenance")
@@ -183,10 +198,14 @@ function readCommand(value: unknown, path: string): ReplayCommand {
   };
 
   if (record.kind === "move") {
+    const intentDestination =
+      record.intentDestination === undefined
+        ? undefined
+        : readCommandDestinationOrPoint(record.intentDestination, `${path}.intentDestination`);
     const command: MoveCommand = {
       ...(dropUndefined(base) as Omit<MoveCommand, "kind" | "intentDestination">),
       kind: "move",
-      intentDestination: readPoint(record.intentDestination, `${path}.intentDestination`)
+      intentDestination: requireDefined(intentDestination, `${path}.intentDestination`)
     };
     return command;
   }
@@ -211,8 +230,8 @@ function readCommand(value: unknown, path: string): ReplayCommand {
 function readDestination(value: unknown, path: string): CommandDestination {
   const record = requireRecord(value, path);
   const source = record.source;
-  if (source !== "point" && source !== "wall-end") {
-    throw new Error(`${path}.source must be point or wall-end`);
+  if (source !== "point" && source !== "action-position" && source !== "payload-point" && source !== "wall-end") {
+    throw new Error(`${path}.source must be point, action-position, payload-point, or wall-end`);
   }
 
   return {
@@ -221,6 +240,21 @@ function readDestination(value: unknown, path: string): CommandDestination {
     source,
     evidence: readEvidence(record.evidence, `${path}.evidence`),
     isMapCoordinate: requireBoolean(record.isMapCoordinate, `${path}.isMapCoordinate`)
+  };
+}
+
+function readCommandDestinationOrPoint(value: unknown, path: string): CommandDestination {
+  const record = requireRecord(value, path);
+  if (record.source !== undefined) {
+    return readDestination(value, path);
+  }
+
+  const point = readPoint(value, path);
+  return {
+    ...point,
+    source: "point",
+    evidence: "observed",
+    isMapCoordinate: true
   };
 }
 
@@ -288,7 +322,11 @@ function readRulesetProvenance(value: unknown, path: string): RulesetV1["provena
         ? undefined
         : readAppmanifestArtifact(record.appmanifest, `${path}.appmanifest`),
     parser: record.parser === undefined ? undefined : readParser(record.parser, `${path}.parser`),
-    extractor: readArtifact(record.extractor, `${path}.extractor`)
+    extractor: readArtifact(record.extractor, `${path}.extractor`),
+    generatedArtifact:
+      record.generatedArtifact === undefined
+        ? undefined
+        : readRulesetGeneratedArtifact(record.generatedArtifact, `${path}.generatedArtifact`)
   }) as RulesetV1["provenance"];
 }
 
@@ -323,6 +361,17 @@ function readAppmanifestArtifact(value: unknown, path: string): RulesetV1["prove
     steamLastUpdatedUnix: optionalStringOrNumber(record.steamLastUpdatedUnix, `${path}.steamLastUpdatedUnix`),
     mtimeUtc: optionalString(record.mtimeUtc, `${path}.mtimeUtc`)
   }) as RulesetV1["provenance"]["appmanifest"];
+}
+
+function readRulesetGeneratedArtifact(
+  value: unknown,
+  path: string
+): NonNullable<RulesetV1["provenance"]["generatedArtifact"]> {
+  const record = requireRecord(value, path);
+  return dropUndefined({
+    ...readArtifact(record, path),
+    semanticSha256: optionalString(record.semanticSha256, `${path}.semanticSha256`)
+  }) as NonNullable<RulesetV1["provenance"]["generatedArtifact"]>;
 }
 
 function readFidelity(value: unknown, path: string): RulesetV1["fidelity"] {
@@ -411,7 +460,8 @@ function readTerrain(value: unknown, path: string): RulesetTerrain {
     kind: requireString(record.kind, `${path}.kind`),
     color: requireString(record.color, `${path}.color`),
     passable: requireBoolean(record.passable, `${path}.passable`),
-    labels: record.labels === undefined ? undefined : readLabels(record.labels, `${path}.labels`)
+    labels: record.labels === undefined ? undefined : readLabels(record.labels, `${path}.labels`),
+    raw: record.raw === undefined ? undefined : readJsonRecord(record.raw, `${path}.raw`)
   }) as RulesetTerrain;
 }
 
@@ -435,7 +485,15 @@ function readUnit(value: unknown, path: string): RulesetUnit {
     maxHp: requireNonNegativeNumber(record.maxHp, `${path}.maxHp`),
     speedFpPerSecond: requireNonNegativeInteger(record.speedFpPerSecond, `${path}.speedFpPerSecond`),
     radiusTiles: requirePositiveNumber(record.radiusTiles, `${path}.radiusTiles`),
-    token: token as RulesetUnit["token"]
+    token: token as RulesetUnit["token"],
+    movement: record.movement === undefined ? undefined : readJsonRecord(record.movement, `${path}.movement`),
+    collision: record.collision === undefined ? undefined : readJsonRecord(record.collision, `${path}.collision`),
+    economy: record.economy === undefined ? undefined : readJsonRecord(record.economy, `${path}.economy`),
+    combat: record.combat === undefined ? undefined : readJsonRecord(record.combat, `${path}.combat`),
+    projectile: record.projectile === undefined ? undefined : readJsonRecord(record.projectile, `${path}.projectile`),
+    production: record.production === undefined ? undefined : readJsonRecord(record.production, `${path}.production`),
+    building: record.building === undefined ? undefined : readJsonRecord(record.building, `${path}.building`),
+    rawBase: record.rawBase === undefined ? undefined : readJsonRecord(record.rawBase, `${path}.rawBase`)
   }) as RulesetUnit;
 }
 
@@ -499,6 +557,14 @@ function readArray<T>(value: unknown, path: string, readItem: (item: unknown, pa
   }
 
   return value.map((item, index) => readItem(item, `${path}[${index}]`));
+}
+
+function requireDefined<T>(value: T | undefined, path: string): T {
+  if (value === undefined) {
+    throw new Error(`${path} is required`);
+  }
+
+  return value;
 }
 
 function requireRecord(value: unknown, path: string): Record<string, unknown> {

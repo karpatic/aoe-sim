@@ -106,6 +106,7 @@ export class SimulationEngine {
       observedIntentCount: snapshot.observedIntentIds.length,
       unsupportedCommandCount: this.scenario.unsupported.commandCount,
       seed: this.rng.currentSeed,
+      routes: this.world.createRouteDiagnostics(),
       warnings: [...this.world.warnings]
     };
 

@@ -1,9 +1,9 @@
 # Provenance
 
-Milestone 2 commits normalized browser artifacts and DAT-derived factual rules, not raw replay or DAT inputs.
+Milestone 3 commits normalized browser artifacts, DAT-derived factual rules, and deterministic movement diagnostics, not raw replay or DAT inputs.
 
 - `public/fixtures/glade-120x120.scenario.json` is generated from `game.json` and `game.aoe2record`.
-- `public/fixtures/glade-120x120.report.json` reconciles source counts, artifact hashes, terrain IDs, and omitted collections.
+- `public/fixtures/glade-120x120.report.json` reconciles source counts, promoted MOVE counts, resolved/unresolved MOVE actor references, artifact hashes, terrain IDs, and omitted collections.
 - `public/fixtures/scenario.json` remains the handcrafted synthetic tracer fixture.
 - `public/rules/ruleset-current.json` is generated from the installed `empires2_x2_p1.dat` and English localization strings.
 - `public/rules/ruleset-current.report.json` records extractor/parser/source hashes, field coverage, and unresolved raw effect diagnostics.
@@ -42,6 +42,12 @@ Replay identity:
 Generated scenario hash policy:
 
 `provenance.generatedArtifact.sha256` is the SHA-256 of the canonical scenario JSON while that field contains `sha256:self-excluded`. This avoids a self-referential hash loop. The committed file hash is recorded in `glade-120x120.report.json` as `artifact.fileSha256`.
+
+Current generated scenario artifact:
+
+- semantic hash: `sha256:d497773d9a38113092ec16fe2eb8d9533c165207da30422407083b46974ddbad`
+- file hash: `sha256:91f071825273bcd28760399c2f3930015f6a78d1ac1c2636adc4a5c655f72fef`
+- importer hash: `sha256:331f433950c18fc9dfb64d38096008c057aa8d6ef0c4b15edbf5bfdca6b81f3d`
 
 Generated ruleset hash policy:
 

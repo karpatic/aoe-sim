@@ -79,7 +79,7 @@ export interface ReplayCommandBase {
 export interface CommandDestination {
   readonly x: number;
   readonly y: number;
-  readonly source: "point" | "wall-end";
+  readonly source: "point" | "action-position" | "payload-point" | "wall-end";
   readonly evidence: EvidenceClass;
   readonly isMapCoordinate: boolean;
 }
@@ -88,10 +88,8 @@ export type CommandParameterValue = string | number | boolean;
 
 export interface MoveCommand extends ReplayCommandBase {
   readonly kind: "move";
-  readonly intentDestination: {
-    readonly x: number;
-    readonly y: number;
-  };
+  readonly rawKind?: string;
+  readonly intentDestination: CommandDestination;
 }
 
 export interface ObservedIntentCommand extends ReplayCommandBase {
@@ -186,6 +184,19 @@ export interface RulesetUnit {
   readonly rawBase?: JsonRecord;
 }
 
+export type PathFailureReason =
+  | "actor-immobile"
+  | "destination-out-of-bounds"
+  | "destination-static-blocked"
+  | "destination-terrain-blocked"
+  | "dynamic-blocked"
+  | "no-route"
+  | "route-invalidated"
+  | "search-limit"
+  | "start-out-of-bounds"
+  | "start-static-blocked"
+  | "start-terrain-blocked";
+
 export interface RulesetTerrain {
   readonly id?: number;
   readonly kind: string;
@@ -269,7 +280,7 @@ export interface SnapshotPosition {
 }
 
 export interface SnapshotTask {
-  readonly kind: "idle" | "moving";
+  readonly kind: "idle" | "moving" | "path-failed";
   readonly commandId?: string;
   readonly destination?: {
     readonly x: number;
@@ -278,6 +289,59 @@ export interface SnapshotTask {
     readonly yFp: FixedPoint;
   };
   readonly evidence: EvidenceClass;
+  readonly route?: SnapshotRoute;
+}
+
+export interface SnapshotWaypoint {
+  readonly x: number;
+  readonly y: number;
+  readonly xFp: FixedPoint;
+  readonly yFp: FixedPoint;
+  readonly tileX: number;
+  readonly tileY: number;
+}
+
+export interface SnapshotRoute {
+  readonly commandId: string;
+  readonly status: "planned" | "completed" | "failed";
+  readonly plannedAtMs: SimTimeMs;
+  readonly staticVersion: number;
+  readonly terrainRestrictionId?: number;
+  readonly actorRadiusTiles: number;
+  readonly nextWaypointIndex: number;
+  readonly waypoints: readonly SnapshotWaypoint[];
+  readonly pathNodeCount: number;
+  readonly searchedNodeCount: number;
+  readonly failureReason?: PathFailureReason;
+  readonly failureDetail?: string;
+  readonly lastCorrection?: {
+    readonly timeMs: SimTimeMs;
+    readonly reason: "dynamic-blocked" | "static-blocked" | "route-invalidated";
+    readonly blockerId?: EntityId;
+    readonly tileX?: number;
+    readonly tileY?: number;
+  };
+}
+
+export interface SnapshotPathingSummary {
+  readonly occupancyVersion: number;
+  readonly staticBlockedTiles: number;
+  readonly activeRoutes: number;
+  readonly failedRoutes: number;
+}
+
+export interface RouteDiagnostics {
+  readonly planned: number;
+  readonly completed: number;
+  readonly failed: number;
+  readonly replanned: number;
+  readonly corrected: number;
+  readonly unresolvedActors: number;
+  readonly active: number;
+  readonly failedActive: number;
+  readonly staticBlockedTiles: number;
+  readonly occupancyVersion: number;
+  readonly lastEvents: readonly string[];
 }
 
 export interface EntitySnapshot {
@@ -305,6 +369,7 @@ export interface WorldSnapshotBody {
   readonly appliedCommandIds: readonly string[];
   readonly observedIntentIds: readonly string[];
   readonly evidenceCounts: Record<EvidenceClass, number>;
+  readonly pathing: SnapshotPathingSummary;
   readonly provenance: ScenarioProvenance;
 }
 
@@ -326,6 +391,7 @@ export interface SimulationDiagnostics {
   readonly observedIntentCount: number;
   readonly unsupportedCommandCount: number;
   readonly seed: number;
+  readonly routes: RouteDiagnostics;
   readonly lastSeekRepeat?: {
     readonly timeMs: SimTimeMs;
     readonly checksum: string;

@@ -44,7 +44,9 @@ const payloadParameters = [
   "technology",
   "technology_id",
   "unit",
-  "unit_id"
+  "unit_id",
+  "x_end",
+  "y_end"
 ];
 
 async function main() {
@@ -109,13 +111,14 @@ async function main() {
     randomSeeds: [],
     unsupported: {
       commandKinds,
-      commandCount: commands.length,
-      implementedCommandKinds: ["move"],
+      commandCount: commands.filter((command) => command.kind === "observed-intent").length,
+      implementedCommandKinds: ["MOVE"],
       unresolved: [
-        "Imported replay actions are observed intent only in Milestone 1.",
+        "Raw MOVE actions with valid in-map point destinations are simulated as movement intent in Milestone 3.",
+        "ORDER positions remain observed intent only because ORDER can mean gather, attack, repair, or other actions.",
         "Replay command destinations are not continuous observed positions.",
         "Queue, economy, construction, combat, death, and spawn mechanics are not imported.",
-        "Map terrain passability is unresolved until a pinned ruleset provides terrain semantics.",
+        "Later-produced actor references remain unresolved until production/import evidence creates entities.",
         "The parser output does not expose replay random seeds."
       ]
     },
@@ -455,13 +458,12 @@ function buildCommands(actions, widthTiles, heightTiles) {
     const sourceSequence = requireInteger(payload.sequence, `${path}.payload.sequence`);
     const sourceActorIds = readIntegerArray(payload.object_ids ?? [], `${path}.payload.object_ids`);
     const sourceTargetId = optionalInteger(payload.target_id, `${path}.payload.target_id`);
-    const destination = readDestination(payload, `${path}.payload`, widthTiles, heightTiles);
+    const destination = readDestination(action, payload, path, widthTiles, heightTiles);
     const parameters = readPayloadParameters(payload);
     const playerNumber = optionalInteger(action.player, `${path}.player`);
 
-    return dropUndefined({
+    const baseCommand = dropUndefined({
       id: `action-${String(sourceIndex + 1).padStart(4, "0")}`,
-      kind: "observed-intent",
       rawKind,
       issuedAtMs: parseTimestamp(requireString(action.timestamp, `${path}.timestamp`), `${path}.timestamp`),
       sourceSequence,
@@ -469,31 +471,57 @@ function buildCommands(actions, widthTiles, heightTiles) {
       playerId: playerNumber === undefined ? undefined : playerId(playerNumber),
       actorIds: sourceActorIds.map(entityId),
       sourceActorIds,
+      evidence: "observed"
+    });
+
+    if (rawKind === "MOVE" && destination?.isMapCoordinate && destination.source !== "wall-end") {
+      return {
+        ...baseCommand,
+        kind: "move",
+        intentDestination: destination
+      };
+    }
+
+    return dropUndefined({
+      ...baseCommand,
+      kind: "observed-intent",
       targetId: sourceTargetId === undefined || sourceTargetId < 0 ? undefined : entityId(sourceTargetId),
       sourceTargetId,
       destination,
       parameters,
-      evidence: "observed"
     });
   });
 }
 
-function readDestination(payload, path, widthTiles, heightTiles) {
-  if (payload.x !== undefined || payload.y !== undefined) {
-    const x = requireNumber(payload.x, `${path}.x`);
-    const y = requireNumber(payload.y, `${path}.y`);
+function readDestination(action, payload, path, widthTiles, heightTiles) {
+  if (action.position !== undefined) {
+    const position = requireRecord(action.position, `${path}.position`);
+    const x = requireNumber(position.x, `${path}.position.x`);
+    const y = requireNumber(position.y, `${path}.position.y`);
     return {
       x,
       y,
-      source: "point",
+      source: "action-position",
+      evidence: "observed",
+      isMapCoordinate: x >= 0 && y >= 0 && x < widthTiles && y < heightTiles
+    };
+  }
+
+  if (payload.x !== undefined || payload.y !== undefined) {
+    const x = requireNumber(payload.x, `${path}.payload.x`);
+    const y = requireNumber(payload.y, `${path}.payload.y`);
+    return {
+      x,
+      y,
+      source: "payload-point",
       evidence: "observed",
       isMapCoordinate: x >= 0 && y >= 0 && x < widthTiles && y < heightTiles
     };
   }
 
   if (payload.x_end !== undefined || payload.y_end !== undefined) {
-    const x = requireNumber(payload.x_end, `${path}.x_end`);
-    const y = requireNumber(payload.y_end, `${path}.y_end`);
+    const x = requireNumber(payload.x_end, `${path}.payload.x_end`);
+    const y = requireNumber(payload.y_end, `${path}.payload.y_end`);
     return {
       x,
       y,
@@ -532,8 +560,18 @@ function buildReport(context) {
   const playerEntities = scenario.entities.length - gaiaEntities;
   const terrainCounts = countBy(scenario.map.tileGrid.terrainIds, (terrainId) => String(terrainId));
   const elevationCounts = countBy(scenario.map.tileGrid.elevations, (elevation) => String(elevation));
-  const destinationCount = scenario.commands.filter((command) => command.destination).length;
+  const initialEntityIds = new Set(scenario.entities.map((entity) => entity.id));
+  const destinationCount = scenario.commands.filter((command) =>
+    command.destination || command.intentDestination
+  ).length;
   const targetCount = scenario.commands.filter((command) => command.sourceTargetId !== undefined).length;
+  const moveCommands = scenario.commands.filter((command) => command.rawKind === "MOVE");
+  const promotedMoveCommands = moveCommands.filter((command) => command.kind === "move");
+  const moveActorReferences = moveCommands.reduce((sum, command) => sum + command.actorIds.length, 0);
+  const resolvedMoveActorReferences = moveCommands.reduce(
+    (sum, command) => sum + command.actorIds.filter((actorId) => initialEntityIds.has(actorId)).length,
+    0
+  );
 
   return {
     schemaVersion: "aoe-sim.scenario-report.v1",
@@ -570,9 +608,18 @@ function buildReport(context) {
         playerStartingObjects: playerEntities,
         totalEntities: scenario.entities.length,
         commands: scenario.commands.length,
+        observedIntentCommands: scenario.commands.filter((command) => command.kind === "observed-intent").length,
+        implementedMoveCommands: promotedMoveCommands.length,
         durationMs: scenario.durationMs,
         commandsWithTargets: targetCount,
-        commandsWithDestinations: destinationCount
+        commandsWithDestinations: destinationCount,
+        moveCommands: moveCommands.length,
+        moveCommandsWithDestinations: moveCommands.filter((command) =>
+          command.intentDestination ?? command.destination
+        ).length,
+        moveActorReferences,
+        resolvedMoveActorReferences,
+        unresolvedMoveActorReferences: moveActorReferences - resolvedMoveActorReferences
       }
     },
     reconciliation: {

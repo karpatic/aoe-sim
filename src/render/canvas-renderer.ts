@@ -92,14 +92,39 @@ export class CanvasRenderer {
 
       const start = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
       const end = worldToScreen(entity.task.destination.x, entity.task.destination.y, originX, originY, tileSize);
-      context.strokeStyle = evidenceColor(entity.task.evidence);
+      const remainingWaypoints = entity.task.route?.waypoints.slice(entity.task.route.nextWaypointIndex) ?? [];
+
+      context.strokeStyle = evidenceColor("simulated");
       context.lineWidth = 1;
       context.beginPath();
       context.moveTo(start.x, start.y);
-      context.lineTo(end.x, end.y);
+      for (const waypoint of remainingWaypoints) {
+        const point = worldToScreen(waypoint.x, waypoint.y, originX, originY, tileSize);
+        context.lineTo(point.x, point.y);
+      }
+      if (!remainingWaypoints.length) {
+        context.lineTo(end.x, end.y);
+      }
       context.stroke();
+
       context.fillStyle = evidenceColor(entity.task.evidence);
       context.fillRect(end.x - 1, end.y - 1, 3, 3);
+    }
+
+    for (const entity of snapshot.entities) {
+      if (entity.task.kind !== "path-failed" || !entity.task.destination) {
+        continue;
+      }
+
+      const end = worldToScreen(entity.task.destination.x, entity.task.destination.y, originX, originY, tileSize);
+      context.strokeStyle = "#e2665f";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(end.x - 3, end.y - 3);
+      context.lineTo(end.x + 3, end.y + 3);
+      context.moveTo(end.x + 3, end.y - 3);
+      context.lineTo(end.x - 3, end.y + 3);
+      context.stroke();
     }
   }
 
