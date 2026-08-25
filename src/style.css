@@ -20,7 +20,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -58,6 +59,32 @@ button:disabled {
   gap: 1rem;
   padding: 1rem clamp(1rem, 3vw, 2rem);
   border-bottom: 1px solid #3d3a2d;
+}
+
+.topbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem 1rem;
+  min-width: 0;
+}
+
+.scenario-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #bdc8b4;
+  font-size: 0.9rem;
+}
+
+select {
+  max-width: 12rem;
+  border: 1px solid #746846;
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  color: #fff7e3;
+  background: #292516;
 }
 
 h1 {
@@ -151,6 +178,15 @@ input[type="range"] {
 }
 
 @media (max-width: 820px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-controls {
+    justify-content: flex-start;
+  }
+
   .workbench {
     grid-template-columns: 1fr;
   }

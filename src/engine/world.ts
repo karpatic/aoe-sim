@@ -53,6 +53,7 @@ export class WorldState {
   public timeMs: SimTimeMs = 0;
   public readonly entities = new Map<EntityId, EntityState>();
   public readonly appliedCommandIds: string[] = [];
+  public readonly observedIntentIds: string[] = [];
   public readonly warnings: string[] = [];
 
   public constructor(
@@ -60,10 +61,12 @@ export class WorldState {
     ruleset: RulesetV1
   ) {
     const rulesByKind = new Map(ruleset.units.map((unit) => [unit.kind, unit]));
+    const warnedMissingRuleKinds = new Set<string>();
 
     for (const entity of scenario.entities) {
       const rule = rulesByKind.get(entity.kind) ?? fallbackUnit(entity.kind);
-      if (!rulesByKind.has(entity.kind)) {
+      if (!rulesByKind.has(entity.kind) && !warnedMissingRuleKinds.has(entity.kind)) {
+        warnedMissingRuleKinds.add(entity.kind);
         this.warn(`Missing unit rule for ${entity.kind}; using immobile fallback`);
       }
 
@@ -71,7 +74,7 @@ export class WorldState {
         id: entity.id,
         kind: entity.kind,
         playerId: entity.playerId,
-        hp: entity.hp || rule.maxHp,
+        hp: entity.hp ?? rule.maxHp,
         facing: 1,
         radiusFp: toFixedPoint(rule.radiusTiles),
         speedFpPerSecond: rule.speedFpPerSecond,
@@ -121,6 +124,7 @@ export class WorldState {
         evidence: entity.evidence
       })),
       appliedCommandIds: [...this.appliedCommandIds],
+      observedIntentIds: [...this.observedIntentIds],
       evidenceCounts: this.countEvidence(),
       provenance: this.scenario.provenance
     };

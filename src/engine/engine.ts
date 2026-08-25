@@ -103,6 +103,8 @@ export class SimulationEngine {
       stepMs: this.stepMs,
       commandCount: this.commandTape.length,
       appliedCommandCount: snapshot.appliedCommandIds.length,
+      observedIntentCount: snapshot.observedIntentIds.length,
+      unsupportedCommandCount: this.scenario.unsupported.commandCount,
       seed: this.rng.currentSeed,
       warnings: [...this.world.warnings]
     };

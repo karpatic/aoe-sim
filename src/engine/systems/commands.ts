@@ -6,6 +6,9 @@ export function applyReplayCommand(world: WorldState, command: ReplayCommand, ru
     case "move":
       applyMoveCommand(world, command, ruleset);
       return;
+    case "observed-intent":
+      world.observedIntentIds.push(command.id);
+      return;
   }
 }
 

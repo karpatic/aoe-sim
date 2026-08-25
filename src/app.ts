@@ -9,6 +9,7 @@ import type { ReplayScenarioV1, RulesetV1, SimulationDiagnostics, WorldSnapshot 
 
 const canvas = must<HTMLCanvasElement>("#world");
 const status = must<HTMLElement>("#status");
+const scenarioSelect = must<HTMLSelectElement>("#scenario-select");
 const playPause = must<HTMLButtonElement>("#play-pause");
 const step = must<HTMLButtonElement>("#step");
 const sync = must<HTMLButtonElement>("#sync");
@@ -20,6 +21,10 @@ const renderer = new CanvasRenderer(canvas);
 const worker = new Worker(new URL("./worker/simulation-worker.ts", import.meta.url), {
   type: "module"
 });
+const scenarioOptions: Record<string, string> = {
+  replay: "./fixtures/glade-120x120.scenario.json",
+  synthetic: "./fixtures/scenario.json"
+};
 
 let requestOrdinal = 0;
 let currentSnapshot: WorldSnapshot | undefined;
@@ -60,6 +65,12 @@ sync.addEventListener("click", () => {
   });
 });
 
+scenarioSelect.addEventListener("change", () => {
+  initialize().catch((error: unknown) => {
+    status.textContent = error instanceof Error ? error.message : String(error);
+  });
+});
+
 seek.addEventListener("input", () => {
   timeLabel.textContent = formatSimTime(Number(seek.value));
 });
@@ -77,7 +88,20 @@ initialize().catch((error: unknown) => {
 });
 
 async function initialize(): Promise<void> {
-  const scenario = assertReplayScenarioV1(await fetchJson<ReplayScenarioV1>("./fixtures/scenario.json"));
+  setEnabled(false);
+  currentSnapshot = undefined;
+  currentDiagnostics = undefined;
+  provenanceSummary = [];
+  status.textContent = "Loading scenario";
+  playPause.textContent = "Play";
+  renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary);
+
+  const scenarioUrl = scenarioOptions[scenarioSelect.value];
+  if (!scenarioUrl) {
+    throw new Error(`Unknown scenario ${scenarioSelect.value}`);
+  }
+
+  const scenario = assertReplayScenarioV1(await fetchJson<ReplayScenarioV1>(scenarioUrl));
   const ruleset = assertRulesetV1(await fetchJson<RulesetV1>("./rules/ruleset-current.json"));
   provenanceSummary = summarizeProvenance(scenario, ruleset);
   seek.step = String(ruleset.stepMs);
@@ -156,6 +180,13 @@ function must<T extends HTMLElement>(selector: string): T {
 }
 
 function freezeSnapshot(snapshot: WorldSnapshot): WorldSnapshot {
+  if (snapshot.entities.length > 1200) {
+    return Object.freeze({
+      ...snapshot,
+      entities: Object.freeze([...snapshot.entities])
+    });
+  }
+
   return deepFreeze(snapshot);
 }
 

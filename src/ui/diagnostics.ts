@@ -16,13 +16,25 @@ export function renderDiagnostics(
 
   appendRow(root, "time", formatSimTime(snapshot.timeMs));
   appendRow(root, "checksum", diagnostics.checksum);
+  appendRow(
+    root,
+    "map",
+    `${snapshot.map.widthTiles}x${snapshot.map.heightTiles} / ${snapshot.entities.length} objects`
+  );
   appendRow(root, "scheduler", `${diagnostics.schedulerExecuted} done / ${diagnostics.schedulerPending} queued`);
-  appendRow(root, "commands", `${diagnostics.appliedCommandCount} / ${diagnostics.commandCount}`);
+  appendRow(
+    root,
+    "commands",
+    `${diagnostics.appliedCommandCount} applied, ` +
+      `${diagnostics.observedIntentCount} intent / ${diagnostics.commandCount}`
+  );
+  appendRow(root, "unsupported", `${diagnostics.unsupportedCommandCount} observed intent commands`);
   appendRow(root, "step", `${diagnostics.stepMs}ms`);
   appendRow(
     root,
     "evidence",
-    `obs ${snapshot.evidenceCounts.observed}, sim ${snapshot.evidenceCounts.simulated}, rec ${snapshot.evidenceCounts.reconciled}`
+    `obs ${snapshot.evidenceCounts.observed}, ` +
+      `sim ${snapshot.evidenceCounts.simulated}, rec ${snapshot.evidenceCounts.reconciled}`
   );
   appendRow(root, "seek", diagnostics.lastSeekRepeat ? seekStatus(diagnostics.lastSeekRepeat) : "not sampled");
   appendRow(root, "seed", String(diagnostics.seed));

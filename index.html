@@ -10,7 +10,16 @@
     <main class="shell">
       <header class="topbar">
         <h1>AoE Sim</h1>
-        <p id="status" class="status">Booting worker</p>
+        <div class="topbar-controls">
+          <label class="scenario-control">
+            <span>Scenario</span>
+            <select id="scenario-select">
+              <option value="replay" selected>Glade replay</option>
+              <option value="synthetic">Synthetic trace</option>
+            </select>
+          </label>
+          <p id="status" class="status">Booting worker</p>
+        </div>
       </header>
 
       <section class="workbench" aria-label="Simulation workbench">

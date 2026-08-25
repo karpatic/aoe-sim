@@ -27,7 +27,7 @@ export function drawPixelToken(
     drawScout(context, color, half, entity.facing);
   } else if (entity.kind.includes("villager")) {
     drawVillager(context, color, half);
-  } else if (entity.kind.includes("berry")) {
+  } else if (isResource(entity.kind)) {
     drawResource(context, half);
   } else {
     drawMarker(context, color, half);
@@ -79,4 +79,17 @@ function drawResource(context: CanvasRenderingContext2D, half: number): void {
   context.fillRect(-half + 1, -half + 1, 2, 2);
   context.fillRect(half - 2, -1, 2, 2);
   context.fillRect(-1, half - 2, 2, 2);
+}
+
+function isResource(kind: string): boolean {
+  return (
+    kind.includes("berry") ||
+    kind.includes("bush") ||
+    kind.includes("tree") ||
+    kind.includes("mine") ||
+    kind.includes("stone") ||
+    kind.includes("sheep") ||
+    kind.includes("boar") ||
+    kind.includes("ibex")
+  );
 }

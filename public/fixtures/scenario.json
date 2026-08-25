@@ -3,6 +3,12 @@
   "scenarioId": "m0-original-two-team-trace",
   "displayName": "Milestone 0 deterministic trace",
   "durationMs": 12000,
+  "versions": {
+    "replayVersion": "synthetic-milestone-0",
+    "gameVersion": "synthetic-milestone-0",
+    "buildVersion": 0,
+    "dataset": "original synthetic fixture"
+  },
   "map": {
     "widthTiles": 24,
     "heightTiles": 16
@@ -25,6 +31,23 @@
       "name": "Red",
       "team": 2,
       "color": "#b84d4a"
+    }
+  ],
+  "teams": [
+    {
+      "id": "team-0",
+      "playerIds": ["gaia"],
+      "sourceTeamIds": [0]
+    },
+    {
+      "id": "team-1",
+      "playerIds": ["p1"],
+      "sourceTeamIds": [1]
+    },
+    {
+      "id": "team-2",
+      "playerIds": ["p2"],
+      "sourceTeamIds": [2]
     }
   ],
   "entities": [
@@ -175,8 +198,19 @@
       "evidence": "observed"
     }
   ],
+  "randomSeeds": [],
+  "unsupported": {
+    "commandKinds": {},
+    "commandCount": 0,
+    "implementedCommandKinds": ["move"],
+    "unresolved": []
+  },
   "provenance": {
     "replay": {
+      "id": "synthetic-m0-original-fixture",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "gameJson": {
       "id": "synthetic-m0-original-fixture",
       "sha256": "sha256:not-applicable-synthetic"
     },
@@ -188,9 +222,13 @@
       "id": "m0-original-ruleset",
       "sha256": "sha256:f926ac00da1d203df035ed1199605a475567ac6256ed4b1d7fa23ad0671098bc"
     },
+    "importer": {
+      "id": "manual-original-m0",
+      "sha256": "sha256:not-applicable-manual"
+    },
     "generatedArtifact": {
       "id": "m0-original-two-team-trace",
-      "sha256": "sha256:cc17075e6b9c810340c97caab333093c856ad71156590d7ffb18d8521e273433"
+      "sha256": "sha256:e0330bcaf83f3cde8e27405fe05a8b405fc7db6480501ff54907b34ebde43688"
     }
   }
 }
