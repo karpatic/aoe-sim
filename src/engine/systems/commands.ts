@@ -1,5 +1,6 @@
 import type { MoveCommand, ReplayCommand, RulesetV1 } from "../../replay/model";
 import { toFixedPoint, type EntityState, type PlannedRoute, type WorldState } from "../world";
+import { applyEconomyIntent, cancelWorkerTaskForCommand } from "./economy";
 
 export function applyReplayCommand(world: WorldState, command: ReplayCommand, ruleset: RulesetV1): void {
   switch (command.kind) {
@@ -8,6 +9,9 @@ export function applyReplayCommand(world: WorldState, command: ReplayCommand, ru
       return;
     case "observed-intent":
       world.observedIntentIds.push(command.id);
+      if (applyEconomyIntent(world, command)) {
+        world.appliedCommandIds.push(command.id);
+      }
       return;
   }
 }
@@ -41,6 +45,7 @@ function applyMoveCommand(world: WorldState, command: MoveCommand, ruleset: Rule
 }
 
 function applyMoveForEntity(world: WorldState, command: MoveCommand, entity: EntityState): void {
+  cancelWorkerTaskForCommand(entity);
   const route =
     entity.speedFpPerSecond <= 0
       ? createImmobileRoute(world, command, entity)

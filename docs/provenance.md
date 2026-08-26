@@ -1,10 +1,10 @@
 # Provenance
 
-Milestone 3 commits normalized browser artifacts, DAT-derived factual rules, and deterministic movement diagnostics, not raw replay or DAT inputs.
+Milestone 4 commits normalized browser artifacts, DAT-derived factual rules, deterministic movement diagnostics, and simulated economy/construction diagnostics, not raw replay or DAT inputs.
 
 - `public/fixtures/glade-120x120.scenario.json` is generated from `game.json` and `game.aoe2record`.
 - `public/fixtures/glade-120x120.report.json` reconciles source counts, promoted MOVE counts, resolved/unresolved MOVE actor references, artifact hashes, terrain IDs, and omitted collections.
-- `public/fixtures/scenario.json` remains the handcrafted synthetic tracer fixture.
+- `public/fixtures/scenario.json` is the handcrafted synthetic economy fixture for the Milestone 4 vertical slice.
 - `public/rules/ruleset-current.json` is generated from the installed `empires2_x2_p1.dat` and English localization strings.
 - `public/rules/ruleset-current.report.json` records extractor/parser/source hashes, field coverage, and unresolved raw effect diagnostics.
 - `public/rules/glade-120x120.coverage.json` resolves the pinned scenario's starting entity data IDs and command unit/building/technology IDs against the full ruleset.

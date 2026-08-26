@@ -31,6 +31,10 @@ export function renderDiagnostics(
   );
   appendRow(root, "unsupported", `${diagnostics.unsupportedCommandCount} observed intent commands`);
   appendRow(root, "routes", routeSummary(diagnostics.routes));
+  appendRow(root, "economy", economySummary(diagnostics.economy));
+  appendRow(root, "stockpiles", diagnostics.economy.stockpileSummary);
+  appendRow(root, "ledger", diagnostics.economy.ledgerSummary);
+  appendRow(root, "divergence", firstDivergence(diagnostics.economy.firstDivergence));
   appendRow(root, "step", `${diagnostics.stepMs}ms`);
   appendRow(
     root,
@@ -46,6 +50,20 @@ export function renderDiagnostics(
     `${diagnostics.routes.lastEvents.length} route ${pluralize("event", diagnostics.routes.lastEvents.length)}`,
     diagnostics.routes.lastEvents,
     disclosureState["route log"]
+  );
+  appendDisclosureRow(
+    root,
+    "economy log",
+    `${diagnostics.economy.lastEvents.length} economy ${pluralize("event", diagnostics.economy.lastEvents.length)}`,
+    diagnostics.economy.lastEvents,
+    disclosureState["economy log"]
+  );
+  appendDisclosureRow(
+    root,
+    "economy notes",
+    `${snapshot.economy.notes.length} scoped ${pluralize("note", snapshot.economy.notes.length)}`,
+    snapshot.economy.notes,
+    disclosureState["economy notes"]
   );
   appendDisclosureRow(
     root,
@@ -114,7 +132,7 @@ function appendDisclosureRow(
   root.append(term, detail);
 }
 
-type DisclosureKey = "provenance" | "route log" | "warnings";
+type DisclosureKey = "provenance" | "route log" | "economy log" | "economy notes" | "warnings";
 
 function readDisclosureState(root: HTMLElement): Record<DisclosureKey, boolean> {
   return {
@@ -123,6 +141,12 @@ function readDisclosureState(root: HTMLElement): Record<DisclosureKey, boolean> 
     ),
     "route log": Boolean(
       root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="route log"]')?.open
+    ),
+    "economy log": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="economy log"]')?.open
+    ),
+    "economy notes": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="economy notes"]')?.open
     ),
     warnings: Boolean(root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="warnings"]')?.open)
   };
@@ -133,6 +157,23 @@ function routeSummary(routes: SimulationDiagnostics["routes"]): string {
     `${routes.active} active, ${routes.planned} planned, ${routes.completed} done, ` +
     `${routes.failed} failed, ${routes.replanned} replanned, ${routes.unresolvedActors} unresolved`
   );
+}
+
+function economySummary(economy: SimulationDiagnostics["economy"]): string {
+  return (
+    `${economy.activeWorkers} active, ${economy.carryingWorkers} carrying, ` +
+    `${economy.depletedNodes} depleted, ${economy.constructionSites} builds, ` +
+    `${economy.productionQueueItems} queued, ${economy.spawnedUnits} spawned, ` +
+    `${economy.conservationBalanced ? "balanced" : "imbalanced"}`
+  );
+}
+
+function firstDivergence(divergence: SimulationDiagnostics["economy"]["firstDivergence"]): string {
+  if (!divergence) {
+    return "none";
+  }
+
+  return `${formatSimTime(divergence.timeMs)} ${divergence.commandId ? `${divergence.commandId}: ` : ""}${divergence.reason}`;
 }
 
 function warningSummary(warnings: readonly string[]): string {

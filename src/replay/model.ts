@@ -3,6 +3,7 @@ export type EntityId = string;
 export type PlayerId = string;
 export type SimTimeMs = number;
 export type FixedPoint = number;
+export type ResourceKind = "food" | "wood" | "stone" | "gold";
 
 export interface EvidencePoint {
   readonly x: number;
@@ -280,8 +281,10 @@ export interface SnapshotPosition {
 }
 
 export interface SnapshotTask {
-  readonly kind: "idle" | "moving" | "path-failed";
+  readonly kind: "idle" | "moving" | "path-failed" | "gathering" | "dropping-off" | "building";
   readonly commandId?: string;
+  readonly targetId?: EntityId;
+  readonly resource?: ResourceKind;
   readonly destination?: {
     readonly x: number;
     readonly y: number;
@@ -290,6 +293,132 @@ export interface SnapshotTask {
   };
   readonly evidence: EvidenceClass;
   readonly route?: SnapshotRoute;
+}
+
+export interface SnapshotCarry {
+  readonly resource?: ResourceKind;
+  readonly amount: number;
+  readonly amountFp: FixedPoint;
+  readonly capacity: number;
+  readonly capacityFp: FixedPoint;
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotWorkerState {
+  readonly kind: "gather" | "build";
+  readonly phase:
+    | "to-resource"
+    | "gathering"
+    | "to-drop-site"
+    | "dropping-off"
+    | "to-foundation"
+    | "building"
+    | "stalled";
+  readonly commandId: string;
+  readonly targetId?: EntityId;
+  readonly dropSiteId?: EntityId;
+  readonly resource?: ResourceKind;
+  readonly evidence: EvidenceClass;
+  readonly retargetCount?: number;
+}
+
+export interface SnapshotResourceNode {
+  readonly id: EntityId;
+  readonly resource: ResourceKind;
+  readonly family: string;
+  readonly initialAmount: number;
+  readonly initialAmountFp: FixedPoint;
+  readonly remainingAmount: number;
+  readonly remainingAmountFp: FixedPoint;
+  readonly extractedAmount: number;
+  readonly extractedAmountFp: FixedPoint;
+  readonly depleted: boolean;
+  readonly depletionTimeMs?: SimTimeMs;
+  readonly amountSource: "ruleset" | "scenario-default" | "farm-generation";
+  readonly farmGeneration?: number;
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotConstruction {
+  readonly state: "foundation" | "complete";
+  readonly progress: number;
+  readonly progressFp: FixedPoint;
+  readonly requiredWorkFp: FixedPoint;
+  readonly startedAtMs: SimTimeMs;
+  readonly completedAtMs?: SimTimeMs;
+  readonly builderIds: readonly EntityId[];
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotResourceCost {
+  readonly resource: ResourceKind | "population-headroom";
+  readonly amount: number;
+  readonly amountFp: FixedPoint;
+}
+
+export interface SnapshotProductionItem {
+  readonly id: string;
+  readonly unitId: number;
+  readonly unitKind: string;
+  readonly remainingMs: SimTimeMs;
+  readonly trainTimeMs: SimTimeMs;
+  readonly cost: readonly SnapshotResourceCost[];
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotProduction {
+  readonly queue: readonly SnapshotProductionItem[];
+  readonly gatherPoint?: {
+    readonly targetId?: EntityId;
+    readonly resource?: ResourceKind;
+    readonly x: number;
+    readonly y: number;
+    readonly evidence: EvidenceClass;
+  };
+  readonly spawnOrdinal: number;
+}
+
+export interface SnapshotResourceLedger {
+  readonly baselineFp: FixedPoint;
+  readonly extractedFp: FixedPoint;
+  readonly depositedFp: FixedPoint;
+  readonly spentFp: FixedPoint;
+  readonly refundedFp: FixedPoint;
+  readonly stockpileFp: FixedPoint;
+  readonly carryingFp: FixedPoint;
+}
+
+export interface SnapshotPlayerEconomy {
+  readonly playerId: PlayerId;
+  readonly stockpile: Record<ResourceKind, number>;
+  readonly stockpileFp: Record<ResourceKind, FixedPoint>;
+  readonly ledger: Record<ResourceKind, SnapshotResourceLedger>;
+  readonly population: {
+    readonly used: number;
+    readonly reserved: number;
+    readonly capacity: number;
+  };
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotEconomySummary {
+  readonly players: readonly SnapshotPlayerEconomy[];
+  readonly resourceNodes: readonly SnapshotResourceNode[];
+  readonly activeWorkers: number;
+  readonly carryingWorkers: number;
+  readonly depletedNodes: number;
+  readonly constructionSites: number;
+  readonly productionQueueItems: number;
+  readonly conservation: {
+    readonly balanced: boolean;
+    readonly firstIssue?: string;
+  };
+  readonly firstDivergence?: {
+    readonly timeMs: SimTimeMs;
+    readonly commandId?: string;
+    readonly reason: string;
+  };
+  readonly notes: readonly string[];
 }
 
 export interface SnapshotWaypoint {
@@ -344,6 +473,33 @@ export interface RouteDiagnostics {
   readonly lastEvents: readonly string[];
 }
 
+export interface EconomyDiagnostics {
+  readonly handledIntentCount: number;
+  readonly gatherCommands: number;
+  readonly buildCommands: number;
+  readonly queueCommands: number;
+  readonly gatherPointCommands: number;
+  readonly unresolvedActors: number;
+  readonly unresolvedTargets: number;
+  readonly unsupportedIntents: number;
+  readonly activeWorkers: number;
+  readonly carryingWorkers: number;
+  readonly stockpileSummary: string;
+  readonly ledgerSummary: string;
+  readonly depletedNodes: number;
+  readonly constructionSites: number;
+  readonly completedConstruction: number;
+  readonly productionQueueItems: number;
+  readonly spawnedUnits: number;
+  readonly conservationBalanced: boolean;
+  readonly firstDivergence?: {
+    readonly timeMs: SimTimeMs;
+    readonly commandId?: string;
+    readonly reason: string;
+  };
+  readonly lastEvents: readonly string[];
+}
+
 export interface EntitySnapshot {
   readonly id: EntityId;
   readonly kind: string;
@@ -356,6 +512,11 @@ export interface EntitySnapshot {
   readonly radiusTiles: number;
   readonly position: SnapshotPosition;
   readonly task: SnapshotTask;
+  readonly carry?: SnapshotCarry;
+  readonly worker?: SnapshotWorkerState;
+  readonly resourceNode?: SnapshotResourceNode;
+  readonly construction?: SnapshotConstruction;
+  readonly production?: SnapshotProduction;
   readonly evidence: EvidenceClass;
 }
 
@@ -370,6 +531,7 @@ export interface WorldSnapshotBody {
   readonly observedIntentIds: readonly string[];
   readonly evidenceCounts: Record<EvidenceClass, number>;
   readonly pathing: SnapshotPathingSummary;
+  readonly economy: SnapshotEconomySummary;
   readonly provenance: ScenarioProvenance;
 }
 
@@ -392,6 +554,7 @@ export interface SimulationDiagnostics {
   readonly unsupportedCommandCount: number;
   readonly seed: number;
   readonly routes: RouteDiagnostics;
+  readonly economy: EconomyDiagnostics;
   readonly lastSeekRepeat?: {
     readonly timeMs: SimTimeMs;
     readonly checksum: string;

@@ -1,5 +1,6 @@
 import { SeededRng } from "./rng";
 import { DeterministicScheduler, type ScheduledEvent } from "./scheduler";
+import { advanceEconomy, initializeEconomy } from "./systems/economy";
 import { applyReplayCommand } from "./systems/commands";
 import { advanceMovement } from "./systems/movement";
 import { WorldState } from "./world";
@@ -61,6 +62,7 @@ export class SimulationEngine {
 
       if (deltaMs > 0) {
         advanceMovement(this.world, deltaMs);
+        advanceEconomy(this.world, deltaMs);
         this.world.timeMs = nextTimeMs;
       }
 
@@ -107,6 +109,7 @@ export class SimulationEngine {
       unsupportedCommandCount: this.scenario.unsupported.commandCount,
       seed: this.rng.currentSeed,
       routes: this.world.createRouteDiagnostics(),
+      economy: this.world.createEconomyDiagnostics(),
       warnings: [...this.world.warnings]
     };
 
@@ -122,6 +125,7 @@ export class SimulationEngine {
 
   private reset(): void {
     this.world = new WorldState(this.scenario, this.ruleset);
+    initializeEconomy(this.world);
     this.scheduler.reset();
 
     for (const command of this.commandTape) {

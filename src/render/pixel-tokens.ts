@@ -28,9 +28,13 @@ export function drawPixelToken(
   } else if (entity.kind.includes("villager")) {
     drawVillager(context, color, half);
   } else if (isResource(entity.kind)) {
-    drawResource(context, half);
+    drawResource(context, half, Boolean(entity.resourceNode?.depleted));
   } else {
     drawMarker(context, color, half);
+  }
+
+  if (entity.carry?.resource && entity.carry.amountFp > 0) {
+    drawCarry(context, entity.carry.resource, half);
   }
 
   context.restore();
@@ -72,13 +76,33 @@ function drawMarker(context: CanvasRenderingContext2D, color: string, half: numb
   context.fillRect(-1, -1, 2, 2);
 }
 
-function drawResource(context: CanvasRenderingContext2D, half: number): void {
-  context.fillStyle = "#4c7b39";
+function drawResource(context: CanvasRenderingContext2D, half: number, depleted: boolean): void {
+  context.fillStyle = depleted ? "#403a2c" : "#4c7b39";
   context.fillRect(-half, -half + 1, half * 2, half * 2 - 2);
-  context.fillStyle = "#b34f58";
+  context.fillStyle = depleted ? "#7c6f55" : "#b34f58";
   context.fillRect(-half + 1, -half + 1, 2, 2);
   context.fillRect(half - 2, -1, 2, 2);
   context.fillRect(-1, half - 2, 2, 2);
+}
+
+function drawCarry(context: CanvasRenderingContext2D, resource: string, half: number): void {
+  context.fillStyle = carryColor(resource);
+  context.fillRect(-half, half + 2, half * 2, 2);
+}
+
+function carryColor(resource: string): string {
+  switch (resource) {
+    case "food":
+      return "#d86d5a";
+    case "wood":
+      return "#9f6b3e";
+    case "stone":
+      return "#c3c9c0";
+    case "gold":
+      return "#d8b84f";
+    default:
+      return "#f4ead7";
+  }
 }
 
 function isResource(kind: string): boolean {

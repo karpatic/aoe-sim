@@ -3,14 +3,23 @@ import { PathingState } from "./systems/occupancy";
 import type {
   EntityId,
   EntitySnapshot,
+  EconomyDiagnostics,
   EvidenceClass,
   FixedPoint,
   PathFailureReason,
+  PlayerId,
   ReplayScenarioV1,
+  ResourceKind,
   RouteDiagnostics,
   RulesetUnit,
   RulesetV1,
   SimTimeMs,
+  SnapshotCarry,
+  SnapshotConstruction,
+  SnapshotEconomySummary,
+  SnapshotPlayerEconomy,
+  SnapshotProduction,
+  SnapshotResourceNode,
   SnapshotRoute,
   SnapshotTask,
   WorldSnapshot,
@@ -78,6 +87,130 @@ export interface EntityPathingProfile {
   readonly token?: RulesetUnit["token"];
 }
 
+export interface WorkerCarryState {
+  resource?: ResourceKind;
+  amountFp: FixedPoint;
+  capacityFp: FixedPoint;
+  evidence: EvidenceClass;
+}
+
+export interface GatherWorkerTask {
+  kind: "gather";
+  phase: "to-resource" | "gathering" | "to-drop-site" | "dropping-off" | "stalled";
+  commandId: string;
+  sourceSequence: number;
+  targetId: EntityId;
+  resource: ResourceKind;
+  family: string;
+  evidence: EvidenceClass;
+  retargetCount: number;
+  workAccumulator: number;
+  dropSiteId?: EntityId;
+}
+
+export interface BuildWorkerTask {
+  kind: "build";
+  phase: "to-foundation" | "building" | "stalled";
+  commandId: string;
+  sourceSequence: number;
+  targetId: EntityId;
+  evidence: EvidenceClass;
+  workAccumulator: number;
+}
+
+export type WorkerTaskState = GatherWorkerTask | BuildWorkerTask;
+
+export interface ResourceNodeState {
+  id: EntityId;
+  resource: ResourceKind;
+  family: string;
+  initialAmountFp: FixedPoint;
+  remainingAmountFp: FixedPoint;
+  extractedAmountFp: FixedPoint;
+  depleted: boolean;
+  amountSource: SnapshotResourceNode["amountSource"];
+  evidence: EvidenceClass;
+  farmGeneration?: number;
+  depletionTimeMs?: SimTimeMs;
+}
+
+export interface ConstructionState {
+  state: "foundation" | "complete";
+  progressFp: FixedPoint;
+  requiredWorkFp: FixedPoint;
+  startedAtMs: SimTimeMs;
+  evidence: EvidenceClass;
+  completedAtMs?: SimTimeMs;
+}
+
+export interface ProductionQueueItemState {
+  id: string;
+  unitId: number;
+  unitKind: string;
+  remainingMs: SimTimeMs;
+  trainTimeMs: SimTimeMs;
+  cost: readonly ResourceCostState[];
+  evidence: EvidenceClass;
+}
+
+export interface GatherPointState {
+  xFp: FixedPoint;
+  yFp: FixedPoint;
+  evidence: EvidenceClass;
+  targetId?: EntityId;
+  resource?: ResourceKind;
+}
+
+export interface ProductionState {
+  queue: ProductionQueueItemState[];
+  spawnOrdinal: number;
+  gatherPoint?: GatherPointState;
+}
+
+export interface ResourceCostState {
+  resource: ResourceKind | "population-headroom";
+  amountFp: FixedPoint;
+}
+
+export interface ResourceLedgerState {
+  baselineFp: FixedPoint;
+  extractedFp: FixedPoint;
+  depositedFp: FixedPoint;
+  spentFp: FixedPoint;
+  refundedFp: FixedPoint;
+}
+
+export interface PlayerEconomyState {
+  playerId: PlayerId;
+  stockpileFp: Record<ResourceKind, FixedPoint>;
+  ledger: Record<ResourceKind, ResourceLedgerState>;
+  population: {
+    used: number;
+    reserved: number;
+    capacity: number;
+  };
+  evidence: EvidenceClass;
+}
+
+export interface EconomyStats {
+  handledIntentCount: number;
+  gatherCommands: number;
+  buildCommands: number;
+  queueCommands: number;
+  gatherPointCommands: number;
+  unresolvedActors: number;
+  unresolvedTargets: number;
+  unsupportedIntents: number;
+  completedConstruction: number;
+  spawnedUnits: number;
+}
+
+export interface EconomyDivergence {
+  timeMs: SimTimeMs;
+  reason: string;
+  commandId?: string;
+}
+
 export type EntityTask =
   | {
       readonly kind: "idle";
@@ -104,6 +237,29 @@ export type EntityTask =
       readonly evidence: EvidenceClass;
       readonly sourceSequence: number;
       readonly route: PlannedRoute;
+    }
+  | {
+      readonly kind: "gathering";
+      readonly commandId: string;
+      readonly targetId: EntityId;
+      readonly resource: ResourceKind;
+      readonly evidence: EvidenceClass;
+      readonly sourceSequence: number;
+    }
+  | {
+      readonly kind: "dropping-off";
+      readonly commandId: string;
+      readonly targetId: EntityId;
+      readonly resource: ResourceKind;
+      readonly evidence: EvidenceClass;
+      readonly sourceSequence: number;
+    }
+  | {
+      readonly kind: "building";
+      readonly commandId: string;
+      readonly targetId: EntityId;
+      readonly evidence: EvidenceClass;
+      readonly sourceSequence: number;
     };
 
 export interface EntityState {
@@ -121,6 +277,11 @@ export interface EntityState {
   position: FixedPointPosition;
   task: EntityTask;
   lastRoute?: PlannedRoute;
+  carry?: WorkerCarryState;
+  workerTask?: WorkerTaskState;
+  resourceNode?: ResourceNodeState;
+  construction?: ConstructionState;
+  production?: ProductionState;
   evidence: EvidenceClass;
 }
 
@@ -136,28 +297,41 @@ interface MutableRouteStats {
 export class WorldState {
   public timeMs: SimTimeMs = 0;
   public readonly entities = new Map<EntityId, EntityState>();
+  public readonly resourceNodes = new Map<EntityId, ResourceNodeState>();
+  public readonly playerEconomies = new Map<PlayerId, PlayerEconomyState>();
   public readonly appliedCommandIds: string[] = [];
   public readonly observedIntentIds: string[] = [];
   public readonly warnings: string[] = [];
   public readonly routeStats: MutableRouteStats = createRouteStats();
   public readonly routeEvents: string[] = [];
+  public readonly economyStats: EconomyStats = createEconomyStats();
+  public readonly economyEvents: string[] = [];
+  public readonly economyNotes: string[] = [
+    "Starting stockpiles are simulated baselines because the scenario artifact does not carry resource stocks.",
+    "Node amounts use DAT values when represented and explicit family defaults otherwise.",
+    "Technology, civilization, placement, formation, market, repair, and cancellation modifiers are diagnostic-only in this slice.",
+    "Replay resource timeseries were not imported into the scenario artifact; diagnostics do not fit simulated state to them."
+  ];
+  public firstEconomyDivergence?: EconomyDivergence;
   public readonly pathing: PathingState;
+  public readonly rulesByDataId = new Map<number, RulesetUnit>();
+  public readonly rulesByKind = new Map<string, RulesetUnit>();
+  private nextSimOrdinal = 0;
 
   public constructor(
     private readonly scenario: ReplayScenarioV1,
-    ruleset: RulesetV1
+    public readonly ruleset: RulesetV1
   ) {
-    const rulesByDataId = new Map<number, RulesetUnit>();
     for (const unit of ruleset.units) {
       if (unit.id !== undefined) {
-        rulesByDataId.set(unit.id, unit);
+        this.rulesByDataId.set(unit.id, unit);
       }
+      this.rulesByKind.set(unit.kind, unit);
     }
-    const rulesByKind = new Map(ruleset.units.map((unit) => [unit.kind, unit]));
     const warnedMissingRules = new Set<string>();
 
     for (const entity of scenario.entities) {
-      const resolvedRule = findUnitRule(entity.dataId, entity.kind, rulesByDataId, rulesByKind);
+      const resolvedRule = this.resolveUnitRule(entity.dataId, entity.kind);
       const rule = resolvedRule ?? fallbackUnit(entity.kind);
       const warningKey = entity.dataId === undefined ? entity.kind : `${entity.dataId}:${entity.kind}`;
       if (!resolvedRule && !warnedMissingRules.has(warningKey)) {
@@ -165,7 +339,7 @@ export class WorldState {
         this.warn(`Missing unit rule for ${warningKey}; using immobile fallback`);
       }
 
-      this.entities.set(entity.id, dropUndefined({
+      this.entities.set(entity.id, this.createEntityState({
         id: entity.id,
         kind: entity.kind,
         dataId: entity.dataId,
@@ -182,15 +356,72 @@ export class WorldState {
           yFp: toFixedPoint(entity.position.y),
           evidence: entity.position.evidence
         },
-        task: {
-          kind: "idle",
-          evidence: entity.evidence
-        },
         evidence: entity.evidence
-      }) as EntityState);
+      }, rule));
     }
 
     this.pathing = new PathingState(this.scenario.map, ruleset, this.entities);
+  }
+
+  public resolveUnitRule(dataId: number | undefined, kind: string | undefined): RulesetUnit | undefined {
+    if (dataId !== undefined) {
+      return this.rulesByDataId.get(dataId);
+    }
+    if (kind !== undefined) {
+      return this.rulesByKind.get(kind);
+    }
+
+    return undefined;
+  }
+
+  public rulesetPlayerIds(): readonly PlayerId[] {
+    return this.scenario.players
+      .map((player) => player.id)
+      .filter((playerId) => playerId !== "gaia")
+      .sort();
+  }
+
+  public createSimEntityId(prefix: string): EntityId {
+    this.nextSimOrdinal += 1;
+    return `sim:${prefix}:${this.nextSimOrdinal.toString().padStart(6, "0")}`;
+  }
+
+  public addSimulatedEntity(input: {
+    readonly id?: EntityId;
+    readonly rule: RulesetUnit;
+    readonly playerId: PlayerId;
+    readonly xFp: FixedPoint;
+    readonly yFp: FixedPoint;
+    readonly evidence?: EvidenceClass;
+    readonly hp?: number;
+    readonly kind?: string;
+    readonly label?: string;
+  }): EntityState {
+    const entity = this.createEntityState(
+      {
+        id: input.id ?? this.createSimEntityId("entity"),
+        kind: input.kind ?? input.rule.kind,
+        dataId: input.rule.id,
+        classId: input.rule.classId,
+        label: input.label ?? input.rule.label,
+        playerId: input.playerId,
+        hp: input.hp ?? input.rule.maxHp,
+        facing: 1,
+        radiusFp: toFixedPoint(input.rule.radiusTiles),
+        speedFpPerSecond: input.rule.speedFpPerSecond,
+        pathing: buildPathingProfile(input.rule),
+        position: {
+          xFp: input.xFp,
+          yFp: input.yFp,
+          evidence: input.evidence ?? "simulated"
+        },
+        evidence: input.evidence ?? "simulated"
+      },
+      input.rule
+    );
+    this.entities.set(entity.id, entity);
+    this.pathing.rebuildStaticObstacles(this.entities);
+    return entity;
   }
 
   public warn(message: string): void {
@@ -205,6 +436,25 @@ export class WorldState {
     if (this.routeEvents.length > 18) {
       this.routeEvents.shift();
     }
+  }
+
+  public recordEconomyEvent(message: string): void {
+    this.economyEvents.push(`${this.timeMs}ms ${message}`);
+    if (this.economyEvents.length > 24) {
+      this.economyEvents.shift();
+    }
+  }
+
+  public recordEconomyDivergence(reason: string, commandId?: string): void {
+    if (this.firstEconomyDivergence) {
+      return;
+    }
+
+    this.firstEconomyDivergence = dropUndefined({
+      timeMs: this.timeMs,
+      commandId,
+      reason
+    }) as EconomyDivergence;
   }
 
   public createRouteDiagnostics(): RouteDiagnostics {
@@ -224,6 +474,32 @@ export class WorldState {
       occupancyVersion: this.pathing.staticVersion,
       lastEvents: [...this.routeEvents]
     };
+  }
+
+  public createEconomyDiagnostics(): EconomyDiagnostics {
+    const economy = this.createEconomySnapshot();
+    return dropUndefined({
+      handledIntentCount: this.economyStats.handledIntentCount,
+      gatherCommands: this.economyStats.gatherCommands,
+      buildCommands: this.economyStats.buildCommands,
+      queueCommands: this.economyStats.queueCommands,
+      gatherPointCommands: this.economyStats.gatherPointCommands,
+      unresolvedActors: this.economyStats.unresolvedActors,
+      unresolvedTargets: this.economyStats.unresolvedTargets,
+      unsupportedIntents: this.economyStats.unsupportedIntents,
+      activeWorkers: economy.activeWorkers,
+      carryingWorkers: economy.carryingWorkers,
+      stockpileSummary: summarizeStockpiles(economy.players),
+      ledgerSummary: summarizeLedgers(economy.players),
+      depletedNodes: economy.depletedNodes,
+      constructionSites: economy.constructionSites,
+      completedConstruction: this.economyStats.completedConstruction,
+      productionQueueItems: economy.productionQueueItems,
+      spawnedUnits: this.economyStats.spawnedUnits,
+      conservationBalanced: economy.conservation.balanced,
+      firstDivergence: economy.firstDivergence,
+      lastEvents: [...this.economyEvents]
+    }) as EconomyDiagnostics;
   }
 
   public createSnapshot(): WorldSnapshot {
@@ -254,6 +530,11 @@ export class WorldState {
             evidence: entity.position.evidence
           },
           task: snapshotTask(entity.task, entity.lastRoute),
+          carry: snapshotCarry(entity.carry),
+          worker: snapshotWorker(entity.workerTask),
+          resourceNode: entity.resourceNode ? snapshotResourceNode(entity.resourceNode) : undefined,
+          construction: entity.construction ? snapshotConstruction(entity.construction, this.entities) : undefined,
+          production: entity.production ? snapshotProduction(entity.production) : undefined,
           evidence: entity.evidence
         }) as EntitySnapshot
       ),
@@ -266,6 +547,7 @@ export class WorldState {
         activeRoutes,
         failedRoutes
       },
+      economy: this.createEconomySnapshot(),
       provenance: this.scenario.provenance
     };
 
@@ -288,6 +570,77 @@ export class WorldState {
 
     return counts;
   }
+
+  private createEconomySnapshot(): SnapshotEconomySummary {
+    const players = [...this.playerEconomies.values()]
+      .sort((left, right) => left.playerId.localeCompare(right.playerId))
+      .map((player) => snapshotPlayerEconomy(player, this.entities));
+    const resourceNodes = [...this.resourceNodes.values()]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map(snapshotResourceNode);
+    const activeWorkers = [...this.entities.values()].filter((entity) => entity.workerTask !== undefined).length;
+    const carryingWorkers = [...this.entities.values()].filter((entity) => (entity.carry?.amountFp ?? 0) > 0).length;
+    const constructionSites = [...this.entities.values()].filter(
+      (entity) => entity.construction?.state === "foundation"
+    ).length;
+    const productionQueueItems = [...this.entities.values()].reduce(
+      (sum, entity) => sum + (entity.production?.queue.length ?? 0),
+      0
+    );
+    const conservation = checkConservation(players, resourceNodes);
+
+    return dropUndefined({
+      players,
+      resourceNodes,
+      activeWorkers,
+      carryingWorkers,
+      depletedNodes: resourceNodes.filter((node) => node.depleted).length,
+      constructionSites,
+      productionQueueItems,
+      conservation,
+      firstDivergence: this.firstEconomyDivergence,
+      notes: [...this.economyNotes]
+    }) as SnapshotEconomySummary;
+  }
+
+  private createEntityState(
+    input: {
+      readonly id: EntityId;
+      readonly kind: string;
+      readonly dataId?: number | undefined;
+      readonly classId?: number | undefined;
+      readonly label?: string | undefined;
+      readonly playerId: PlayerId;
+      readonly hp: number | null;
+      readonly facing?: -1 | 1 | undefined;
+      readonly radiusFp?: FixedPoint | undefined;
+      readonly speedFpPerSecond?: number | undefined;
+      readonly pathing?: EntityPathingProfile | undefined;
+      readonly position: FixedPointPosition;
+      readonly evidence: EvidenceClass;
+    },
+    rule: RulesetUnit
+  ): EntityState {
+    return dropUndefined({
+      id: input.id,
+      kind: input.kind,
+      dataId: input.dataId,
+      classId: input.classId,
+      label: input.label,
+      playerId: input.playerId,
+      hp: input.hp ?? rule.maxHp,
+      facing: input.facing ?? 1,
+      radiusFp: input.radiusFp ?? toFixedPoint(rule.radiusTiles),
+      speedFpPerSecond: input.speedFpPerSecond ?? rule.speedFpPerSecond,
+      pathing: input.pathing ?? buildPathingProfile(rule),
+      position: input.position,
+      task: {
+        kind: "idle",
+        evidence: input.evidence
+      },
+      evidence: input.evidence
+    }) as EntityState;
+  }
 }
 
 export function toFixedPoint(value: number): FixedPoint {
@@ -304,6 +657,16 @@ function snapshotTask(task: EntityTask, lastRoute: PlannedRoute | undefined): Sn
       kind: "idle",
       evidence: task.evidence,
       route: lastRoute && lastRoute.status !== "planned" ? snapshotRoute(lastRoute) : undefined
+    }) as SnapshotTask;
+  }
+
+  if (task.kind === "gathering" || task.kind === "dropping-off" || task.kind === "building") {
+    return dropUndefined({
+      kind: task.kind,
+      commandId: task.commandId,
+      targetId: task.targetId,
+      resource: "resource" in task ? task.resource : undefined,
+      evidence: task.evidence
     }) as SnapshotTask;
   }
 
@@ -346,6 +709,303 @@ function snapshotRoute(route: PlannedRoute): SnapshotRoute {
   }) as SnapshotRoute;
 }
 
+function snapshotCarry(carry: WorkerCarryState | undefined): SnapshotCarry | undefined {
+  if (!carry || carry.amountFp <= 0) {
+    return undefined;
+  }
+
+  return dropUndefined({
+    resource: carry.resource,
+    amount: fromFixedPoint(carry.amountFp),
+    amountFp: carry.amountFp,
+    capacity: fromFixedPoint(carry.capacityFp),
+    capacityFp: carry.capacityFp,
+    evidence: carry.evidence
+  }) as SnapshotCarry;
+}
+
+function snapshotWorker(worker: WorkerTaskState | undefined): import("../replay/model").SnapshotWorkerState | undefined {
+  if (!worker) {
+    return undefined;
+  }
+
+  return dropUndefined({
+    kind: worker.kind,
+    phase: worker.phase,
+    commandId: worker.commandId,
+    targetId: worker.targetId,
+    dropSiteId: worker.kind === "gather" ? worker.dropSiteId : undefined,
+    resource: worker.kind === "gather" ? worker.resource : undefined,
+    evidence: worker.evidence,
+    retargetCount: worker.kind === "gather" && worker.retargetCount > 0 ? worker.retargetCount : undefined
+  }) as import("../replay/model").SnapshotWorkerState;
+}
+
+function snapshotResourceNode(node: ResourceNodeState): SnapshotResourceNode {
+  return dropUndefined({
+    id: node.id,
+    resource: node.resource,
+    family: node.family,
+    initialAmount: fromFixedPoint(node.initialAmountFp),
+    initialAmountFp: node.initialAmountFp,
+    remainingAmount: fromFixedPoint(node.remainingAmountFp),
+    remainingAmountFp: node.remainingAmountFp,
+    extractedAmount: fromFixedPoint(node.extractedAmountFp),
+    extractedAmountFp: node.extractedAmountFp,
+    depleted: node.depleted,
+    depletionTimeMs: node.depletionTimeMs,
+    amountSource: node.amountSource,
+    farmGeneration: node.farmGeneration,
+    evidence: node.evidence
+  }) as SnapshotResourceNode;
+}
+
+function snapshotConstruction(
+  construction: ConstructionState,
+  entities: ReadonlyMap<EntityId, EntityState>
+): SnapshotConstruction {
+  const builderIds = [...entities.values()]
+    .filter((entity) => entity.workerTask?.kind === "build" && entity.workerTask.targetId === findConstructionId(construction, entities))
+    .map((entity) => entity.id)
+    .sort();
+  const progress = construction.requiredWorkFp <= 0 ? 1 : construction.progressFp / construction.requiredWorkFp;
+
+  return dropUndefined({
+    state: construction.state,
+    progress: Number(Math.max(0, Math.min(1, progress)).toFixed(3)),
+    progressFp: construction.progressFp,
+    requiredWorkFp: construction.requiredWorkFp,
+    startedAtMs: construction.startedAtMs,
+    completedAtMs: construction.completedAtMs,
+    builderIds,
+    evidence: construction.evidence
+  }) as SnapshotConstruction;
+}
+
+function findConstructionId(
+  construction: ConstructionState,
+  entities: ReadonlyMap<EntityId, EntityState>
+): EntityId | undefined {
+  for (const entity of entities.values()) {
+    if (entity.construction === construction) {
+      return entity.id;
+    }
+  }
+
+  return undefined;
+}
+
+function snapshotProduction(production: ProductionState): SnapshotProduction {
+  return dropUndefined({
+    queue: production.queue.map((item) => ({
+      id: item.id,
+      unitId: item.unitId,
+      unitKind: item.unitKind,
+      remainingMs: item.remainingMs,
+      trainTimeMs: item.trainTimeMs,
+      cost: item.cost.map((cost) => ({
+        resource: cost.resource,
+        amount: fromFixedPoint(cost.amountFp),
+        amountFp: cost.amountFp
+      })),
+      evidence: item.evidence
+    })),
+    gatherPoint: production.gatherPoint
+      ? dropUndefined({
+          targetId: production.gatherPoint.targetId,
+          resource: production.gatherPoint.resource,
+          x: fromFixedPoint(production.gatherPoint.xFp),
+          y: fromFixedPoint(production.gatherPoint.yFp),
+          evidence: production.gatherPoint.evidence
+        })
+      : undefined,
+    spawnOrdinal: production.spawnOrdinal
+  }) as SnapshotProduction;
+}
+
+function snapshotPlayerEconomy(
+  player: PlayerEconomyState,
+  entities: ReadonlyMap<EntityId, EntityState>
+): SnapshotPlayerEconomy {
+  const carrying = createResourceRecord(0);
+  for (const entity of entities.values()) {
+    if (entity.playerId !== player.playerId || !entity.carry?.resource || entity.carry.amountFp <= 0) {
+      continue;
+    }
+    carrying[entity.carry.resource] += entity.carry.amountFp;
+  }
+
+  const stockpile = createResourceRecord(0);
+  for (const resource of resourceKinds) {
+    stockpile[resource] = fromFixedPoint(player.stockpileFp[resource]);
+  }
+
+  return {
+    playerId: player.playerId,
+    stockpile,
+    stockpileFp: { ...player.stockpileFp },
+    ledger: {
+      food: snapshotLedger(player.ledger.food, player.stockpileFp.food, carrying.food),
+      wood: snapshotLedger(player.ledger.wood, player.stockpileFp.wood, carrying.wood),
+      stone: snapshotLedger(player.ledger.stone, player.stockpileFp.stone, carrying.stone),
+      gold: snapshotLedger(player.ledger.gold, player.stockpileFp.gold, carrying.gold)
+    },
+    population: { ...player.population },
+    evidence: player.evidence
+  };
+}
+
+function snapshotLedger(
+  ledger: ResourceLedgerState,
+  stockpileFp: FixedPoint,
+  carryingFp: FixedPoint
+): import("../replay/model").SnapshotResourceLedger {
+  return {
+    baselineFp: ledger.baselineFp,
+    extractedFp: ledger.extractedFp,
+    depositedFp: ledger.depositedFp,
+    spentFp: ledger.spentFp,
+    refundedFp: ledger.refundedFp,
+    stockpileFp,
+    carryingFp
+  };
+}
+
+function checkConservation(
+  players: readonly SnapshotPlayerEconomy[],
+  nodes: readonly SnapshotResourceNode[]
+): SnapshotEconomySummary["conservation"] {
+  for (const node of nodes) {
+    const consumed = node.remainingAmountFp + node.extractedAmountFp;
+    if (consumed !== node.initialAmountFp) {
+      return {
+        balanced: false,
+        firstIssue: `node ${node.id} ${node.resource} has ${consumed - node.initialAmountFp}fp imbalance`
+      };
+    }
+  }
+
+  for (const player of players) {
+    for (const resource of resourceKinds) {
+      const ledger = player.ledger[resource];
+      const expectedStockpile =
+        ledger.baselineFp + ledger.depositedFp + ledger.refundedFp - ledger.spentFp;
+      if (expectedStockpile !== ledger.stockpileFp) {
+        return {
+          balanced: false,
+          firstIssue: `${player.playerId} ${resource} stockpile ledger imbalance`
+        };
+      }
+      if (ledger.extractedFp - ledger.depositedFp !== ledger.carryingFp) {
+        return {
+          balanced: false,
+          firstIssue: `${player.playerId} ${resource} carry ledger imbalance`
+        };
+      }
+    }
+  }
+
+  return {
+    balanced: true
+  };
+}
+
+function summarizeStockpiles(players: readonly SnapshotPlayerEconomy[]): string {
+  if (!players.length) {
+    return "none";
+  }
+
+  return players
+    .map(
+      (player) =>
+        `${player.playerId} F${formatResource(player.stockpileFp.food)} W${formatResource(player.stockpileFp.wood)} ` +
+        `S${formatResource(player.stockpileFp.stone)} G${formatResource(player.stockpileFp.gold)} ` +
+        `P${player.population.used}+${player.population.reserved}/${player.population.capacity}`
+    )
+    .join(" | ");
+}
+
+function summarizeLedgers(players: readonly SnapshotPlayerEconomy[]): string {
+  let extractedFp = 0;
+  let depositedFp = 0;
+  let spentFp = 0;
+  let carryingFp = 0;
+  for (const player of players) {
+    for (const resource of resourceKinds) {
+      const ledger = player.ledger[resource];
+      extractedFp += ledger.extractedFp;
+      depositedFp += ledger.depositedFp;
+      spentFp += ledger.spentFp;
+      carryingFp += ledger.carryingFp;
+    }
+  }
+
+  return (
+    `extract ${formatResource(extractedFp)}, carry ${formatResource(carryingFp)}, ` +
+    `deposit ${formatResource(depositedFp)}, spend ${formatResource(spentFp)}`
+  );
+}
+
+function createRouteStats(): MutableRouteStats {
+  return {
+    planned: 0,
+    completed: 0,
+    failed: 0,
+    replanned: 0,
+    corrected: 0,
+    unresolvedActors: 0
+  };
+}
+
+function createEconomyStats(): EconomyStats {
+  return {
+    handledIntentCount: 0,
+    gatherCommands: 0,
+    buildCommands: 0,
+    queueCommands: 0,
+    gatherPointCommands: 0,
+    unresolvedActors: 0,
+    unresolvedTargets: 0,
+    unsupportedIntents: 0,
+    completedConstruction: 0,
+    spawnedUnits: 0
+  };
+}
+
+export const resourceKinds: readonly ResourceKind[] = ["food", "wood", "stone", "gold"];
+
+export function createResourceRecord(value: FixedPoint): Record<ResourceKind, FixedPoint> {
+  return {
+    food: value,
+    wood: value,
+    stone: value,
+    gold: value
+  };
+}
+
+export function createLedgerRecord(value: FixedPoint): Record<ResourceKind, ResourceLedgerState> {
+  return {
+    food: createLedger(value),
+    wood: createLedger(value),
+    stone: createLedger(value),
+    gold: createLedger(value)
+  };
+}
+
+function createLedger(value: FixedPoint): ResourceLedgerState {
+  return {
+    baselineFp: value,
+    extractedFp: 0,
+    depositedFp: 0,
+    spentFp: 0,
+    refundedFp: 0
+  };
+}
+
+function formatResource(valueFp: FixedPoint): string {
+  return fromFixedPoint(valueFp).toFixed(1).replace(/\.0$/, "");
+}
+
 function compareEntities(left: EntityState, right: EntityState): number {
   return left.id.localeCompare(right.id);
 }
@@ -357,17 +1017,6 @@ function fallbackUnit(kind: string): RulesetUnit {
     speedFpPerSecond: 0,
     radiusTiles: 0.25,
     token: "marker"
-  };
-}
-
-function createRouteStats(): MutableRouteStats {
-  return {
-    planned: 0,
-    completed: 0,
-    failed: 0,
-    replanned: 0,
-    corrected: 0,
-    unresolvedActors: 0
   };
 }
 
@@ -450,19 +1099,6 @@ function chooseOccupancyKind(context: {
   }
 
   return "none";
-}
-
-function findUnitRule(
-  dataId: number | undefined,
-  kind: string,
-  rulesByDataId: ReadonlyMap<number, RulesetUnit>,
-  rulesByKind: ReadonlyMap<string, RulesetUnit>
-): RulesetUnit | undefined {
-  if (dataId !== undefined) {
-    return rulesByDataId.get(dataId);
-  }
-
-  return rulesByKind.get(kind);
 }
 
 function readPositiveNumber(value: unknown, fallback: number): number {

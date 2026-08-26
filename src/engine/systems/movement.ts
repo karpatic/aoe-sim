@@ -224,13 +224,17 @@ function tryApplyBump(
       evidence: "simulated"
     };
     route.blockedStepCount = 0;
+    const wasSameBlocker =
+      route.lastCorrection?.reason === "dynamic-blocked" && route.lastCorrection.blockerId === blockerId;
     route.lastCorrection = makeCorrection(world, "dynamic-blocked", {
       blockerId,
       tileX: check.tileX,
       tileY: check.tileY
     });
     world.routeStats.corrected += 1;
-    world.recordRouteEvent(`corrected ${route.commandId} ${entity.id}: bumped`);
+    if (!wasSameBlocker) {
+      world.recordRouteEvent(`corrected ${route.commandId} ${entity.id}: bumped`);
+    }
     return true;
   }
 
