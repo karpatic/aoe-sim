@@ -1,14 +1,26 @@
 import type {
   ArtifactReference,
+  CommandParameterValue,
   EvidenceClass,
   ParserReference,
   PlayerDefinition,
   ReplayScenarioV1,
   ScenarioVersions
 } from "./model";
+import { compareCodePoint } from "./canonical-json";
+import type { BrowserCompiledReplayHashContract } from "./canonical-json";
 
 export type LocalReplayCompatibilityStatus = "compatible" | "unsupported" | "corrupt";
 export type LocalReplayComparisonStatus = "match" | "mismatch" | "partial" | "unsupported";
+export type LocalReplayParserProgressPhase =
+  | "hashing"
+  | "loading-parser"
+  | "validating"
+  | "summary"
+  | "full-parse"
+  | "compiling"
+  | "comparing"
+  | "done";
 export type LocalReplayComparisonArea =
   | "fixture identity"
   | "versions"
@@ -82,6 +94,215 @@ export interface LocalReplayFileReference extends ArtifactReference {
   readonly fileName: string;
   readonly localOnly: true;
   readonly lastModifiedUtc?: string;
+}
+
+export interface BrowserCompiledReplayV1 {
+  readonly schemaVersion: "aoe-sim.browser-compiled-replay.v1";
+  readonly contentHashContract: BrowserCompiledReplayHashContract;
+  readonly compiler: {
+    readonly id: "aoe-sim.browser-local-replay-compiler";
+    readonly version: "v1";
+    readonly source: "src/replay/aoe2rec-parser.ts";
+    readonly deterministicOrdering: "operation-index-then-action-index";
+  };
+  readonly recording: LocalReplayFileReference;
+  readonly parser: LocalReplayParserIdentity;
+  readonly localBoundary: {
+    readonly bytesStayLocal: true;
+    readonly transfer: "File.arrayBuffer -> parser worker -> aoe2rec-js WASM parser -> compact model";
+    readonly rawParserObjectsReturned: false;
+    readonly selectedReplayJsonFetched: false;
+  };
+  readonly provenance: {
+    readonly replay: LocalReplayFileReference;
+    readonly parser: ParserReference;
+    readonly wasm: ArtifactReference;
+    readonly ruleset: ArtifactReference;
+    readonly generatedArtifact: ArtifactReference;
+  };
+  readonly fixtureOracle: {
+    readonly scenarioId: string;
+    readonly scenarioArtifact: ArtifactReference;
+    readonly replay: ArtifactReference;
+    readonly aocMgzParser: ParserReference;
+    readonly equivalentFieldParity: readonly LocalReplayComparison[];
+    readonly nonEquivalentUnsupported: readonly string[];
+  };
+  readonly durationMs: number;
+  readonly versions: {
+    readonly build: number;
+    readonly gameString: string;
+    readonly saveVersion: number;
+    readonly versionMinor: number;
+    readonly logVersion?: number;
+  };
+  readonly replay: {
+    readonly timer: number;
+    readonly worldTime: number;
+    readonly oldTime: number;
+    readonly oldWorldTime: number;
+    readonly randomSeed: number;
+    readonly randomSeed2: number;
+    readonly recPlayer: number;
+    readonly numPlayers: number;
+    readonly nextObjectId?: number;
+    readonly nextReusableObjectId?: number;
+    readonly postGameWorldTimeMs?: number;
+  };
+  readonly gameSettings: Aoe2recParsedReplay["summary"]["header"]["gameSettings"];
+  readonly teams: readonly BrowserReplayTeam[];
+  readonly players: readonly BrowserReplayPlayer[];
+  readonly outcome: BrowserReplayOutcome;
+  readonly map?: BrowserReplayMap;
+  readonly operations: {
+    readonly total: number;
+    readonly byKind: Record<string, number>;
+    readonly firstOperationIndex?: number;
+    readonly lastOperationIndex?: number;
+  };
+  readonly actions: {
+    readonly total: number;
+    readonly byKind: Record<string, number>;
+    readonly byMappedScenarioKind: Record<string, number>;
+    readonly byPlayer: readonly BrowserReplayPlayerActionSummary[];
+    readonly timeline: readonly BrowserReplayAction[];
+    readonly missingTimeCount: number;
+    readonly actionsWithActors: number;
+    readonly actionsWithTargets: number;
+    readonly actionsWithDestinations: number;
+    readonly unmappedKinds: readonly string[];
+  };
+  readonly chat: {
+    readonly total: number;
+    readonly omittedCount: number;
+    readonly truncatedTextCount: number;
+    readonly messages: readonly BrowserReplayChatMessage[];
+    readonly truncated: boolean;
+  };
+  readonly unsupportedEvidence: readonly BrowserReplayUnsupportedEvidence[];
+}
+
+export type BrowserReplayPlayerResult = "winner" | "loss" | "resigned" | "unknown";
+
+export interface BrowserReplayOutcome {
+  readonly completion: {
+    readonly complete: boolean;
+    readonly evidence: EvidenceClass;
+    readonly source: "PostGame.WorldTime" | "unavailable";
+    readonly worldTimeMs?: number;
+  };
+  readonly winnerTeamIds: readonly string[];
+}
+
+export interface BrowserReplayTeam {
+  readonly id: string;
+  readonly winner: boolean;
+  readonly playerNumbers: readonly number[];
+}
+
+export interface BrowserReplayPlayer {
+  readonly id: string;
+  readonly playerNumber: number;
+  readonly name: string;
+  readonly civilizationId: number;
+  readonly colorId: number;
+  readonly selectedColor: number;
+  readonly selectedTeamId: number;
+  readonly resolvedTeamId: number;
+  readonly profileId: number;
+  readonly playerType: number;
+  readonly resigned: boolean;
+  readonly teamWinner: boolean;
+  readonly result: BrowserReplayPlayerResult;
+  readonly resultEvidence: EvidenceClass;
+  readonly resultSource: "summary-resigned" | "summary-winner-with-postgame" | "postgame-nonwinner" | "unavailable";
+}
+
+export interface BrowserReplayMap {
+  readonly evidence: EvidenceClass;
+  readonly widthTiles: number;
+  readonly heightTiles: number;
+  readonly tileCount: number;
+  readonly terrainCounts: Record<string, number>;
+  readonly elevationCounts: Record<string, number>;
+  readonly tileGrid: {
+    readonly encoding: "row-major-terrain-elevation-v1";
+    readonly widthTiles: number;
+    readonly heightTiles: number;
+    readonly terrainIds: readonly number[];
+    readonly elevations: readonly number[];
+    readonly passability: "unresolved";
+  };
+}
+
+export interface BrowserReplayActionPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly source: "action-position" | "payload-point" | "wall-end" | "unknown";
+  readonly evidence: EvidenceClass;
+  readonly isMapCoordinate: boolean;
+}
+
+export interface BrowserReplayAction {
+  readonly id: string;
+  readonly operationIndex: number;
+  readonly actionIndex: number;
+  readonly sourceSequence: number;
+  readonly issuedAtMs?: number;
+  readonly playerNumber?: number;
+  readonly playerId?: string;
+  readonly kind: string;
+  readonly mappedScenarioKind?: string;
+  readonly selectedIds: readonly number[];
+  readonly actorIds: readonly number[];
+  readonly targetId?: number;
+  readonly destination?: BrowserReplayActionPoint;
+  readonly dataIds: Record<string, number>;
+  readonly parameters: Record<string, CommandParameterValue>;
+  readonly evidence: EvidenceClass;
+  readonly unsupported: readonly string[];
+}
+
+export interface BrowserReplayPlayerActionSummary {
+  readonly playerId: string;
+  readonly playerNumber?: number;
+  readonly name?: string;
+  readonly total: number;
+  readonly byKind: Record<string, number>;
+  readonly firstActionMs?: number;
+  readonly lastActionMs?: number;
+  readonly firstOperationIndex: number;
+  readonly lastOperationIndex: number;
+}
+
+export interface BrowserReplayChatMessage {
+  readonly operationIndex: number;
+  readonly sourceSequence: number;
+  readonly issuedAtMs?: number;
+  readonly playerNumber?: number;
+  readonly playerId?: string;
+  readonly rawText?: string;
+  readonly decodedText?: string;
+  readonly textSource: "decoded-message" | "raw-parser-text" | "none";
+  readonly textTruncated: boolean;
+  readonly metadata: Record<string, CommandParameterValue>;
+  readonly evidence: EvidenceClass;
+}
+
+export interface BrowserReplayUnsupportedEvidence {
+  readonly area:
+    | "initial objects"
+    | "lifetimes"
+    | "economy"
+    | "actions"
+    | "chat"
+    | "map"
+    | "ruleset"
+    | "parser"
+    | "provenance";
+  readonly evidence: EvidenceClass;
+  readonly message: string;
+  readonly count?: number;
 }
 
 export interface Aoe2recParsedPlayer {
@@ -194,6 +415,7 @@ export interface LocalReplayCompatibilityReport {
     readonly committedRawReplayBytes: false;
   };
   readonly parsed?: Aoe2recParsedReplay;
+  readonly compiled?: BrowserCompiledReplayV1;
   readonly comparisons: readonly LocalReplayComparison[];
   readonly unsupportedMappings: readonly string[];
 }
@@ -216,6 +438,12 @@ export type LocalReplayParserRequest =
     };
 
 export type LocalReplayParserResponse =
+  | {
+      readonly type: "local-recording-status";
+      readonly requestId: string;
+      readonly phase: LocalReplayParserProgressPhase;
+      readonly message: string;
+    }
   | {
       readonly type: "local-recording-report";
       readonly requestId: string;
@@ -340,7 +568,7 @@ export function mapAoe2recActionKindCounts(actionKindCounts: Record<string, numb
   readonly mappedScenarioActionKindCounts: Record<string, number>;
   readonly unmappedActionKinds: readonly string[];
 } {
-  const mapped: Record<string, number> = {};
+  const mapped = createNullRecord<number>();
   const unmapped: string[] = [];
 
   for (const [aoe2recKind, count] of Object.entries(actionKindCounts)) {
@@ -354,14 +582,19 @@ export function mapAoe2recActionKindCounts(actionKindCounts: Record<string, numb
 
   return {
     mappedScenarioActionKindCounts: sortNumberRecord(mapped),
-    unmappedActionKinds: unmapped.sort()
+    unmappedActionKinds: unmapped.sort(compareCodePoint)
   };
+}
+
+export function mapAoe2recActionKind(actionKind: string): string | undefined {
+  return AOE2REC_ACTION_TO_SCENARIO_KIND[actionKind];
 }
 
 export function buildLocalReplayCompatibilityReport(
   recording: LocalReplayFileReference,
   expected: LocalReplayExpectedScenario,
-  parsed: Aoe2recParsedReplay
+  parsed: Aoe2recParsedReplay,
+  compiled?: BrowserCompiledReplayV1
 ): LocalReplayCompatibilityReport {
   const comparisons = buildComparisons(recording, expected, parsed);
   const unsupportedMappings = buildUnsupportedMappings(parsed);
@@ -369,10 +602,11 @@ export function buildLocalReplayCompatibilityReport(
   const status: LocalReplayCompatibilityStatus = hardMismatch || parsed.fullParseError ? "unsupported" : "compatible";
   const summary =
     status === "compatible"
-      ? "Compatible with the Milestone 6 validated fixture contract; object tables and command payload parity remain partial."
+      ? "Compatible with the validated Glade fixture contract for equivalent parser fields; object tables and " +
+        "simulation import remain unsupported."
       : "Parsed by the pinned aoe2rec WASM package, but it does not match the validated fixture contract.";
 
-  return baseReport(recording, expected, status, summary, comparisons, unsupportedMappings, parsed);
+  return baseReport(recording, expected, status, summary, comparisons, unsupportedMappings, parsed, compiled);
 }
 
 export function buildCorruptLocalReplayReport(
@@ -413,8 +647,16 @@ export function buildCorruptLocalReplayReport(
   );
 }
 
+export function createNullRecord<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
+
 export function sortNumberRecord(input: Record<string, number>): Record<string, number> {
-  return Object.fromEntries(Object.entries(input).sort(([left], [right]) => left.localeCompare(right)));
+  const output = createNullRecord<number>();
+  for (const [key, value] of Object.entries(input).sort(([left], [right]) => compareCodePoint(left, right))) {
+    output[key] = value;
+  }
+  return output;
 }
 
 function buildComparisons(
@@ -586,7 +828,8 @@ function buildComparisons(
           expected: formatNumber(expected.startingObjects.total),
           actual: formatNumber(nextObjectId),
           detail:
-            "This only reconciles a contiguous-ID proxy. Per-object owners, data IDs, HP, and positions remain unsupported."
+            "This only reconciles a contiguous-ID proxy. Per-object owners, data IDs, HP, and positions remain " +
+            "unsupported."
         }),
     unsupportedComparison(
       "starting objects",
@@ -680,10 +923,13 @@ function comparePlayer(
 function buildUnsupportedMappings(parsed: Aoe2recParsedReplay): string[] {
   const unsupported = [
     "Direct browser parsing is a compatibility/provenance report only; it does not initialize simulation world state.",
-    "Recording bytes are not uploaded or committed; only derived hashes, metadata, and counts are displayed.",
+    "Raw recording bytes stay local and raw parser objects are not returned. Derived output/export can include " +
+      "player names/profile IDs, terrain/elevation arrays, action object IDs/coordinates/scalars, and bounded " +
+      "chat text.",
     "aoe2rec-js 0.1.22 exposes map ID/size/tile arrays, but not the localized map name or size label.",
     "aoe2rec-js 0.1.22 did not expose per-object starting owner, data ID, HP, and position tables through this JS API.",
-    "Command payloads are not normalized into ReplayScenarioV1 yet; Milestone 6 compares total action and action-kind counts.",
+    "Command payloads are normalized for the browser dataview only; they are not imported into ReplayScenarioV1 " +
+      "or SimulationEngine.",
     "Sync, Viewlock, Chat, and PostGame operations are shown as parser operations, not simulation commands.",
     "Replay random seeds are reported as parser header facts and remain distinct from ruleset/DAT provenance."
   ];
@@ -705,7 +951,8 @@ function baseReport(
   summary: string,
   comparisons: readonly LocalReplayComparison[],
   unsupportedMappings: readonly string[],
-  parsed?: Aoe2recParsedReplay
+  parsed?: Aoe2recParsedReplay,
+  compiled?: BrowserCompiledReplayV1
 ): LocalReplayCompatibilityReport {
   return dropUndefined({
     schemaVersion: "aoe-sim.local-replay-compatibility.v1" as const,
@@ -726,6 +973,7 @@ function baseReport(
       committedRawReplayBytes: false as const
     },
     parsed,
+    compiled,
     comparisons,
     unsupportedMappings
   }) as LocalReplayCompatibilityReport;
@@ -761,7 +1009,7 @@ function comparison(value: LocalReplayComparisonInput): LocalReplayComparison {
 }
 
 function countNumbers(values: readonly number[]): Record<string, number> {
-  const counts: Record<string, number> = {};
+  const counts = createNullRecord<number>();
   for (const value of values) {
     counts[String(value)] = (counts[String(value)] ?? 0) + 1;
   }
@@ -770,8 +1018,8 @@ function countNumbers(values: readonly number[]): Record<string, number> {
 }
 
 function recordsEqual(left: Record<string, number>, right: Record<string, number>): boolean {
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
+  const leftKeys = Object.keys(left).sort(compareCodePoint);
+  const rightKeys = Object.keys(right).sort(compareCodePoint);
   if (leftKeys.length !== rightKeys.length) {
     return false;
   }
@@ -800,7 +1048,8 @@ function formatRecord(value: Record<string, number>): string {
 function normalizeParserError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message === "unreachable"
-    ? "aoe2rec-js rejected the recording while decoding; the file may be corrupt or outside the supported DE savegame format."
+    ? "aoe2rec-js rejected the recording while decoding; the file may be corrupt or outside the supported DE " +
+        "savegame format."
     : message;
 }
 

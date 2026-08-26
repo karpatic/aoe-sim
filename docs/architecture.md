@@ -17,7 +17,14 @@ renderer-visible entities and current projectiles; they do not build, checksum, 
 Ready, pause, step, seek, explicit Sync, and terminal boundaries still return authoritative checksummed snapshots. The
 main thread never receives mutable engine objects.
 
-Local replay upload uses a separate protocol in `src/replay/local-recording.ts` and worker entrypoint `src/worker/replay-parser-worker.ts`. The main thread reads the selected file with `File.arrayBuffer`, transfers that `ArrayBuffer` to the parser worker, and receives only derived parser output: hashes, metadata, operation counts, comparison rows, and unsupported mapping notes. That report is displayed in the DOM but is not fed into `SimulationEngine`.
+Local replay upload uses a separate protocol in `src/replay/local-recording.ts` and worker entrypoint
+`src/worker/replay-parser-worker.ts`. The main thread reads the selected file with `File.arrayBuffer`, transfers that
+`ArrayBuffer` to the parser worker, and receives only derived parser output: hashes, metadata, compact map arrays,
+operation/action summaries, normalized action timeline rows, chat rows where exposed, comparison rows, and unsupported
+evidence notes. The browser-compiled model is displayed and downloadable from the native dataview UI, but it is not fed
+into `SimulationEngine`. The read is guarded before `File.arrayBuffer` by a 128 MiB recording limit, then guarded again
+inside the worker. Model allocation is bounded by 1024-tile map dimensions, 1,048,576 tiles, 2,000,000 operations,
+250,000 normalized actions, 100 chat preview rows, and 128 MiB canonical/download JSON.
 
 Simulation time is integer milliseconds. Positions are stored as fixed-point integers at scale 1000 and converted to tile coordinates for snapshots. Scheduled replay events are ordered by `(timeMs, sourceSequence, insertionOrdinal)` so same-time commands replay consistently.
 
@@ -25,7 +32,11 @@ Seeking resets the world from the initial scenario and replays commands to the r
 
 `tools/build-scenario.mjs` converts the pinned parser `game.json` into `public/fixtures/glade-120x120.scenario.json`. The importer validates the source schema, hashes the parser output and replay bytes, strips machine-local paths, and stores map tiles as row-major terrain/elevation arrays.
 
-Direct upload parsing is pinned to `aoe2rec-js@0.1.22`, built from upstream commit `a6b8125c1206aa3b0646fbe3eae436d368640e49`. Vite emits the package WASM as a bundled asset and uses ES module worker output so the package's top-level WASM initialization remains worker-compatible.
+Direct upload parsing is pinned to `aoe2rec-js@0.1.22`, built from upstream commit
+`a6b8125c1206aa3b0646fbe3eae436d368640e49`. The parser worker imports the wasm-bindgen JS bindings directly, fetches
+the emitted `aoe2rec_js_bg.wasm` asset URL, instantiates it inside the worker, calls `__wbg_set_wasm`, then starts the
+module. This avoids the brittle direct `.wasm` dependency-prebundle path that could leave the externref table unset in
+some Vite worker startup paths.
 
 `tools/build-ruleset.py` converts the installed Genie DAT plus English localization into `public/rules/ruleset-current.json`. The committed artifact preserves richer DAT-derived sections for later systems, and the browser now retains movement, collision, terrain restriction, and provenance fields needed by the worker. Runtime entity initialization resolves rules by numeric scenario `dataId` first, with string `kind` fallback only for older synthetic fixtures.
 
@@ -45,7 +56,29 @@ unit movement or lifecycle changes. Represented-tree mutations that require rebu
 immediate. This replaces unconditional per-system refreshes without changing the engine's 50 ms movement/economy/combat
 step.
 
-Local parser compatibility checks reconcile the known recording against the committed `aoc-mgz` scenario where `aoe2rec` exposes equivalent facts: recording identity, build/version, duration, human players, map ID/dimensions/tile counts, terrain/elevation counts, total actions, and action-kind counts. Starting objects remain partial because the pinned JS API exposes `replay.next_object_id` but not per-object owner/data/position tables.
+Local parser compatibility checks reconcile the known recording against the committed `aoc-mgz` scenario where
+`aoe2rec` exposes equivalent facts: recording identity, build/version, duration, human players, map
+ID/dimensions/tile counts, terrain/elevation counts, total actions, and action-kind counts. The dataview model does not
+reuse the committed scenario as selected-replay truth. Starting objects remain partial because the pinned JS API exposes
+`replay.next_object_id` but not per-object owner/data/position tables.
+
+The browser-compiled replay model is versioned as `aoe-sim.browser-compiled-replay.v1`. It hash-links the selected
+recording, parser package/WASM, static ruleset reference, and compiled content hash. The hash contract is declared in the
+model as `aoe-sim.stable-json-v1.unsigned-browser-compiled-replay`: verifiers remove `/provenance/generatedArtifact`,
+remove local filename/mtime fields from `/recording` and `/provenance/replay`, sort object keys by code-point order,
+omit `undefined`, encode UTF-8 JSON without whitespace, and SHA-256 those canonical content bytes. Static DAT/ruleset
+data may help label or interpret facts, but unsupported initial-object-derived analytics, lifetimes, current economy,
+and resource estimates are explicitly reported as unsupported instead of fetched from `game.json`, `lifetimes.json`,
+`economy.json`, or `resource_estimates.json` for the selected replay.
+
+Action extraction is intentionally kind-aware where payload semantics are proven. `Research.building_id` and
+`Research.building_ids` are producer object instances; `Research.technology_type` is the technology data ID.
+`Order.object_ids` are actor object instances and `Order.building_id` is the target object instance. Other scalar fields
+remain parameters or unsupported evidence unless their DAT/object-instance meaning has been proven.
+
+Winner/loss display depends on an authoritative completion signal. Resignation can be shown from the parser summary, but
+non-resigned players are only labeled winner/loss when a post-game world-time block is present and the summary exposes a
+winner team; otherwise the result is unknown.
 
 Resource conservation is explicit in snapshots. Extraction increases node `extracted` and worker/player carry, deposits transfer carry into stockpiles, and spending reduces stockpiles through ledgers. Divergence diagnostics record the first unsupported or inconsistent economy condition without mutating state to fit expected replay timeseries.
 

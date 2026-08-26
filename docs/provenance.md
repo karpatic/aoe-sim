@@ -8,7 +8,8 @@ Milestone 6 commits normalized browser artifacts, DAT-derived factual rules, det
 - `public/rules/ruleset-current.json` is generated from the installed `empires2_x2_p1.dat` and English localization strings.
 - `public/rules/ruleset-current.report.json` records extractor/parser/source hashes, field coverage, and unresolved raw effect diagnostics.
 - `public/rules/glade-120x120.coverage.json` resolves the pinned scenario's starting entity data IDs and command unit/building/technology IDs against the full ruleset.
-- `src/worker/replay-parser-worker.ts` parses selected local `.aoe2record` files with the pinned `aoe2rec-js` WASM package and returns only derived compatibility data to the UI.
+- `src/worker/replay-parser-worker.ts` parses selected local `.aoe2record` files with the pinned `aoe2rec-js` WASM
+  package and returns derived compatibility rows plus the bounded browser-compiled dataview model to the UI.
 - `docs/replay-upload.md` records the direct parser identity, license evidence, known fixture reconciliation, and unsupported mappings.
 - No original AoE graphics, audio, raw replay bytes, raw DAT bytes, or raw parser output are committed.
 
@@ -74,5 +75,7 @@ Known local replay compatibility:
 
 - The browser upload path compares selected files against the committed Glade scenario reference, not against raw replay bytes in the repository.
 - The known local fixture at `/home/carlos/Documents/GitHub/www/aoe/game.aoe2record` has `sha256:67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc` and reconciles with `aoe2rec-js@0.1.22` for identity, versions, duration, players, map tile counts, terrain/elevation counts, total actions, and mapped action-kind counts.
-- Starting objects reconcile only as the `next_object_id = 9806` proxy. The per-object table remains sourced from the committed `aoc-mgz` scenario until the direct parser exposes or maps it.
+- Starting objects reconcile only as the `next_object_id = 9806` proxy. The selected-upload dataview does not return a
+  per-object starting table; the committed `aoc-mgz` scenario remains the source for the built-in Glade simulation
+  fixture only.
 - Unsupported or corrupt local files produce compatibility reports and do not initialize simulation state.

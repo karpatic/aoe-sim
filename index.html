@@ -58,12 +58,23 @@
               <span>.aoe2record</span>
               <input id="recording-file" type="file" accept=".aoe2record,application/octet-stream" />
             </label>
+            <a id="replay-dataview-link" class="dataview-jump" href="#replay-dataview" hidden aria-disabled="true">
+              View compiled dataview
+            </a>
             <dl id="recording-report" class="diagnostics local-recording-report"></dl>
           </section>
 
           <dl id="diagnostics" class="diagnostics"></dl>
         </aside>
       </section>
+
+      <section
+        id="replay-dataview"
+        class="dataview"
+        tabindex="-1"
+        aria-label="Browser-compiled replay dataview"
+        aria-live="polite"
+      ></section>
     </main>
 
     <script type="module" src="/src/app.ts"></script>

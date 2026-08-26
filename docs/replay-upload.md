@@ -1,6 +1,12 @@
 # Local Replay Upload
 
-Milestone 6 adds browser-side `.aoe2record` parsing for compatibility diagnostics. The selected recording is read with `File.arrayBuffer`, transferred to a dedicated module worker, hashed with Web Crypto, and parsed by the pinned WASM package. The parser worker returns only derived metadata, counts, hashes, and comparison rows. It does not initialize simulation state, mutate renderer state, upload bytes, or commit replay bytes.
+Local replay upload performs browser-side `.aoe2record` compilation for diagnostics and dataview inspection. The selected
+recording is size-checked before `File.arrayBuffer`, transferred to a dedicated module worker, hashed with Web Crypto,
+and parsed by the pinned WASM package. The parser worker returns only a compact derived model plus compatibility rows. It
+does not initialize simulation state, mutate renderer state, upload bytes, commit replay bytes, return raw parser
+objects, or fetch per-replay JSON sidecars for the selected file. Derived output/export can include player names/profile
+IDs, terrain/elevation arrays, action object IDs, coordinates, scalar parameters, and bounded chat text; raw replay bytes
+remain local.
 
 Pinned parser identity:
 
@@ -23,13 +29,68 @@ Known fixture differential:
 | Map | selected/resolved map ID, square map size, tile array, terrain/elevation IDs | Matches map ID `188`, `120x120`, `14,400` tiles, terrain counts, and elevation counts |
 | Starting objects | `replay.next_object_id` | `next_object_id = 9806` matches the committed total entity count only as a contiguous-ID proxy |
 | Commands | operation count, `Action` count, parser action-kind names | `Action = 2455` matches committed command count; all `aoe2rec` action-kind counts map to the committed `aoc-mgz` action vocabulary with no count diffs |
+| Chat | `Chat` operations with bounded raw parser text and decoded JSON message text when present | Displayed in a collapsed dataview panel; chat is not imported as a simulation command |
+
+Resource and shape limits:
+
+- selected recording: 128 MiB, checked before `File.arrayBuffer` and again in the worker
+- map dimensions: positive safe integers, maximum 1024 tiles per side
+- map tile grid: `width * height` must be safe, equal `tiles.length`, and at most 1,048,576 tiles
+- map tile values: every terrain/elevation value is required, finite, safe, and nonnegative
+- parser operations: maximum 2,000,000
+- normalized action timeline: maximum 250,000; oversized action streams reject instead of truncating
+- chat model: maximum 100 rows, with per-row raw/decoded text and metadata string caps
+- canonical/download JSON: maximum 128 MiB before compiled content hashing or Blob download allocation
+
+Browser-compiled dataview model:
+
+- schema: `aoe-sim.browser-compiled-replay.v1`
+- provenance: selected replay content hash/size/local-only status, parser package/WASM identity, static ruleset
+  reference, compiled content hash, and canonical content byte count
+- settings: duration, build/game/save/log fields, replay timers/seeds, and game settings exposed by `aoe2rec-js`
+- map: validated parser-exposed row-major terrain/elevation arrays, counts, dimensions, and rendered native Canvas view
+- participants: teams, player numbers, names, civ/color/profile IDs, resignation flags, supported winner/loss/resigned
+  results, and unknown result where completion evidence is unavailable
+- operations/actions: operation-kind counts, action-kind counts, mapped scenario-kind counts, per-player summaries,
+  bounded/paged timeline rows, actor/selection IDs, target IDs, destinations, data IDs, and scalar payload parameters
+  where exposed
+- action semantics: `Research.building_id`/`building_ids` are producer object instances, `Research.technology_type` is
+  the technology data ID, `Order.object_ids` are actors, and `Order.building_id` is the target object instance
+- chat: parser chat operations where exposed, collapsed by default, with sender/time/raw-vs-decoded evidence and explicit
+  omission/truncation counts
+- export: the user can download the browser-compiled JSON generated from the selected local bytes
+
+Compiled content hash contract:
+
+`provenance.generatedArtifact.sha256` is the SHA-256 of canonical unsigned content, not a hash of the downloaded pretty
+JSON and not a hash that includes itself. The exported model declares the contract as
+`aoe-sim.stable-json-v1.unsigned-browser-compiled-replay`: remove `/provenance/generatedArtifact`, remove
+`/recording/fileName`, `/recording/lastModifiedUtc`, `/provenance/replay/fileName`, and
+`/provenance/replay/lastModifiedUtc`, sort object keys with fixed code-point lexical order, omit `undefined`, encode
+UTF-8 JSON without whitespace, and hash those canonical content bytes. Identical replay bytes therefore keep the same
+compiled content hash regardless of the selected local filename or file mtime. The download filename remains derived from
+the replay content hash.
+
+Error classification:
+
+- WASM fetch/init failures, hashing/reference failures, model validation failures, and compiler failures reject to the
+  worker error path; they are not reported as corrupt replays.
+- Invalid recorded-game envelopes and summary parse failures produce corrupt-file compatibility reports with parser-stage
+  wording.
+- Full parse degradation after a usable summary remains explicit as unsupported/partial parser evidence.
 
 Unsupported or partial mappings:
 
-- Starting object tables are not exposed through the pinned JS API: Gaia/player split, data IDs, HP, and observed starting positions still come from the committed `aoc-mgz` scenario.
+- Starting object tables are not exposed through the pinned JS API: Gaia/player split, data IDs, HP, and observed
+  starting positions are not confirmed by local browser compilation.
 - Team IDs are parser-specific. The report compares team membership cardinality, not raw team ID numbers.
-- Map name `Glade` and size label `Tiny` remain committed scenario metadata; the local parser exposes map ID and dimensions.
-- Command payloads are not converted into `ReplayScenarioV1` by the local upload path. The report compares counts only.
+- Map name `Glade` and size label `Tiny` remain committed scenario metadata; the local parser exposes map ID and
+  dimensions.
+- Command payloads are normalized for dataview inspection only. The local upload path does not convert a selected replay
+  into `ReplayScenarioV1` and does not feed uploaded commands into `SimulationEngine`.
+- Queue intent remains intent; it is not promoted into confirmed spawn evidence without simulation or later evidence.
 - Sync, Viewlock, Chat, and PostGame records are parser operations, not simulation commands.
 - Random seeds exposed by `aoe2rec-js` are reported as parser header facts and are not yet imported into the simulation scenario.
+- Lifetimes, current economy, and resource estimates are not fetched from `lifetimes.json`, `economy.json`, or
+  `resource_estimates.json` for a selected replay.
 - Unsupported or corrupt files produce a compatibility report and do not initialize simulation state.

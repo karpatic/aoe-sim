@@ -2,10 +2,16 @@ import "./style.css";
 import { CanvasRenderer, type RendererDrawTiming } from "./render/canvas-renderer";
 import { RollingPerformanceMetric } from "./profiling";
 import { assertReplayScenarioV1, assertRulesetV1 } from "./replay/import-game-json";
+import { assertRecordingByteLength } from "./replay/limits";
 import { buildLocalReplayExpectedScenario } from "./replay/local-recording";
 import { summarizeProvenance } from "./replay/provenance";
 import { renderDiagnostics } from "./ui/diagnostics";
 import { renderLocalRecordingReport } from "./ui/local-recording";
+import {
+  DEFAULT_REPLAY_DATAVIEW_STATE,
+  renderReplayDataview,
+  type ReplayDataviewState
+} from "./ui/replay-dataview";
 import { formatSimTime, setTimeline } from "./ui/timeline";
 import type { ClientToWorker, WorkerToClient } from "./protocol";
 import type {
@@ -28,6 +34,8 @@ const scenarioSelect = must<HTMLSelectElement>("#scenario-select");
 const recordingInput = must<HTMLInputElement>("#recording-file");
 const recordingStatus = must<HTMLElement>("#recording-status");
 const recordingReportRoot = must<HTMLElement>("#recording-report");
+const replayDataviewLink = must<HTMLAnchorElement>("#replay-dataview-link");
+const replayDataviewRoot = must<HTMLElement>("#replay-dataview");
 const playPause = must<HTMLButtonElement>("#play-pause");
 const step = must<HTMLButtonElement>("#step");
 const sync = must<HTMLButtonElement>("#sync");
@@ -50,13 +58,21 @@ const scenarioOptions: Record<string, string> = {
   combat: "./fixtures/combat.scenario.json"
 };
 
+interface RecordingSelectionToken {
+  readonly generation: number;
+  readonly requestId: string;
+}
+
 let requestOrdinal = 0;
+let recordingSelectionGeneration = 0;
 let currentSnapshot: WorldSnapshot | undefined;
 let currentDiagnostics: SimulationDiagnostics | undefined;
 let currentRenderFrame: PlaybackRenderFrame | undefined;
 let referenceScenario: ReplayScenarioV1 | undefined;
 let localRecordingReport: LocalReplayCompatibilityReport | undefined;
+let replayDataviewState: ReplayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
 let activeRecordingRequestId = "";
+let replayDataviewStatus = "no local file selected";
 let provenanceSummary: readonly string[] = [];
 let lastVisualFrameWallMs: number | undefined;
 const mainMergeTiming = new RollingPerformanceMetric();
@@ -76,7 +92,11 @@ replayParserWorker.onmessage = (event: MessageEvent<LocalReplayParserResponse>) 
 };
 
 replayParserWorker.onerror = (event) => {
-  recordingStatus.textContent = `Parser worker error: ${event.message}`;
+  localRecordingReport = undefined;
+  replayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
+  recordingStatus.textContent = `Parser worker environment error: ${event.message}`;
+  replayDataviewStatus = "parser worker error";
+  renderLocalReplayUi("parser worker error");
 };
 
 playPause.addEventListener("click", () => {
@@ -129,9 +149,16 @@ scenarioSelect.addEventListener("change", () => {
 });
 
 recordingInput.addEventListener("change", () => {
-  parseSelectedRecording().catch((error: unknown) => {
+  const selection = beginRecordingSelection();
+  parseSelectedRecording(selection).catch((error: unknown) => {
+    if (!isActiveRecordingSelection(selection)) {
+      return;
+    }
+    localRecordingReport = undefined;
+    replayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
     recordingStatus.textContent = error instanceof Error ? error.message : String(error);
-    renderLocalRecordingReport(recordingReportRoot, localRecordingReport, "failed before parser worker");
+    replayDataviewStatus = "failed before parser worker";
+    renderLocalReplayUi("failed before parser worker");
   });
 });
 
@@ -148,7 +175,7 @@ seek.addEventListener("change", () => {
   });
 });
 
-renderLocalRecordingReport(recordingReportRoot, undefined, "no local file selected");
+renderLocalReplayUi("no local file selected");
 
 initialize().catch((error: unknown) => {
   status.textContent = error instanceof Error ? error.message : String(error);
@@ -188,26 +215,42 @@ async function initialize(): Promise<void> {
   });
 }
 
-async function parseSelectedRecording(): Promise<void> {
+async function parseSelectedRecording(selection: RecordingSelectionToken): Promise<void> {
   const file = recordingInput.files?.[0];
   if (!file) {
-    activeRecordingRequestId = "";
+    if (!isActiveRecordingSelection(selection)) {
+      return;
+    }
     localRecordingReport = undefined;
+    replayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
+    replayDataviewStatus = "no local file selected";
     recordingStatus.textContent = "No local file selected";
-    renderLocalRecordingReport(recordingReportRoot, undefined, "no local file selected");
+    renderLocalReplayUi("no local file selected");
+    return;
+  }
+
+  assertRecordingByteLength(file.size, file.name || "Selected recording");
+  if (!isActiveRecordingSelection(selection)) {
     return;
   }
 
   recordingStatus.textContent = "Reading local file";
   localRecordingReport = undefined;
-  renderLocalRecordingReport(recordingReportRoot, undefined, "reading local file");
+  replayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
+  replayDataviewStatus = "reading local file";
+  renderLocalReplayUi("reading local file");
 
   const scenario = await loadReferenceScenario();
+  if (!isActiveRecordingSelection(selection)) {
+    return;
+  }
   const buffer = await file.arrayBuffer();
-  const requestId = nextRequestId();
+  if (!isActiveRecordingSelection(selection)) {
+    return;
+  }
   const message: LocalReplayParserRequest = {
     type: "parse-local-recording",
-    requestId,
+    requestId: selection.requestId,
     fileName: file.name,
     sizeBytes: file.size,
     lastModified: file.lastModified,
@@ -215,9 +258,12 @@ async function parseSelectedRecording(): Promise<void> {
     buffer
   };
 
-  activeRecordingRequestId = requestId;
+  if (!isActiveRecordingSelection(selection)) {
+    return;
+  }
   recordingStatus.textContent = `Parsing ${file.name} locally`;
-  renderLocalRecordingReport(recordingReportRoot, undefined, "parsing in worker");
+  replayDataviewStatus = "parsing in worker";
+  renderLocalReplayUi("parsing in worker");
   replayParserWorker.postMessage(message, [buffer]);
 }
 
@@ -279,24 +325,58 @@ function handleWorkerMessage(message: WorkerToClient): void {
 }
 
 function handleReplayParserMessage(message: LocalReplayParserResponse): void {
-  if (message.requestId && message.requestId !== activeRecordingRequestId) {
+  if (!message.requestId || message.requestId !== activeRecordingRequestId) {
     return;
   }
 
   switch (message.type) {
+    case "local-recording-status":
+      replayDataviewStatus = message.message;
+      recordingStatus.textContent = message.message;
+      renderLocalReplayUi(message.phase);
+      return;
     case "local-recording-report":
       localRecordingReport = message.report;
+      replayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
+      replayDataviewStatus = message.report.compiled
+        ? "browser-compiled replay model ready"
+        : "compatibility report ready";
       recordingStatus.textContent =
         message.report.status === "compatible"
           ? "Local replay compatible"
           : `Local replay ${message.report.status}`;
-      renderLocalRecordingReport(recordingReportRoot, localRecordingReport, message.report.status);
+      renderLocalReplayUi(message.report.status);
       return;
     case "local-recording-error":
+      localRecordingReport = undefined;
+      replayDataviewState = DEFAULT_REPLAY_DATAVIEW_STATE;
       recordingStatus.textContent = message.message;
-      renderLocalRecordingReport(recordingReportRoot, localRecordingReport, "parser worker error");
+      replayDataviewStatus = "parser worker error";
+      renderLocalReplayUi("parser worker error");
       return;
   }
+}
+
+function setReplayDataviewState(state: ReplayDataviewState): void {
+  replayDataviewState = state;
+  renderLocalReplayUi(localRecordingReport?.status ?? replayDataviewStatus);
+}
+
+function renderLocalReplayUi(recordingStateText: string): void {
+  renderLocalRecordingReport(recordingReportRoot, localRecordingReport, recordingStateText);
+  renderReplayDataview(
+    replayDataviewRoot,
+    localRecordingReport,
+    replayDataviewStatus,
+    replayDataviewState,
+    setReplayDataviewState
+  );
+  setReplayDataviewJumpReady(Boolean(localRecordingReport?.compiled));
+}
+
+function setReplayDataviewJumpReady(isReady: boolean): void {
+  replayDataviewLink.hidden = !isReady;
+  replayDataviewLink.setAttribute("aria-disabled", String(!isReady));
 }
 
 function setEnabled(enabled: boolean): void {
@@ -314,6 +394,23 @@ function post(message: ClientToWorker): void {
 function nextRequestId(): string {
   requestOrdinal += 1;
   return `ui-${requestOrdinal}`;
+}
+
+function beginRecordingSelection(): RecordingSelectionToken {
+  recordingSelectionGeneration += 1;
+  const token = {
+    generation: recordingSelectionGeneration,
+    requestId: `recording-${recordingSelectionGeneration}`
+  };
+  activeRecordingRequestId = token.requestId;
+  return token;
+}
+
+function isActiveRecordingSelection(selection: RecordingSelectionToken): boolean {
+  return (
+    selection.generation === recordingSelectionGeneration &&
+    selection.requestId === activeRecordingRequestId
+  );
 }
 
 function selectedPlaybackSpeed(): number {

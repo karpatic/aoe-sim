@@ -10,7 +10,7 @@ export function renderLocalRecordingReport(
   root.replaceChildren();
 
   appendRow(root, "state", stateText);
-  appendRow(root, "boundary", "local file bytes -> parser worker; no selected replay upload");
+  appendRow(root, "boundary", "raw bytes stay local; derived dataview/export can include replay facts");
   appendRow(root, "parser", `${AOE2REC_PARSER_IDENTITY.parser.id} / ${AOE2REC_PARSER_IDENTITY.license.name}`);
   appendRow(root, "parser commit", AOE2REC_PARSER_IDENTITY.parser.commit ?? "unknown");
   appendRow(root, "package", AOE2REC_PARSER_IDENTITY.parser.sha256);
@@ -23,7 +23,7 @@ export function renderLocalRecordingReport(
   appendRow(root, "compatibility", report.status);
   appendRow(root, "summary", report.summary);
   appendRow(root, "file", `${report.recording.fileName} / ${formatBytes(report.recording.sizeBytes ?? 0)}`);
-  appendRow(root, "replay hash", report.recording.sha256);
+  appendRow(root, "replay content hash", report.recording.sha256);
   appendRow(root, "scenario", `${report.expected.scenarioId} / ${report.expected.scenarioArtifact.sha256}`);
   appendRow(root, "ruleset", `${report.expected.ruleset.id} / ${report.expected.ruleset.sha256}`);
 
@@ -33,6 +33,17 @@ export function renderLocalRecordingReport(
     appendRow(root, "players", formatPlayers(report));
     appendRow(root, "operations", formatOperations(report));
     appendRow(root, "seeds", formatSeeds(report));
+  }
+
+  if (report.compiled) {
+    appendRow(root, "dataview", report.compiled.provenance.generatedArtifact.id);
+    appendRow(root, "compiled content hash", report.compiled.provenance.generatedArtifact.sha256);
+    appendRow(root, "canonical content bytes", String(report.compiled.provenance.generatedArtifact.sizeBytes ?? 0));
+    appendRow(
+      root,
+      "timeline",
+      `${report.compiled.actions.timeline.length} actions, ${report.compiled.chat.total} chat`
+    );
   }
 
   appendDisclosureRow(
