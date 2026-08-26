@@ -8,7 +8,7 @@ type SimulationWorkerScope = typeof globalThis & {
 
 const workerScope = self as SimulationWorkerScope;
 const PLAYBACK_TIMER_INTERVAL_MS = 100;
-const PLAYBACK_BATCH_MS = 400;
+const PLAYBACK_BATCH_MS = 500;
 const PLAYBACK_SNAPSHOT_BATCH_INTERVAL = 4;
 const SEEK_CHUNK_WALL_BUDGET_MS = 35;
 const SEEK_PROGRESS_INTERVAL_MS = 500;
