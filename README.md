@@ -19,16 +19,23 @@ Carlos has not opted into automated tests for this repository. This milestone us
 
 - Strict TypeScript, Vite, native HTML/CSS, Canvas 2D, and a Web Worker.
 - Worker protocol for `initialize`, `play`, `pause`, `seek`, `step`, `snapshot`, and `diagnostics`.
+- Playback uses explicit wall-clock synchronized target speeds: 4x by default, with 10x and 30x UI options. Catch-up
+  work is bounded so diagnostics report lag instead of allowing a high target to create multi-second worker stalls.
 - Separate parser worker for local `.aoe2record` compatibility reports. Selected recording bytes are read with browser file APIs, transferred to the parser worker, and never uploaded or committed.
 - Deterministic event ordering by `(time, sourceSequence, insertionOrdinal)`.
 - Integer millisecond simulation time and fixed-point positions.
+- Continuous simulation builds one deterministic per-step role context for moving units, active workers, queued
+  producers, and attackers. Systems re-check current entity state before acting so task changes during a step do not
+  reuse stale membership.
+- The persistent active-entity index owns deterministic ID ordering, while villager/siege tree activation refreshes on
+  deterministic 500 ms simulation boundaries; forest topology rebuilds remain immediate.
 - Real replay fixture import from `game.json` plus compact synthetic economy and combat fixtures.
 - Compact 120x120 row-major terrain/elevation inputs interpreted through actor terrain restriction matrices where available.
 - All starting Gaia/player objects with stable `obj:<instance_id>` IDs, data IDs, class IDs, owner, and observed starting positions.
 - Complete timestamped action tape preserving source index, source sequence, actor IDs, target IDs, destinations where present, and raw action kind.
 - Raw `MOVE` actions with valid in-map top-level positions are promoted to movement intent. Supported `ORDER`, gather-point, `BUILD`, `DE_QUEUE`, and `STOP` commands are still preserved as observed intent, then interpreted into simulated worker, resource, construction, production, and ledger state where resolvable.
 - DAT-derived `public/rules/ruleset-current.json` with terrain, terrain restrictions, units/buildings/resources, technologies, raw effects, projectiles, production/costs, collision/footprints, movement, and gathering/economy fields exposed by the installed parser.
-- Deterministic tile A* with stable tie-breaking, fixed-point waypoint following, static building/resource footprint occupancy, tile-bucketed dynamic collision/bump checks, route invalidation boundaries, and compact route diagnostics. Dynamic blockers use deterministic bump-or-wait behavior because static A* cannot route around moving units.
+- Deterministic tile A* with stable tie-breaking, fixed-point waypoint following, static building/resource footprint occupancy, persistent tile-bucketed dynamic collision/bump checks, route invalidation boundaries, and compact route diagnostics. Dynamic blockers use deterministic bump-or-wait behavior because static A* cannot route around moving units.
 - Worker gather loops resolve target nodes, gather finite fixed-point resources into carried state, choose drop sites, deposit into player stockpiles, deplete nodes, and deterministically retarget nearby same-family resources.
 - Simulated construction spends resource costs, creates foundations, advances multi-worker progress, completes population buildings, and updates static obstruction.
 - Simulated production queues spend costs and population headroom, train units from represented rules, spawn stable simulated IDs, and honor resolvable gather points.
@@ -42,8 +49,11 @@ Carlos has not opted into automated tests for this repository. This milestone us
 - Starting objects are only partially reconciled through `aoe2rec` `next_object_id = 9806`; per-object owners, data IDs, HP, and observed positions still come from the committed `aoc-mgz` scenario.
 - `public/rules/ruleset-current.report.json` records source hashes, extractor/parser identity, field coverage, and unresolved raw effect operation/attribute diagnostics.
 - `public/rules/glade-120x120.coverage.json` resolves every starting entity data ID and every command-referenced unit, building, and technology ID for the replay fixture.
-- Renderer receives authoritative immutable snapshots at lifecycle boundaries and time-contiguous render deltas during
-  playback. It caches terrain and represented trees locally without mutating simulation state.
+- Renderer receives authoritative immutable snapshots at lifecycle boundaries and time-contiguous dirty-entity render
+  deltas during playback. It caches terrain and represented trees locally without mutating simulation state.
+- Runtime diagnostics expose bounded last/average/max timing rows for worker simulation batches, commands,
+  movement/tree/economy/combat systems, render delta creation, worker posting, main-thread merge, canvas draw, visual
+  frame interval, target playback speed, effective speed, and simulated-time lag.
 - Evidence classes remain explicit: `observed`, `simulated`, and `reconciled`.
 
 Replay command destinations are observed intent, not observed continuous positions. The path chosen from that intent, intermediate positions, carried resources, deposits, depletion, spending, construction, production, and ledgers are simulated. Timeseries comparisons and first divergence records are diagnostics; they do not silently fit engine state to a known replay outcome.

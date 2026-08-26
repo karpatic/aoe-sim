@@ -55,6 +55,12 @@ export class TreeActiveSet {
   private capableSiegeUnits = 0;
 
   public rebuild(world: WorldState): void {
+    this.rebuildTopology(world);
+    this.rebuildUnitIndexes(world);
+    this.refreshActivation(world, true);
+  }
+
+  public rebuildTopology(world: WorldState): void {
     const treeIdsByTile = new Map<string, EntityId[]>();
     const allTreeResourceIds: EntityId[] = [];
     const liveTreeResourceIds: EntityId[] = [];
@@ -114,8 +120,7 @@ export class TreeActiveSet {
     this.liveTreeResourceIds = liveTreeResourceIds.sort();
     this.treeTileCount = treeIdsByTile.size;
     this.interiorTreeTileCount = interiorTileKeys.size;
-    this.rebuildUnitIndexes(world);
-    this.refreshActivation(world, true);
+    this.retainLiveActivation(world);
   }
 
   public observeEntity(world: WorldState, entity: EntityState): void {
@@ -207,6 +212,11 @@ export class TreeActiveSet {
     return this.allTreeResourceIds;
   }
 
+  public entityCanAffectActivation(world: WorldState, entity: EntityState): boolean {
+    return entityHasRepresentedVillagerActivation(world, entity) ||
+      entityHasRepresentedTreeDestructionCapability(world, entity);
+  }
+
   public diagnostics(): TreeActiveSetDiagnostics {
     return {
       representedTreeTotal: this.allTreeResourceIds.length,
@@ -223,6 +233,17 @@ export class TreeActiveSet {
       treeTileTotal: this.treeTileCount,
       interiorTreeTileTotal: this.interiorTreeTileCount
     };
+  }
+
+  private retainLiveActivation(world: WorldState): void {
+    retainSet(this.villagerActivatedTreeIds, this.liveTreeResourceIds);
+    retainSet(this.siegeActivatedTreeIds, this.liveTreeResourceIds);
+    const nextActiveTreeIds = new Set(this.villagerActivatedTreeIds);
+    for (const id of this.siegeActivatedTreeIds) {
+      nextActiveTreeIds.add(id);
+    }
+    replaceSet(this.activeTreeIds, nextActiveTreeIds);
+    this.rebuildActiveEntityIds(world);
   }
 
   private rebuildUnitIndexes(world: WorldState): void {
@@ -310,7 +331,7 @@ export class TreeActiveSet {
     for (const id of nextActiveEntityIdSet) {
       this.activeEntityIdSet.add(id);
     }
-    this.activeEntityIds = activeEntityIds;
+    this.activeEntityIds = activeEntityIds.sort();
     this.invalidateActiveEntityRefs();
   }
 
@@ -320,7 +341,12 @@ export class TreeActiveSet {
     }
 
     this.activeEntityIdSet.add(id);
-    this.activeEntityIds.push(id);
+    const insertionIndex = this.activeEntityIds.findIndex((candidateId) => candidateId > id);
+    if (insertionIndex < 0) {
+      this.activeEntityIds.push(id);
+    } else {
+      this.activeEntityIds.splice(insertionIndex, 0, id);
+    }
     this.invalidateActiveEntityRefs();
   }
 
@@ -484,6 +510,15 @@ function distanceSquared(
 
 function readNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function retainSet(target: Set<EntityId>, allowedIds: readonly EntityId[]): void {
+  const allowed = new Set(allowedIds);
+  for (const value of target) {
+    if (!allowed.has(value)) {
+      target.delete(value);
+    }
+  }
 }
 
 function replaceSet(target: Set<EntityId>, source: ReadonlySet<EntityId>): void {

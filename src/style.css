@@ -141,7 +141,17 @@ canvas {
 .control-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.55rem;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  color: #bdc8b4;
+  font-size: 0.9rem;
 }
 
 .timeline {

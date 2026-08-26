@@ -1,4 +1,5 @@
 import { checksumStable } from "./checksum";
+import { DynamicCollisionIndex } from "./dynamic-collision-index";
 import { PathingState } from "./systems/occupancy";
 import { TreeActiveSet } from "./tree-active-set";
 import type {
@@ -489,6 +490,7 @@ export class WorldState {
   public firstCombatDivergence?: CombatDivergence;
   public readonly treeActiveSet = new TreeActiveSet();
   public readonly pathing: PathingState;
+  public readonly dynamicCollisionIndex: DynamicCollisionIndex;
   public readonly rulesByDataId = new Map<number, RulesetUnit>();
   public readonly rulesByKind = new Map<string, RulesetUnit>();
   private nextSimOrdinal = 0;
@@ -496,6 +498,8 @@ export class WorldState {
   private nextProjectileOrdinal = 0;
   private nextDamageOrdinal = 0;
   private readonly renderBaselineSignatures = new Map<EntityId, string>();
+  private readonly renderDirtyEntityIds = new Set<EntityId>();
+  private treeActiveSetDirty = false;
 
   public constructor(
     private readonly scenario: ReplayScenarioV1,
@@ -542,6 +546,7 @@ export class WorldState {
 
     this.pathing = new PathingState(this.scenario.map, ruleset, this.entities);
     this.rebuildTreeActiveSet();
+    this.dynamicCollisionIndex = new DynamicCollisionIndex(this.activeSimulationEntities());
   }
 
   public resolveUnitRule(dataId: number | undefined, kind: string | undefined): RulesetUnit | undefined {
@@ -632,16 +637,40 @@ export class WorldState {
     );
     this.entities.set(entity.id, entity);
     this.treeActiveSet.observeEntity(this, entity);
+    this.dynamicCollisionIndex.update(entity);
+    this.markRenderDirty(entity);
+    this.markTreeActiveSetDirtyForEntity(entity);
     this.pathing.rebuildStaticObstacles(this.entities);
     return entity;
   }
 
   public rebuildTreeActiveSet(): void {
     this.treeActiveSet.rebuild(this);
+    this.treeActiveSetDirty = false;
+  }
+
+  public rebuildTreeTopology(): void {
+    this.treeActiveSet.rebuildTopology(this);
+    this.treeActiveSetDirty = true;
   }
 
   public refreshTreeActiveSet(): void {
     this.treeActiveSet.refreshActivation(this);
+    this.treeActiveSetDirty = false;
+  }
+
+  public markTreeActiveSetDirty(): void {
+    this.treeActiveSetDirty = true;
+  }
+
+  public needsTreeActiveSetRefresh(): boolean {
+    return this.treeActiveSetDirty;
+  }
+
+  public markTreeActiveSetDirtyForEntity(entity: EntityState): void {
+    if (this.treeActiveSet.entityCanAffectActivation(this, entity)) {
+      this.markTreeActiveSetDirty();
+    }
   }
 
   public activeSimulationEntities(): readonly EntityState[] {
@@ -665,11 +694,25 @@ export class WorldState {
     for (const entity of this.entities.values()) {
       this.renderBaselineSignatures.set(entity.id, renderEntitySignature(entity));
     }
+    this.renderDirtyEntityIds.clear();
+  }
+
+  public markRenderDirty(entity: EntityState | EntityId): void {
+    this.renderDirtyEntityIds.add(typeof entity === "string" ? entity : entity.id);
   }
 
   public createRenderEntityUpdates(): readonly RenderEntitySnapshot[] {
     const updates: RenderEntitySnapshot[] = [];
-    for (const entity of this.entities.values()) {
+    const dirtyIds = [...this.renderDirtyEntityIds].sort();
+    this.renderDirtyEntityIds.clear();
+
+    for (const entityId of dirtyIds) {
+      const entity = this.entities.get(entityId);
+      if (!entity) {
+        this.renderBaselineSignatures.delete(entityId);
+        continue;
+      }
+
       const signature = renderEntitySignature(entity);
       if (this.renderBaselineSignatures.get(entity.id) === signature) {
         continue;

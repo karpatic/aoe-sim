@@ -21,6 +21,12 @@ interface TreeCache {
 
 type EntityDrawMode = "dense" | "tokens";
 
+export interface RendererDrawTiming {
+  readonly mergeMs: number;
+  readonly drawMs: number;
+  readonly totalMs: number;
+}
+
 export class CanvasRenderer {
   private readonly context: CanvasRenderingContext2D;
   private terrainCache: TerrainCache | undefined;
@@ -48,23 +54,38 @@ export class CanvasRenderer {
     this.context.imageSmoothingEnabled = false;
   }
 
-  public draw(snapshot: WorldSnapshot): void {
+  public draw(snapshot: WorldSnapshot): RendererDrawTiming {
+    const mergeStartMs = performance.now();
     this.resetFromSnapshot(snapshot);
+    const drawStartMs = performance.now();
     this.drawCurrent();
+    const endMs = performance.now();
+    return {
+      mergeMs: drawStartMs - mergeStartMs,
+      drawMs: endMs - drawStartMs,
+      totalMs: endMs - mergeStartMs
+    };
   }
 
-  public drawFrame(frame: PlaybackRenderFrame): boolean {
+  public drawFrame(frame: PlaybackRenderFrame): RendererDrawTiming | undefined {
     if (!this.map || frame.fromTimeMs !== this.renderedTimeMs) {
-      return false;
+      return undefined;
     }
 
+    const mergeStartMs = performance.now();
     for (const entity of frame.entityUpdates) {
       this.applyEntityUpdate(entity);
     }
     this.projectiles = frame.projectiles;
     this.renderedTimeMs = frame.timeMs;
+    const drawStartMs = performance.now();
     this.drawCurrent();
-    return true;
+    const endMs = performance.now();
+    return {
+      mergeMs: drawStartMs - mergeStartMs,
+      drawMs: endMs - drawStartMs,
+      totalMs: endMs - mergeStartMs
+    };
   }
 
   private resetFromSnapshot(snapshot: WorldSnapshot): void {

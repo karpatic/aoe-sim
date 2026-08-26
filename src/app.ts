@@ -1,5 +1,6 @@
 import "./style.css";
-import { CanvasRenderer } from "./render/canvas-renderer";
+import { CanvasRenderer, type RendererDrawTiming } from "./render/canvas-renderer";
+import { RollingPerformanceMetric } from "./profiling";
 import { assertReplayScenarioV1, assertRulesetV1 } from "./replay/import-game-json";
 import { buildLocalReplayExpectedScenario } from "./replay/local-recording";
 import { summarizeProvenance } from "./replay/provenance";
@@ -16,6 +17,7 @@ import type {
   PlaybackRenderFrame,
   ReplayScenarioV1,
   RulesetV1,
+  SimulationPerformanceDiagnostics,
   SimulationDiagnostics,
   WorldSnapshot
 } from "./replay/model";
@@ -29,6 +31,7 @@ const recordingReportRoot = must<HTMLElement>("#recording-report");
 const playPause = must<HTMLButtonElement>("#play-pause");
 const step = must<HTMLButtonElement>("#step");
 const sync = must<HTMLButtonElement>("#sync");
+const playbackSpeed = must<HTMLSelectElement>("#playback-speed");
 const seek = must<HTMLInputElement>("#seek");
 const timeLabel = must<HTMLElement>("#time-label");
 const durationLabel = must<HTMLElement>("#duration-label");
@@ -55,6 +58,10 @@ let referenceScenario: ReplayScenarioV1 | undefined;
 let localRecordingReport: LocalReplayCompatibilityReport | undefined;
 let activeRecordingRequestId = "";
 let provenanceSummary: readonly string[] = [];
+let lastVisualFrameWallMs: number | undefined;
+const mainMergeTiming = new RollingPerformanceMetric();
+const canvasDrawTiming = new RollingPerformanceMetric();
+const visualFrameIntervalTiming = new RollingPerformanceMetric();
 
 worker.onmessage = (event: MessageEvent<WorkerToClient>) => {
   handleWorkerMessage(event.data);
@@ -73,9 +80,30 @@ replayParserWorker.onerror = (event) => {
 };
 
 playPause.addEventListener("click", () => {
+  if (currentDiagnostics?.isPlaying) {
+    post({
+      type: "pause",
+      requestId: nextRequestId()
+    });
+    return;
+  }
+
   post({
-    type: currentDiagnostics?.isPlaying ? "pause" : "play",
-    requestId: nextRequestId()
+    type: "play",
+    requestId: nextRequestId(),
+    speed: selectedPlaybackSpeed()
+  });
+});
+
+playbackSpeed.addEventListener("change", () => {
+  if (!currentDiagnostics?.isPlaying) {
+    return;
+  }
+
+  post({
+    type: "play",
+    requestId: nextRequestId(),
+    speed: selectedPlaybackSpeed()
   });
 });
 
@@ -132,6 +160,7 @@ async function initialize(): Promise<void> {
   currentDiagnostics = undefined;
   currentRenderFrame = undefined;
   provenanceSummary = [];
+  resetMainPerformanceTimings();
   status.textContent = "Loading scenario";
   playPause.textContent = "Play";
   renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary);
@@ -206,9 +235,9 @@ function handleWorkerMessage(message: WorkerToClient): void {
     case "ready":
     case "snapshot":
       currentSnapshot = freezeSnapshot(message.snapshot);
-      currentDiagnostics = message.diagnostics;
       currentRenderFrame = undefined;
-      renderer.draw(currentSnapshot);
+      recordRenderedFrame(renderer.draw(currentSnapshot));
+      currentDiagnostics = withMainPerformance(message.diagnostics);
       setTimeline(seek, timeLabel, durationLabel, currentSnapshot.timeMs, currentSnapshot.durationMs);
       renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary);
       setEnabled(true);
@@ -216,26 +245,31 @@ function handleWorkerMessage(message: WorkerToClient): void {
       playPause.textContent = currentDiagnostics.isPlaying ? "Pause" : "Play";
       return;
     case "playback-frame":
-      if (!renderer.drawFrame(message.frame)) {
+      const frameTiming = renderer.drawFrame(message.frame);
+      if (!frameTiming) {
         status.textContent = "Resynchronizing render state";
         post({ type: "snapshot", requestId: nextRequestId() });
         return;
       }
+      recordRenderedFrame(frameTiming);
       currentRenderFrame = message.frame;
-      currentDiagnostics = message.frame.diagnostics;
+      currentDiagnostics = withMainPerformance(message.frame.diagnostics);
       setTimeline(seek, timeLabel, durationLabel, message.frame.timeMs, message.frame.durationMs);
       renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary, message.frame);
       status.textContent = currentDiagnostics.isPlaying ? "Playing" : "Paused";
       playPause.textContent = currentDiagnostics.isPlaying ? "Pause" : "Play";
       return;
     case "ack":
-      currentDiagnostics = message.diagnostics;
+      if (message.command === "play" && !currentDiagnostics?.isPlaying) {
+        resetMainPerformanceTimings();
+      }
+      currentDiagnostics = withMainPerformance(message.diagnostics);
       renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary, currentRenderFrame);
       status.textContent = currentDiagnostics.isPlaying ? "Playing" : "Paused";
       playPause.textContent = currentDiagnostics.isPlaying ? "Pause" : "Play";
       return;
     case "diagnostics":
-      currentDiagnostics = message.diagnostics;
+      currentDiagnostics = withMainPerformance(message.diagnostics);
       renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary, currentRenderFrame);
       return;
     case "error":
@@ -269,6 +303,7 @@ function setEnabled(enabled: boolean): void {
   playPause.disabled = !enabled;
   step.disabled = !enabled;
   sync.disabled = !enabled;
+  playbackSpeed.disabled = !enabled;
   seek.disabled = !enabled;
 }
 
@@ -279,6 +314,48 @@ function post(message: ClientToWorker): void {
 function nextRequestId(): string {
   requestOrdinal += 1;
   return `ui-${requestOrdinal}`;
+}
+
+function selectedPlaybackSpeed(): number {
+  return Number(playbackSpeed.value) || 4;
+}
+
+function resetMainPerformanceTimings(): void {
+  lastVisualFrameWallMs = undefined;
+  mainMergeTiming.reset();
+  canvasDrawTiming.reset();
+  visualFrameIntervalTiming.reset();
+}
+
+function recordRenderedFrame(timing: RendererDrawTiming): void {
+  const nowMs = performance.now();
+  if (lastVisualFrameWallMs !== undefined) {
+    visualFrameIntervalTiming.record(nowMs - lastVisualFrameWallMs);
+  }
+  lastVisualFrameWallMs = nowMs;
+  mainMergeTiming.record(timing.mergeMs);
+  canvasDrawTiming.record(timing.drawMs);
+}
+
+function withMainPerformance(diagnostics: SimulationDiagnostics): SimulationDiagnostics {
+  const mainMerge = mainMergeTiming.snapshot();
+  const canvasDraw = canvasDrawTiming.snapshot();
+  const visualFrameInterval = visualFrameIntervalTiming.snapshot();
+  const performanceDiagnostics: SimulationPerformanceDiagnostics = {
+    ...(diagnostics.performance ?? {
+      targetSpeed: selectedPlaybackSpeed(),
+      effectiveSpeed: 0,
+      lagMs: 0
+    }),
+    ...(mainMerge ? { mainMerge } : {}),
+    ...(canvasDraw ? { canvasDraw } : {}),
+    ...(visualFrameInterval ? { visualFrameInterval } : {})
+  };
+
+  return {
+    ...diagnostics,
+    performance: performanceDiagnostics
+  };
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

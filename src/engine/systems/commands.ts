@@ -28,7 +28,7 @@ function cancelCombatForActors(world: WorldState, actorIds: readonly string[]): 
   for (const actorId of actorIds) {
     const actor = world.entities.get(actorId);
     if (actor) {
-      cancelCombatForCommand(actor);
+      cancelCombatForCommand(world, actor);
     }
   }
 }
@@ -62,8 +62,8 @@ function applyMoveCommand(world: WorldState, command: MoveCommand, ruleset: Rule
 }
 
 function applyMoveForEntity(world: WorldState, command: MoveCommand, entity: EntityState): void {
-  cancelWorkerTaskForCommand(entity);
-  cancelCombatForCommand(entity);
+  cancelWorkerTaskForCommand(world, entity);
+  cancelCombatForCommand(world, entity);
   const route =
     entity.speedFpPerSecond <= 0
       ? createImmobileRoute(world, command, entity)
@@ -92,6 +92,7 @@ function applyMoveForEntity(world: WorldState, command: MoveCommand, entity: Ent
       sourceSequence: command.sourceSequence,
       route
     };
+    world.markRenderDirty(entity);
     return;
   }
 
@@ -107,6 +108,7 @@ function applyMoveForEntity(world: WorldState, command: MoveCommand, entity: Ent
     sourceSequence: command.sourceSequence,
     route
   };
+  world.markRenderDirty(entity);
 }
 
 function createImmobileRoute(world: WorldState, command: MoveCommand, entity: EntityState): PlannedRoute {

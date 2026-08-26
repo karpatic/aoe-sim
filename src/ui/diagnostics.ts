@@ -47,6 +47,11 @@ export function renderDiagnostics(
   );
   appendRow(root, "combat unsupported", firstUnsupported(diagnostics.combat.firstUnsupported));
   appendRow(root, "step", `${diagnostics.stepMs}ms`);
+  if (diagnostics.performance) {
+    appendRow(root, "playback", playbackPerformanceSummary(diagnostics.performance));
+    appendRow(root, "sim perf", simulationPerformanceSummary(diagnostics.performance));
+    appendRow(root, "render perf", renderPerformanceSummary(diagnostics.performance));
+  }
   if (diagnostics.playbackFrameEntityUpdates !== undefined) {
     appendRow(root, "playback frame", `${diagnostics.playbackFrameEntityUpdates} entity updates`);
   }
@@ -146,6 +151,59 @@ function checksumStatus(diagnostics: SimulationDiagnostics): string {
 
 function seekStatus(repeat: NonNullable<SimulationDiagnostics["lastSeekRepeat"]>): string {
   return `${formatSimTime(repeat.timeMs)} ${repeat.stable ? "stable" : "diverged"} ${repeat.checksum}`;
+}
+
+function playbackPerformanceSummary(performance: NonNullable<SimulationDiagnostics["performance"]>): string {
+  return (
+    `target ${performance.targetSpeed}x, effective ${performance.effectiveSpeed.toFixed(2)}x, ` +
+    `lag ${formatMs(performance.lagMs)}`
+  );
+}
+
+function simulationPerformanceSummary(performance: NonNullable<SimulationDiagnostics["performance"]>): string {
+  return formatTimingPairs([
+    ["batch", performance.simBatch],
+    ["cmd", performance.commands],
+    ["move", performance.movement],
+    ["tree", performance.tree],
+    ["econ", performance.economy],
+    ["combat", performance.combat]
+  ]);
+}
+
+function renderPerformanceSummary(performance: NonNullable<SimulationDiagnostics["performance"]>): string {
+  return formatTimingPairs([
+    ["delta", performance.renderDelta],
+    ["post", performance.workerPost],
+    ["merge", performance.mainMerge],
+    ["draw", performance.canvasDraw],
+    ["frame", performance.visualFrameInterval]
+  ]);
+}
+
+function formatTimingPairs(
+  pairs: readonly (readonly [string, NonNullable<SimulationDiagnostics["performance"]>["simBatch"]])[]
+): string {
+  const values = pairs
+    .map(([label, metric]) => metric ? `${label} ${formatMetric(metric)}` : undefined)
+    .filter((value): value is string => value !== undefined);
+  return values.length ? `${values.join(" | ")} (last/avg/max)` : "collecting";
+}
+
+function formatMetric(metric: NonNullable<SimulationDiagnostics["performance"]>["simBatch"]): string {
+  if (!metric) {
+    return "n/a";
+  }
+
+  return `${formatMs(metric.lastMs)}/${formatMs(metric.averageMs)}/${formatMs(metric.maxMs)}`;
+}
+
+function formatMs(value: number): string {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(2)}s`;
+  }
+
+  return `${value.toFixed(value >= 10 ? 1 : 2)}ms`;
 }
 
 function appendRow(root: HTMLElement, label: string, value: string): void {

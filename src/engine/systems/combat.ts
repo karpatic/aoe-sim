@@ -21,6 +21,7 @@ import {
   type PlannedRoute,
   type WorldState
 } from "../world";
+import type { SimulationStepContext } from "../step-context";
 import { cancelWorkerTaskForCommand } from "./economy";
 
 const EXPLICIT_ATTACK_KINDS = new Set(["ATTACK", "ATTACK_OBJECT", "ATTACK_MOVE"]);
@@ -35,7 +36,7 @@ export function applyCombatIntent(world: WorldState, command: ObservedIntentComm
     for (const actorId of command.actorIds) {
       const actor = world.entities.get(actorId);
       if (actor) {
-        cancelCombatForCommand(actor);
+        cancelCombatForCommand(world, actor);
       }
     }
     return false;
@@ -69,6 +70,7 @@ export function applyCombatIntent(world: WorldState, command: ObservedIntentComm
       reason: target ? undefined : "target id did not resolve in scenario entity set"
     });
     ensureCombat(actor).intent = intent;
+    world.markRenderDirty(actor);
 
     if (!target) {
       world.combatStats.unresolvedAttackIntents += 1;
@@ -117,16 +119,18 @@ export function reconcileObservedActorActivity(world: WorldState, command: Repla
     actor.evidence = "reconciled";
     const combat = ensureCombat(actor);
     delete combat.active;
+    world.dynamicCollisionIndex.update(actor);
+    world.markRenderDirty(actor);
+    world.markTreeActiveSetDirtyForEntity(actor);
     world.combatStats.reconciliations += 1;
     world.recordCombatReconciliation(`reconciled ${actor.id}: observed actor in ${command.id} after simulated death`);
     if (actor.pathing.occupancyKind === "static") {
       world.pathing.rebuildStaticObstacles(world.entities);
     }
-    world.refreshTreeActiveSet();
   }
 }
 
-export function cancelCombatForCommand(entity: EntityState): void {
+export function cancelCombatForCommand(world: WorldState, entity: EntityState): void {
   if (!entity.combat?.active && !entity.combat?.intent) {
     return;
   }
@@ -138,31 +142,32 @@ export function cancelCombatForCommand(entity: EntityState): void {
       evidence: "simulated"
     };
   }
+  world.markRenderDirty(entity);
 }
 
-export function advanceCombat(world: WorldState, deltaMs: SimTimeMs): void {
+export function advanceCombat(world: WorldState, deltaMs: SimTimeMs, context: SimulationStepContext): void {
   if (deltaMs <= 0) {
     return;
   }
 
   resolveProjectileImpacts(world, world.timeMs);
 
-  const attackers = world.activeSimulationEntities()
-    .filter((entity) => entity.lifecycle.state === "alive" && entity.combat?.active)
-    .sort(compareEntities);
-  for (const attacker of attackers) {
-    advanceAttacker(world, attacker);
+  for (const attacker of context.attackerEntities) {
+    if (attacker.lifecycle.state !== "alive" || !attacker.combat?.active) {
+      continue;
+    }
+    advanceAttacker(world, attacker, context);
   }
 
   resolveProjectileImpacts(world, world.timeMs + deltaMs);
 }
 
-export function hasCombatState(world: WorldState): boolean {
+export function hasCombatState(world: WorldState, context?: SimulationStepContext): boolean {
   if (world.combatProjectiles.size > 0) {
     return true;
   }
 
-  for (const entity of world.activeSimulationEntities()) {
+  for (const entity of context?.attackerEntities ?? world.activeSimulationEntities()) {
     if (entity.lifecycle.state === "alive" && entity.combat?.active && entity.combat.active.state !== "unsupported") {
       return true;
     }
@@ -204,6 +209,7 @@ function recordGroundAttackIntent(world: WorldState, command: ObservedIntentComm
       retargetCount: 0,
       unsupportedMechanic: "attack-ground area damage"
     };
+    world.markRenderDirty(actor);
     world.recordCombatEvent(`unsupported ${command.id}: attack-ground intent from ${actor.id}`);
     handled = true;
   }
@@ -261,7 +267,7 @@ function startCombatEpisode(
   intent: CombatIntentState,
   profile: CombatProfile
 ): void {
-  cancelWorkerTaskForCommand(actor);
+  cancelWorkerTaskForCommand(world, actor);
   actor.combat = {
     ...actor.combat,
     intent,
@@ -283,6 +289,7 @@ function startCombatEpisode(
     kind: "idle",
     evidence: "simulated"
   };
+  world.markRenderDirty(actor);
   world.combatStats.resolvedAttackIntents += 1;
   world.recordCombatEvent(`intent ${intent.commandId}: ${actor.id} targets ${target.id}`);
 }
@@ -308,11 +315,12 @@ function markUnsupportedIntent(
     unsupportedMechanic: reason
   }) as ActiveCombatState;
   world.combatStats.unsupportedIntents += 1;
+  world.markRenderDirty(actor);
   world.recordCombatUnsupported(reason, intent.commandId);
   world.recordCombatEvent(`unsupported ${intent.commandId}: ${reason}`);
 }
 
-function advanceAttacker(world: WorldState, attacker: EntityState): void {
+function advanceAttacker(world: WorldState, attacker: EntityState, context: SimulationStepContext): void {
   const combat = attacker.combat;
   const active = combat?.active;
   if (!combat || !active) {
@@ -327,10 +335,11 @@ function advanceAttacker(world: WorldState, attacker: EntityState): void {
     active.state = "unsupported";
     active.unsupportedMechanic = "attacker lost represented combat profile";
     world.recordCombatUnsupported(active.unsupportedMechanic, combat.intent?.commandId);
+    world.markRenderDirty(attacker);
     return;
   }
 
-  const target = resolveActiveTarget(world, attacker, active, profile);
+  const target = resolveActiveTarget(world, attacker, active, profile, context);
   if (!target) {
     return;
   }
@@ -351,9 +360,14 @@ function advanceAttacker(world: WorldState, attacker: EntityState): void {
       kind: "idle",
       evidence: "simulated"
     };
+    world.markRenderDirty(attacker);
   }
 
-  attacker.facing = target.position.xFp < attacker.position.xFp ? -1 : 1;
+  const facing = target.position.xFp < attacker.position.xFp ? -1 : 1;
+  if (attacker.facing !== facing) {
+    attacker.facing = facing;
+    world.markRenderDirty(attacker);
+  }
   const commandId = combat.intent?.commandId ?? active.id;
   const sourceSequence = combat.intent?.sourceSequence ?? active.startedAtMs;
   attacker.task = {
@@ -363,6 +377,7 @@ function advanceAttacker(world: WorldState, attacker: EntityState): void {
     evidence: "simulated",
     sourceSequence
   };
+  world.markRenderDirty(attacker);
 
   if (world.timeMs < active.nextAttackReadyAtMs) {
     setCombatState(active, "reloading", world.timeMs);
@@ -376,14 +391,15 @@ function resolveActiveTarget(
   world: WorldState,
   attacker: EntityState,
   active: ActiveCombatState,
-  profile: CombatProfile
+  profile: CombatProfile,
+  context: SimulationStepContext
 ): EntityState | undefined {
   const current = active.targetId ? world.entities.get(active.targetId) : undefined;
   if (current && current.lifecycle.state === "alive" && canAttackTarget(world, attacker, current, true)) {
     return current;
   }
 
-  const next = acquireTarget(world, attacker, profile);
+  const next = acquireTarget(world, attacker, profile, context);
   if (!next) {
     delete active.targetId;
     delete active.inRange;
@@ -393,9 +409,11 @@ function resolveActiveTarget(
         kind: "idle",
         evidence: "simulated"
       };
+      world.markRenderDirty(attacker);
     }
     const combat = ensureCombat(attacker);
     delete combat.active;
+    world.markRenderDirty(attacker);
     world.recordCombatEvent(`combat ${active.id}: no retarget for ${attacker.id}`);
     return undefined;
   }
@@ -406,13 +424,19 @@ function resolveActiveTarget(
   active.retargetCount += 1;
   world.combatStats.retargets += 1;
   setCombatState(active, "retargeting", world.timeMs);
+  world.markRenderDirty(attacker);
   world.recordCombatEvent(`retarget ${attacker.id}: ${next.id}`);
   return next;
 }
 
-function acquireTarget(world: WorldState, attacker: EntityState, profile: CombatProfile): EntityState | undefined {
+function acquireTarget(
+  world: WorldState,
+  attacker: EntityState,
+  profile: CombatProfile,
+  context: SimulationStepContext
+): EntityState | undefined {
   const radiusFp = Math.max(profile.maxRangeFp + ACQUISITION_RADIUS_FP, toFixedPoint(2));
-  const candidates = world.activeSimulationEntities()
+  const candidates = context.activeEntities
     .filter(
       (target) =>
         target.id !== attacker.id &&
@@ -480,6 +504,7 @@ function planApproachRoute(
     };
     active.routeTargetId = target.id;
     world.routeStats.planned += 1;
+    world.markRenderDirty(attacker);
     world.recordRouteEvent(`planned ${route.commandId} ${attacker.id}: combat approach ${target.id}`);
     return;
   }
@@ -497,6 +522,7 @@ function planApproachRoute(
   active.routeTargetId = target.id;
   active.unsupportedMechanic = failedRoute.failureDetail ?? "no legal path into attack range";
   world.routeStats.failed += 1;
+  world.markRenderDirty(attacker);
   world.recordRouteEvent(`failed ${failedRoute.commandId} ${attacker.id}: combat approach`);
   world.recordCombatDivergence(active.unsupportedMechanic, intent?.commandId);
 }
@@ -610,6 +636,7 @@ function performAttack(
 
   setCombatState(active, "reloading", world.timeMs);
   active.nextAttackReadyAtMs = world.timeMs + profile.reloadMs;
+  world.markRenderDirty(attacker);
 
   if (profile.projectileUnitId !== undefined && profile.projectileUnitId >= 0 && profile.maxRangeFp > 0) {
     launchProjectile(world, attacker, target, profile, calculation, commandId);
@@ -661,6 +688,7 @@ function launchProjectile(
 
   world.combatProjectiles.set(projectile.id, projectile);
   world.combatStats.projectilesLaunched += 1;
+  world.markRenderDirty(attacker);
   world.recordCombatEvent(
     `projectile ${projectile.id}: ${attacker.id} -> ${target.id} impact ${projectile.impactAtMs}ms`
   );
@@ -708,6 +736,7 @@ function applyDamage(
   }
 ): DamageEventState {
   const hpBefore = target.hp;
+  const wasTreeActivationRelevant = world.treeActiveSet.entityCanAffectActivation(world, target);
   target.hp = Math.max(0, target.hp - calculation.appliedDamage);
   const event = dropUndefined({
     id: world.createDamageEventId(),
@@ -725,6 +754,7 @@ function applyDamage(
   }) as DamageEventState;
 
   world.combatStats.damageEvents += 1;
+  world.markRenderDirty(target);
   world.combatDamageEvents.push(event);
   if (world.combatDamageEvents.length > 40) {
     world.combatDamageEvents.shift();
@@ -736,13 +766,19 @@ function applyDamage(
   );
 
   if (target.hp <= 0) {
-    markDead(world, target, attacker, event);
+    markDead(world, target, attacker, event, wasTreeActivationRelevant);
   }
 
   return event;
 }
 
-function markDead(world: WorldState, target: EntityState, attacker: EntityState, event: DamageEventState): void {
+function markDead(
+  world: WorldState,
+  target: EntityState,
+  attacker: EntityState,
+  event: DamageEventState,
+  wasTreeActivationRelevant: boolean
+): void {
   if (target.lifecycle.state === "dead") {
     return;
   }
@@ -762,6 +798,8 @@ function markDead(world: WorldState, target: EntityState, attacker: EntityState,
   const targetCombat = ensureCombat(target);
   delete targetCombat.active;
   delete target.workerTask;
+  world.dynamicCollisionIndex.remove(target);
+  world.markRenderDirty(target);
   world.combatStats.deaths += 1;
   world.combatDeaths.push(event);
   if (world.combatDeaths.length > 40) {
@@ -772,9 +810,9 @@ function markDead(world: WorldState, target: EntityState, attacker: EntityState,
     world.pathing.rebuildStaticObstacles(world.entities);
   }
   if (wasTrackedTree) {
-    world.rebuildTreeActiveSet();
-  } else {
-    world.refreshTreeActiveSet();
+    world.rebuildTreeTopology();
+  } else if (wasTreeActivationRelevant) {
+    world.markTreeActiveSetDirty();
   }
 }
 
@@ -971,10 +1009,6 @@ function distanceSquared(leftX: FixedPoint, leftY: FixedPoint, rightX: FixedPoin
 
 function integerSqrt(value: number): number {
   return Math.floor(Math.sqrt(value));
-}
-
-function compareEntities(left: EntityState, right: EntityState): number {
-  return left.id.localeCompare(right.id);
 }
 
 function readNumber(value: unknown, fallback: number): number {

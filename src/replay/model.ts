@@ -742,6 +742,30 @@ export interface PlaybackRenderFrame {
   readonly diagnostics: SimulationDiagnostics;
 }
 
+export interface PerformanceMetricSnapshot {
+  readonly lastMs: number;
+  readonly averageMs: number;
+  readonly maxMs: number;
+  readonly samples: number;
+}
+
+export interface SimulationPerformanceDiagnostics {
+  readonly targetSpeed: number;
+  readonly effectiveSpeed: number;
+  readonly lagMs: SimTimeMs;
+  readonly simBatch?: PerformanceMetricSnapshot;
+  readonly commands?: PerformanceMetricSnapshot;
+  readonly movement?: PerformanceMetricSnapshot;
+  readonly tree?: PerformanceMetricSnapshot;
+  readonly economy?: PerformanceMetricSnapshot;
+  readonly combat?: PerformanceMetricSnapshot;
+  readonly renderDelta?: PerformanceMetricSnapshot;
+  readonly workerPost?: PerformanceMetricSnapshot;
+  readonly mainMerge?: PerformanceMetricSnapshot;
+  readonly canvasDraw?: PerformanceMetricSnapshot;
+  readonly visualFrameInterval?: PerformanceMetricSnapshot;
+}
+
 export interface WorldSnapshotBody {
   readonly schemaVersion: "aoe-sim.snapshot.v1";
   readonly timeMs: SimTimeMs;
@@ -786,6 +810,7 @@ export interface SimulationDiagnostics {
   readonly combat: CombatDiagnostics;
   readonly trees: TreeActiveSetDiagnostics;
   readonly playbackFrameEntityUpdates?: number;
+  readonly performance?: SimulationPerformanceDiagnostics;
   readonly lastSeekRepeat?: {
     readonly timeMs: SimTimeMs;
     readonly checksum: string;

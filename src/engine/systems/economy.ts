@@ -28,6 +28,7 @@ import {
   type WorkerTaskState,
   type WorldState
 } from "../world";
+import type { SimulationStepContext } from "../step-context";
 
 const DEFAULT_STARTING_STOCKPILE: Record<ResourceKind, number> = {
   food: 200,
@@ -133,7 +134,8 @@ export function applyEconomyIntent(world: WorldState, command: ObservedIntentCom
   }
 }
 
-export function cancelWorkerTaskForCommand(entity: EntityState): void {
+export function cancelWorkerTaskForCommand(world: WorldState, entity: EntityState): void {
+  const hadWorkerTask = entity.workerTask !== undefined;
   delete entity.workerTask;
   if (
     entity.task.kind === "gathering" ||
@@ -144,16 +146,22 @@ export function cancelWorkerTaskForCommand(entity: EntityState): void {
       kind: "idle",
       evidence: "simulated"
     };
+    world.markRenderDirty(entity);
+    return;
+  }
+
+  if (hadWorkerTask) {
+    world.markRenderDirty(entity);
   }
 }
 
-export function advanceEconomy(world: WorldState, deltaMs: SimTimeMs): void {
+export function advanceEconomy(world: WorldState, deltaMs: SimTimeMs, context: SimulationStepContext): void {
   if (deltaMs <= 0) {
     return;
   }
 
-  advanceWorkers(world, deltaMs);
-  advanceProduction(world, deltaMs);
+  advanceWorkers(world, deltaMs, context);
+  advanceProduction(world, deltaMs, context);
 }
 
 function initializeEntityEconomy(world: WorldState, entity: EntityState): void {
@@ -166,6 +174,7 @@ function initializeEntityEconomy(world: WorldState, entity: EntityState): void {
   if (resourceNode) {
     entity.resourceNode = resourceNode;
     world.resourceNodes.set(entity.id, resourceNode);
+    world.markRenderDirty(entity);
   }
 
   if (isProductionBuilding(entity, rule)) {
@@ -173,6 +182,7 @@ function initializeEntityEconomy(world: WorldState, entity: EntityState): void {
       queue: [],
       spawnOrdinal: 0
     };
+    world.markRenderDirty(entity);
   }
 }
 
@@ -262,6 +272,7 @@ function applyGatherPointIntent(world: WorldState, command: ObservedIntentComman
       actor.production.gatherPoint.targetId = target.id;
       actor.production.gatherPoint.resource = target.resource;
     }
+    world.markRenderDirty(actor);
     handled = true;
   }
 
@@ -319,11 +330,13 @@ function applyBuildIntent(world: WorldState, command: ObservedIntentCommand): bo
     startedAtMs: world.timeMs,
     evidence: "simulated"
   };
+  world.markRenderDirty(foundation);
   if (isProductionBuilding(foundation, rule)) {
     foundation.production = {
       queue: [],
       spawnOrdinal: 0
     };
+    world.markRenderDirty(foundation);
   }
 
   const assigned = assignBuildersToFoundation(world, command, foundation.id);
@@ -367,6 +380,7 @@ function applyQueueIntent(world: WorldState, command: ObservedIntentCommand): bo
           queue: [],
           spawnOrdinal: 0
         };
+        world.markRenderDirty(producer);
       }
     }
     if (!producer.production) {
@@ -387,6 +401,7 @@ function applyQueueIntent(world: WorldState, command: ObservedIntentCommand): bo
         cost: costs,
         evidence: "simulated"
       });
+      world.markRenderDirty(producer);
       handled = true;
     }
   }
@@ -408,11 +423,12 @@ function applyStopIntent(world: WorldState, command: ObservedIntentCommand): boo
       world.economyStats.unresolvedActors += 1;
       continue;
     }
-    cancelWorkerTaskForCommand(actor);
+    cancelWorkerTaskForCommand(world, actor);
     actor.task = {
       kind: "idle",
       evidence: "simulated"
     };
+    world.markRenderDirty(actor);
     handled = true;
   }
 
@@ -452,20 +468,21 @@ function assignBuildersToFoundation(world: WorldState, command: ObservedIntentCo
   return handled;
 }
 
-function advanceWorkers(world: WorldState, deltaMs: SimTimeMs): void {
-  const workers = world.activeSimulationEntities()
-    .filter((entity) => entity.lifecycle.state === "alive" && entity.workerTask)
-    .sort(compareEntities);
-  for (const worker of workers) {
+function advanceWorkers(world: WorldState, deltaMs: SimTimeMs, context: SimulationStepContext): void {
+  for (const worker of context.workerEntities) {
+    if (worker.lifecycle.state !== "alive") {
+      continue;
+    }
+
     const task = worker.workerTask;
     if (!task) {
       continue;
     }
 
     if (task.kind === "gather") {
-      advanceGatherWorker(world, worker, task, deltaMs);
+      advanceGatherWorker(world, worker, task, deltaMs, context);
     } else {
-      advanceBuildWorker(world, worker, task, deltaMs);
+      advanceBuildWorker(world, worker, task, deltaMs, context);
     }
   }
 }
@@ -474,13 +491,14 @@ function advanceGatherWorker(
   world: WorldState,
   worker: EntityState,
   task: GatherWorkerTask,
-  deltaMs: SimTimeMs
+  deltaMs: SimTimeMs,
+  context: SimulationStepContext
 ): void {
   if (task.phase === "to-resource") {
     if (worker.task.kind === "path-failed") {
       stallWorker(world, worker, task, "resource route failed");
     } else if (worker.task.kind === "idle") {
-      beginGathering(world, worker, task);
+      beginGathering(world, worker, task, context);
     }
     return;
   }
@@ -489,8 +507,8 @@ function advanceGatherWorker(
     if (worker.task.kind === "path-failed") {
       stallWorker(world, worker, task, "drop-site route failed");
     } else if (worker.task.kind === "idle") {
-      beginDroppingOff(worker, task);
-      depositCarry(world, worker, task);
+      beginDroppingOff(world, worker, task);
+      depositCarry(world, worker, task, context);
     }
     return;
   }
@@ -502,14 +520,14 @@ function advanceGatherWorker(
   const node = world.resourceNodes.get(task.targetId);
   const nodeEntity = world.entities.get(task.targetId);
   if (!node || !nodeEntity || node.depleted) {
-    retargetOrReturn(world, worker, task);
+    retargetOrReturn(world, worker, task, context);
     return;
   }
 
   const carry = ensureCarry(worker, world);
   const capacityLeft = Math.max(0, carry.capacityFp - carry.amountFp);
   if (capacityLeft <= 0) {
-    startDropOffRoute(world, worker, task);
+    startDropOffRoute(world, worker, task, context);
     return;
   }
 
@@ -522,7 +540,7 @@ function advanceGatherWorker(
 
   const extractedFp = Math.min(availableWork, capacityLeft, node.remainingAmountFp);
   if (extractedFp <= 0) {
-    retargetOrReturn(world, worker, task);
+    retargetOrReturn(world, worker, task, context);
     return;
   }
 
@@ -531,6 +549,8 @@ function advanceGatherWorker(
   carry.resource = node.resource;
   carry.amountFp += extractedFp;
   carry.evidence = "simulated";
+  world.markRenderDirty(worker);
+  world.markRenderDirty(nodeEntity);
   const economy = requireEconomy(world, worker.playerId);
   economy.ledger[node.resource].extractedFp += extractedFp;
 
@@ -541,11 +561,11 @@ function advanceGatherWorker(
     }
   }
   if (carry.amountFp >= carry.capacityFp) {
-    startDropOffRoute(world, worker, task);
+    startDropOffRoute(world, worker, task, context);
     return;
   }
   if (node.depleted) {
-    retargetOrReturn(world, worker, task);
+    retargetOrReturn(world, worker, task, context);
   }
 }
 
@@ -553,7 +573,8 @@ function advanceBuildWorker(
   world: WorldState,
   worker: EntityState,
   task: BuildWorkerTask,
-  deltaMs: SimTimeMs
+  deltaMs: SimTimeMs,
+  context: SimulationStepContext
 ): void {
   const target = world.entities.get(task.targetId);
   const construction = target?.construction;
@@ -578,6 +599,7 @@ function advanceBuildWorker(
         evidence: task.evidence,
         sourceSequence: task.sourceSequence
       };
+      world.markRenderDirty(worker);
     }
     return;
   }
@@ -596,18 +618,20 @@ function advanceBuildWorker(
   construction.progressFp = Math.min(construction.requiredWorkFp, construction.progressFp + work);
   const maxHp = world.resolveUnitRule(target.dataId, target.kind)?.maxHp ?? target.hp;
   target.hp = Math.max(1, Math.floor((maxHp * construction.progressFp) / Math.max(1, construction.requiredWorkFp)));
+  world.markRenderDirty(target);
   if (construction.progressFp >= construction.requiredWorkFp) {
-    completeConstruction(world, target, construction);
+    completeConstruction(world, target, construction, context);
   }
 }
 
-function advanceProduction(world: WorldState, deltaMs: SimTimeMs): void {
-  const producers = world.activeSimulationEntities()
-    .filter((entity) => entity.lifecycle.state === "alive" && entity.production?.queue.length)
-    .sort(compareEntities);
-  for (const producer of producers) {
+function advanceProduction(world: WorldState, deltaMs: SimTimeMs, context: SimulationStepContext): void {
+  for (const producer of context.producerEntities) {
+    if (producer.lifecycle.state !== "alive") {
+      continue;
+    }
+
     const production = producer.production;
-    if (!production) {
+    if (!production?.queue.length) {
       continue;
     }
 
@@ -618,13 +642,15 @@ function advanceProduction(world: WorldState, deltaMs: SimTimeMs): void {
         break;
       }
       item.remainingMs -= availableMs;
+      world.markRenderDirty(producer);
       if (item.remainingMs > 0) {
         break;
       }
 
       availableMs = Math.abs(item.remainingMs);
       production.queue.shift();
-      spawnProductionItem(world, producer, item);
+      world.markRenderDirty(producer);
+      spawnProductionItem(world, producer, item, context);
     }
   }
 }
@@ -637,7 +663,7 @@ function startGatherTask(
   sourceSequence: number,
   evidence: EvidenceClass
 ): void {
-  cancelWorkerTaskForCommand(worker);
+  cancelWorkerTaskForCommand(world, worker);
   const carry = ensureCarry(worker, world);
   const task: GatherWorkerTask = {
     kind: "gather",
@@ -652,6 +678,7 @@ function startGatherTask(
     workAccumulator: 0
   };
   worker.workerTask = task;
+  world.markRenderDirty(worker);
 
   if (carry.amountFp > 0 && carry.resource && carry.resource !== node.resource) {
     startDropOffRoute(world, worker, task);
@@ -673,7 +700,7 @@ function startBuildTask(
   sourceSequence: number,
   evidence: EvidenceClass
 ): void {
-  cancelWorkerTaskForCommand(worker);
+  cancelWorkerTaskForCommand(world, worker);
   const task: BuildWorkerTask = {
     kind: "build",
     phase: "to-foundation",
@@ -684,13 +711,19 @@ function startBuildTask(
     workAccumulator: 0
   };
   worker.workerTask = task;
+  world.markRenderDirty(worker);
   routeWorkerToTarget(world, worker, foundation, task, "to-foundation");
 }
 
-function beginGathering(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
+function beginGathering(
+  world: WorldState,
+  worker: EntityState,
+  task: GatherWorkerTask,
+  context?: SimulationStepContext
+): void {
   const node = world.resourceNodes.get(task.targetId);
   if (!node || node.depleted) {
-    retargetOrReturn(world, worker, task);
+    retargetOrReturn(world, worker, task, context);
     return;
   }
 
@@ -703,9 +736,10 @@ function beginGathering(world: WorldState, worker: EntityState, task: GatherWork
     evidence: task.evidence,
     sourceSequence: task.sourceSequence
   };
+  world.markRenderDirty(worker);
 }
 
-function beginDroppingOff(worker: EntityState, task: GatherWorkerTask): void {
+function beginDroppingOff(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
   const carriedResource = worker.carry?.resource ?? task.resource;
   task.phase = "dropping-off";
   worker.task = {
@@ -716,12 +750,18 @@ function beginDroppingOff(worker: EntityState, task: GatherWorkerTask): void {
     evidence: task.evidence,
     sourceSequence: task.sourceSequence
   };
+  world.markRenderDirty(worker);
 }
 
-function depositCarry(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
+function depositCarry(
+  world: WorldState,
+  worker: EntityState,
+  task: GatherWorkerTask,
+  context?: SimulationStepContext
+): void {
   const carry = worker.carry;
   if (!carry?.resource || carry.amountFp <= 0) {
-    routeBackToResource(world, worker, task);
+    routeBackToResource(world, worker, task, context);
     return;
   }
 
@@ -731,13 +771,19 @@ function depositCarry(world: WorldState, worker: EntityState, task: GatherWorker
   world.recordEconomyEvent(`deposit ${worker.id} ${fromFixedPoint(carry.amountFp)} ${carry.resource}`);
   carry.amountFp = 0;
   delete carry.resource;
-  routeBackToResource(world, worker, task);
+  world.markRenderDirty(worker);
+  routeBackToResource(world, worker, task, context);
 }
 
-function routeBackToResource(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
+function routeBackToResource(
+  world: WorldState,
+  worker: EntityState,
+  task: GatherWorkerTask,
+  context?: SimulationStepContext
+): void {
   const node = world.resourceNodes.get(task.targetId);
   if (!node || node.depleted) {
-    retargetOrReturn(world, worker, task);
+    retargetOrReturn(world, worker, task, context);
     return;
   }
 
@@ -746,7 +792,12 @@ function routeBackToResource(world: WorldState, worker: EntityState, task: Gathe
   routeWorkerToTarget(world, worker, world.entities.get(node.id), task, "to-resource");
 }
 
-function retargetOrReturn(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
+function retargetOrReturn(
+  world: WorldState,
+  worker: EntityState,
+  task: GatherWorkerTask,
+  context?: SimulationStepContext
+): void {
   const currentEntity = world.entities.get(task.targetId);
   const center = currentEntity?.position ?? worker.position;
   const nextNode = findNearestResourceNode(world, center.xFp, center.yFp, {
@@ -759,13 +810,14 @@ function retargetOrReturn(world: WorldState, worker: EntityState, task: GatherWo
     task.targetId = nextNode.id;
     task.retargetCount += 1;
     task.phase = "to-resource";
+    world.markRenderDirty(worker);
     routeWorkerToTarget(world, worker, world.entities.get(nextNode.id), task, "to-resource");
     world.recordEconomyEvent(`retarget ${worker.id} -> ${nextNode.id}`);
     return;
   }
 
   if ((worker.carry?.amountFp ?? 0) > 0) {
-    startDropOffRoute(world, worker, task);
+    startDropOffRoute(world, worker, task, context);
     return;
   }
 
@@ -774,11 +826,17 @@ function retargetOrReturn(world: WorldState, worker: EntityState, task: GatherWo
     kind: "idle",
     evidence: "simulated"
   };
+  world.markRenderDirty(worker);
 }
 
-function startDropOffRoute(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
+function startDropOffRoute(
+  world: WorldState,
+  worker: EntityState,
+  task: GatherWorkerTask,
+  context?: SimulationStepContext
+): void {
   const resource = worker.carry?.resource ?? task.resource;
-  const dropSite = findNearestDropSite(world, worker, resource);
+  const dropSite = findNearestDropSite(world, worker, resource, context);
   if (!dropSite) {
     stallWorker(world, worker, task, `no ${resource} drop site`);
     world.recordEconomyDivergence(`no ${resource} drop site`, task.commandId);
@@ -809,6 +867,7 @@ function routeWorkerToTarget(
       kind: "idle",
       evidence: "simulated"
     };
+    world.markRenderDirty(worker);
     return;
   }
 
@@ -825,6 +884,7 @@ function routeWorkerToTarget(
       sourceSequence: task.sourceSequence,
       route
     };
+    world.markRenderDirty(worker);
     stallWorker(world, worker, task, route.failureReason ?? "route failed");
     return;
   }
@@ -838,10 +898,10 @@ function routeWorkerToTarget(
     sourceSequence: task.sourceSequence,
     route
   };
+  world.markRenderDirty(worker);
 }
 
 function unstickWorkerFromStaticFootprint(world: WorldState, worker: EntityState): void {
-  const dynamicEntities = world.activeSimulationEntities();
   const current = world.pathing.checkOccupancyAtPosition(
     worker,
     worker.position.xFp,
@@ -879,7 +939,7 @@ function unstickWorkerFromStaticFootprint(world: WorldState, worker: EntityState
         new Set([worker.id]),
         world.entities,
         true,
-        dynamicEntities
+        world.dynamicCollisionIndex.candidates(worker, candidate.xFp, candidate.yFp)
       );
       if (!check.ok) {
         continue;
@@ -889,6 +949,9 @@ function unstickWorkerFromStaticFootprint(world: WorldState, worker: EntityState
         ...candidate,
         evidence: "reconciled"
       };
+      world.dynamicCollisionIndex.update(worker);
+      world.markRenderDirty(worker);
+      world.markTreeActiveSetDirtyForEntity(worker);
       world.routeStats.corrected += 1;
       world.recordRouteEvent(`corrected ${worker.id}: unblocked economy start`);
       world.recordEconomyEvent(`corrected ${worker.id}: static footprint start`);
@@ -990,8 +1053,10 @@ function depleteNode(world: WorldState, entity: EntityState, node: ResourceNodeS
     world.pathing.rebuildStaticObstacles(world.entities);
   }
   if (wasTrackedTree) {
-    world.rebuildTreeActiveSet();
+    world.rebuildTreeTopology();
   }
+  world.dynamicCollisionIndex.update(entity);
+  world.markRenderDirty(entity);
   world.recordEconomyEvent(`depleted ${node.id} ${node.resource}`);
 }
 
@@ -1017,11 +1082,17 @@ function tryReseedFarm(
   node.depleted = false;
   delete node.depletionTimeMs;
   node.amountSource = "farm-generation";
+  world.markRenderDirty(entity);
   world.recordEconomyEvent(`reseed ${entity.id} gen ${node.farmGeneration}`);
   return true;
 }
 
-function completeConstruction(world: WorldState, target: EntityState, construction: ConstructionState): void {
+function completeConstruction(
+  world: WorldState,
+  target: EntityState,
+  construction: ConstructionState,
+  context: SimulationStepContext
+): void {
   if (construction.state === "complete") {
     return;
   }
@@ -1029,6 +1100,7 @@ function completeConstruction(world: WorldState, target: EntityState, constructi
   construction.state = "complete";
   construction.completedAtMs = world.timeMs;
   target.hp = world.resolveUnitRule(target.dataId, target.kind)?.maxHp ?? target.hp;
+  world.markRenderDirty(target);
   const economy = world.playerEconomies.get(target.playerId);
   if (economy) {
     economy.population.capacity += populationCapacityForBuilding(target.dataId);
@@ -1037,11 +1109,12 @@ function completeConstruction(world: WorldState, target: EntityState, constructi
     const node = createFarmResourceNode(target);
     target.resourceNode = node;
     world.resourceNodes.set(target.id, node);
+    world.markRenderDirty(target);
   }
   world.economyStats.completedConstruction += 1;
   world.recordEconomyEvent(`completed ${target.id}`);
 
-  for (const worker of world.activeSimulationEntities().filter(
+  for (const worker of context.workerEntities.filter(
     (entity) => entity.workerTask?.kind === "build" && entity.workerTask.targetId === target.id
   )) {
     finishBuilderAfterConstruction(world, worker, target);
@@ -1059,12 +1132,14 @@ function finishBuilderAfterConstruction(world: WorldState, worker: EntityState, 
     kind: "idle",
     evidence: "simulated"
   };
+  world.markRenderDirty(worker);
 }
 
 function spawnProductionItem(
   world: WorldState,
   producer: EntityState,
-  item: ProductionQueueItemState
+  item: ProductionQueueItemState,
+  context: SimulationStepContext
 ): void {
   const rule = world.resolveUnitRule(item.unitId, undefined);
   const production = producer.production;
@@ -1081,6 +1156,7 @@ function spawnProductionItem(
 
   const position = spawnPosition(producer);
   production.spawnOrdinal += 1;
+  world.markRenderDirty(producer);
   const unit = world.addSimulatedEntity({
     id: world.createSimEntityId(`unit-${item.unitId}`),
     rule,
@@ -1089,6 +1165,7 @@ function spawnProductionItem(
     yFp: position.yFp,
     evidence: "simulated"
   });
+  context.observeActiveEntity(unit);
   initializeEntityEconomy(world, unit);
   world.economyStats.spawnedUnits += 1;
   world.recordEconomyEvent(`spawn ${unit.id} from ${producer.id}`);
@@ -1215,11 +1292,16 @@ function findNearestResourceNode(
   return best;
 }
 
-function findNearestDropSite(world: WorldState, worker: EntityState, resource: ResourceKind): EntityState | undefined {
+function findNearestDropSite(
+  world: WorldState,
+  worker: EntityState,
+  resource: ResourceKind,
+  context?: SimulationStepContext
+): EntityState | undefined {
   const acceptedIds = new Set(COMMON_DROP_SITES[resource]);
   let best: EntityState | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const entity of world.activeSimulationEntities()) {
+  for (const entity of context?.activeEntities ?? world.activeSimulationEntities()) {
     if (entity.playerId !== worker.playerId || entity.construction?.state === "foundation") {
       continue;
     }
@@ -1411,6 +1493,7 @@ function ensureCarry(worker: EntityState, world: WorldState): WorkerCarryState {
       capacityFp: workerCarryCapacityFp(world, worker),
       evidence: "simulated"
     };
+    world.markRenderDirty(worker);
   }
 
   return worker.carry;
@@ -1509,6 +1592,7 @@ function touchDistanceFpForSpawn(producer: EntityState): FixedPoint {
 
 function stallWorker(world: WorldState, worker: EntityState, task: WorkerTaskState, reason: string): void {
   task.phase = "stalled";
+  world.markRenderDirty(worker);
   world.recordEconomyEvent(`stalled ${worker.id}: ${reason}`);
 }
 

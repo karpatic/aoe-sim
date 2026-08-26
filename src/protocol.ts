@@ -20,6 +20,7 @@ export type ClientToWorker =
       readonly type: "play";
       readonly requestId: RequestId;
       readonly fromTimeMs?: SimTimeMs;
+      readonly speed?: number;
     }
   | {
       readonly type: "pause";
