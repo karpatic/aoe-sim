@@ -686,12 +686,13 @@ function beginGathering(world: WorldState, worker: EntityState, task: GatherWork
 }
 
 function beginDroppingOff(worker: EntityState, task: GatherWorkerTask): void {
+  const carriedResource = worker.carry?.resource ?? task.resource;
   task.phase = "dropping-off";
   worker.task = {
     kind: "dropping-off",
     commandId: task.commandId,
     targetId: task.dropSiteId ?? task.targetId,
-    resource: task.resource,
+    resource: carriedResource,
     evidence: task.evidence,
     sourceSequence: task.sourceSequence
   };
@@ -756,10 +757,11 @@ function retargetOrReturn(world: WorldState, worker: EntityState, task: GatherWo
 }
 
 function startDropOffRoute(world: WorldState, worker: EntityState, task: GatherWorkerTask): void {
-  const dropSite = findNearestDropSite(world, worker, task.resource);
+  const resource = worker.carry?.resource ?? task.resource;
+  const dropSite = findNearestDropSite(world, worker, resource);
   if (!dropSite) {
-    stallWorker(world, worker, task, `no ${task.resource} drop site`);
-    world.recordEconomyDivergence(`no ${task.resource} drop site`, task.commandId);
+    stallWorker(world, worker, task, `no ${resource} drop site`);
+    world.recordEconomyDivergence(`no ${resource} drop site`, task.commandId);
     return;
   }
 

@@ -8,13 +8,11 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
     return;
   }
 
-  const entities = [...world.entities.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const entities = [...world.entities.values()]
+    .filter((entity) => entity.task.kind === "moving" && entity.speedFpPerSecond > 0)
+    .sort((left, right) => left.id.localeCompare(right.id));
 
   for (const entity of entities) {
-    if (entity.task.kind !== "moving" || entity.speedFpPerSecond <= 0) {
-      continue;
-    }
-
     let travelFp = Math.floor((entity.speedFpPerSecond * deltaMs) / 1000);
     while (travelFp > 0 && entity.task.kind === "moving") {
       const route = entity.task.route;

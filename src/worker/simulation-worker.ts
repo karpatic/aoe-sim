@@ -7,8 +7,16 @@ type SimulationWorkerScope = typeof globalThis & {
 };
 
 const workerScope = self as SimulationWorkerScope;
+const SEEK_CHUNK_WALL_BUDGET_MS = 35;
+const SEEK_PROGRESS_INTERVAL_MS = 500;
+const SEEK_SLICE_STEP_BUDGET = 5;
+const REPEAT_SEEK_ENTITY_LIMIT = 1200;
+const REPEAT_SEEK_DURATION_LIMIT_MS = 600000;
+
 let engine: SimulationEngine | undefined;
 let playTimer: number | undefined;
+let seekTimer: number | undefined;
+let activeJobId = 0;
 let isPlaying = false;
 
 workerScope.onmessage = (event: MessageEvent<ClientToWorker>) => {
@@ -22,25 +30,28 @@ workerScope.onmessage = (event: MessageEvent<ClientToWorker>) => {
 function handleMessage(message: ClientToWorker): void {
   switch (message.type) {
     case "initialize":
+      cancelSeekJob();
       stopPlayback();
       engine = new SimulationEngine(message.scenario, message.ruleset);
       postReady(message.requestId);
       return;
     case "play":
-      requireEngine().advanceTo(message.fromTimeMs ?? requireEngine().snapshot().timeMs);
+      cancelSeekJob();
+      requireEngine().advanceTo(message.fromTimeMs ?? requireEngine().currentTimeMs);
       startPlayback();
       postAck(message.requestId, message.type);
       return;
     case "pause":
+      cancelSeekJob();
       stopPlayback();
       postSnapshot(message.requestId);
       return;
     case "seek":
       stopPlayback();
-      requireEngine().seekWithRepeatCheck(message.timeMs);
-      postSnapshot(message.requestId);
+      startSeek(message.requestId, message.timeMs);
       return;
     case "step":
+      cancelSeekJob();
       stopPlayback();
       requireEngine().advanceBy(message.deltaMs ?? requireEngine().stepMs);
       postSnapshot(message.requestId);
@@ -62,12 +73,12 @@ function startPlayback(): void {
   isPlaying = true;
   playTimer = setInterval(() => {
     const activeEngine = requireEngine();
-    activeEngine.advanceBy(100);
-    postSnapshot();
+    const snapshot = activeEngine.advanceBy(100);
+    postSnapshot(undefined, snapshot);
 
-    if (activeEngine.snapshot().timeMs >= activeEngine.durationMs) {
+    if (snapshot.timeMs >= activeEngine.durationMs) {
       stopPlayback();
-      postSnapshot();
+      postSnapshot(undefined, snapshot);
     }
   }, 100);
 }
@@ -81,6 +92,84 @@ function stopPlayback(): void {
   isPlaying = false;
 }
 
+function startSeek(requestId: RequestId, targetTimeMs: number): void {
+  cancelSeekJob();
+  const activeEngine = requireEngine();
+  activeEngine.resetToStart();
+
+  const job: SeekJob = {
+    id: activeJobId,
+    requestId,
+    targetTimeMs,
+    lastProgressPostMs: performance.now()
+  };
+
+  runSeekChunk(job);
+}
+
+function cancelSeekJob(): void {
+  activeJobId += 1;
+  if (seekTimer !== undefined) {
+    clearTimeout(seekTimer);
+    seekTimer = undefined;
+  }
+}
+
+function runSeekChunk(job: SeekJob): void {
+  if (job.id !== activeJobId) {
+    return;
+  }
+
+  try {
+    const activeEngine = requireEngine();
+    const wallStartMs = performance.now();
+    while (
+      activeEngine.currentTimeMs < job.targetTimeMs &&
+      performance.now() - wallStartMs < SEEK_CHUNK_WALL_BUDGET_MS
+    ) {
+      activeEngine.advanceSlice(job.targetTimeMs, SEEK_SLICE_STEP_BUDGET);
+    }
+
+    if (job.id !== activeJobId) {
+      return;
+    }
+
+    const complete = activeEngine.currentTimeMs >= Math.min(job.targetTimeMs, activeEngine.durationMs);
+    const nowMs = performance.now();
+    if (complete || nowMs - job.lastProgressPostMs >= SEEK_PROGRESS_INTERVAL_MS) {
+      postSeekSnapshot(job, complete);
+      job.lastProgressPostMs = nowMs;
+    }
+
+    if (complete) {
+      return;
+    }
+
+    seekTimer = setTimeout(() => runSeekChunk(job), 0);
+  } catch (error) {
+    if (job.id === activeJobId) {
+      postError(job.requestId, error);
+    }
+  }
+}
+
+function postSeekSnapshot(job: SeekJob, complete: boolean): void {
+  const activeEngine = requireEngine();
+  if (
+    complete &&
+    activeEngine.initialEntityCount <= REPEAT_SEEK_ENTITY_LIMIT &&
+    activeEngine.durationMs <= REPEAT_SEEK_DURATION_LIMIT_MS
+  ) {
+    const snapshot = activeEngine.seekWithRepeatCheck(job.targetTimeMs);
+    if (job.id === activeJobId) {
+      postSnapshot(job.requestId, snapshot);
+    }
+    return;
+  }
+
+  postSnapshot(complete ? job.requestId : undefined);
+}
+
 function requireEngine(): SimulationEngine {
   if (!engine) {
     throw new Error("Simulation worker has not been initialized");
@@ -91,11 +180,12 @@ function requireEngine(): SimulationEngine {
 
 function postReady(requestId: RequestId): void {
   const activeEngine = requireEngine();
+  const snapshot = activeEngine.snapshot();
   workerScope.postMessage({
     type: "ready",
     requestId,
-    snapshot: activeEngine.snapshot(),
-    diagnostics: activeEngine.diagnostics(isPlaying)
+    snapshot,
+    diagnostics: activeEngine.diagnostics(isPlaying, snapshot)
   });
 }
 
@@ -108,12 +198,12 @@ function postAck(requestId: RequestId, command: ClientToWorker["type"]): void {
   });
 }
 
-function postSnapshot(requestId?: RequestId): void {
+function postSnapshot(requestId?: RequestId, snapshot = requireEngine().snapshot()): void {
   const activeEngine = requireEngine();
   const message: WorkerToClient = {
     type: "snapshot",
-    snapshot: activeEngine.snapshot(),
-    diagnostics: activeEngine.diagnostics(isPlaying)
+    snapshot,
+    diagnostics: activeEngine.diagnostics(isPlaying, snapshot)
   };
 
   if (requestId) {
@@ -128,10 +218,12 @@ function postSnapshot(requestId?: RequestId): void {
 }
 
 function postDiagnostics(requestId: RequestId): void {
+  const activeEngine = requireEngine();
+  const snapshot = activeEngine.snapshot();
   workerScope.postMessage({
     type: "diagnostics",
     requestId,
-    diagnostics: requireEngine().diagnostics(isPlaying)
+    diagnostics: activeEngine.diagnostics(isPlaying, snapshot)
   });
 }
 
@@ -151,4 +243,11 @@ function postError(requestId: RequestId | undefined, error: unknown): void {
   }
 
   workerScope.postMessage(payload);
+}
+
+interface SeekJob {
+  readonly id: number;
+  readonly requestId: RequestId;
+  readonly targetTimeMs: number;
+  lastProgressPostMs: number;
 }

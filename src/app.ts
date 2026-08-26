@@ -76,6 +76,7 @@ seek.addEventListener("input", () => {
 });
 
 seek.addEventListener("change", () => {
+  status.textContent = "Seeking";
   post({
     type: "seek",
     requestId: nextRequestId(),

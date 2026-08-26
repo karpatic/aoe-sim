@@ -38,8 +38,16 @@ export class SimulationEngine {
     return this.scenario.durationMs;
   }
 
+  public get initialEntityCount(): number {
+    return this.scenario.entities.length;
+  }
+
   public get stepMs(): SimTimeMs {
     return this.ruleset.stepMs || DEFAULT_STEP_MS;
+  }
+
+  public get currentTimeMs(): SimTimeMs {
+    return this.world.timeMs;
   }
 
   public advanceBy(deltaMs: SimTimeMs): WorldSnapshot {
@@ -53,28 +61,86 @@ export class SimulationEngine {
       return this.seek(targetTimeMs);
     }
 
+    this.advanceToTime(targetTimeMs);
+    return this.world.createSnapshot();
+  }
+
+  public advanceToTime(timeMs: SimTimeMs): void {
+    const targetTimeMs = clampTime(timeMs, this.durationMs);
+
+    if (targetTimeMs < this.world.timeMs) {
+      this.reset();
+    }
+
     this.scheduler.drainDue(this.world.timeMs, (event) => this.handleEvent(event));
 
     while (this.world.timeMs < targetTimeMs) {
       const nextEventTime = this.scheduler.peekTime();
-      const nextTimeMs = Math.min(this.world.timeMs + this.stepMs, targetTimeMs, nextEventTime ?? Number.MAX_SAFE_INTEGER);
+      const hasContinuousState = this.hasContinuousState();
+      const stepLimit = hasContinuousState ? this.stepMs : Number.MAX_SAFE_INTEGER;
+      const nextTimeMs = Math.min(this.world.timeMs + stepLimit, targetTimeMs, nextEventTime ?? Number.MAX_SAFE_INTEGER);
       const deltaMs = nextTimeMs - this.world.timeMs;
 
       if (deltaMs > 0) {
-        advanceMovement(this.world, deltaMs);
-        advanceEconomy(this.world, deltaMs);
+        if (hasContinuousState) {
+          advanceMovement(this.world, deltaMs);
+          advanceEconomy(this.world, deltaMs);
+        }
         this.world.timeMs = nextTimeMs;
       }
 
       this.scheduler.drainDue(this.world.timeMs, (event) => this.handleEvent(event));
     }
+  }
 
-    return this.world.createSnapshot();
+  public advanceSlice(targetTimeMs: SimTimeMs, maxSteps: number): void {
+    const target = clampTime(targetTimeMs, this.durationMs);
+    const stepBudget = Math.max(1, Math.trunc(maxSteps));
+
+    if (target < this.world.timeMs) {
+      this.reset();
+    }
+
+    this.scheduler.drainDue(this.world.timeMs, (event) => this.handleEvent(event));
+
+    let stepCount = 0;
+    while (this.world.timeMs < target && stepCount < stepBudget) {
+      const nextEventTime = this.scheduler.peekTime();
+      const hasContinuousState = this.hasContinuousState();
+
+      if (!hasContinuousState) {
+        const nextTimeMs = Math.min(target, nextEventTime ?? target);
+        this.world.timeMs = nextTimeMs;
+        this.scheduler.drainDue(this.world.timeMs, (event) => this.handleEvent(event));
+        if (nextTimeMs < target) {
+          return;
+        }
+        continue;
+      }
+
+      const nextTimeMs = Math.min(this.world.timeMs + this.stepMs, target, nextEventTime ?? Number.MAX_SAFE_INTEGER);
+      const deltaMs = nextTimeMs - this.world.timeMs;
+      if (deltaMs > 0) {
+        advanceMovement(this.world, deltaMs);
+        advanceEconomy(this.world, deltaMs);
+        this.world.timeMs = nextTimeMs;
+        stepCount += 1;
+      }
+
+      this.scheduler.drainDue(this.world.timeMs, (event) => this.handleEvent(event));
+      if (nextEventTime !== undefined && this.world.timeMs === nextEventTime && this.world.timeMs < target) {
+        return;
+      }
+    }
   }
 
   public seek(timeMs: SimTimeMs): WorldSnapshot {
-    this.reset();
+    this.resetToStart();
     return this.advanceTo(timeMs);
+  }
+
+  public resetToStart(): void {
+    this.reset();
   }
 
   public seekWithRepeatCheck(timeMs: SimTimeMs): WorldSnapshot {
@@ -92,8 +158,7 @@ export class SimulationEngine {
     return this.world.createSnapshot();
   }
 
-  public diagnostics(isPlaying: boolean): SimulationDiagnostics {
-    const snapshot = this.snapshot();
+  public diagnostics(isPlaying: boolean, snapshot = this.snapshot()): SimulationDiagnostics {
     const diagnostics: SimulationDiagnostics = {
       schemaVersion: "aoe-sim.diagnostics.v1",
       isPlaying,
@@ -124,6 +189,7 @@ export class SimulationEngine {
   }
 
   private reset(): void {
+    this.lastSeekRepeat = undefined;
     this.world = new WorldState(this.scenario, this.ruleset);
     initializeEconomy(this.world);
     this.scheduler.reset();
@@ -136,6 +202,20 @@ export class SimulationEngine {
         commandId: command.id
       });
     }
+  }
+
+  private hasContinuousState(): boolean {
+    for (const entity of this.world.entities.values()) {
+      if (
+        entity.task.kind === "moving" ||
+        (entity.workerTask !== undefined && entity.workerTask.phase !== "stalled") ||
+        (entity.production?.queue.length ?? 0) > 0
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private handleEvent(event: ScheduledEvent): void {
