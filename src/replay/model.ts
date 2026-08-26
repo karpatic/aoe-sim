@@ -705,6 +705,43 @@ export interface EntitySnapshot {
   readonly evidence: EvidenceClass;
 }
 
+export interface RenderResourceNodeSnapshot {
+  readonly id: EntityId;
+  readonly resource: ResourceKind;
+  readonly family: string;
+  readonly depleted: boolean;
+  readonly depletionTimeMs?: SimTimeMs;
+  readonly evidence: EvidenceClass;
+}
+
+export interface RenderEntitySnapshot {
+  readonly id: EntityId;
+  readonly kind: string;
+  readonly dataId?: number;
+  readonly classId?: number;
+  readonly label?: string;
+  readonly playerId: PlayerId;
+  readonly lifecycle: SnapshotLifecycle;
+  readonly facing: -1 | 1;
+  readonly radiusTiles: number;
+  readonly position: SnapshotPosition;
+  readonly task: SnapshotTask;
+  readonly carry?: SnapshotCarry;
+  readonly resourceNode?: RenderResourceNodeSnapshot;
+  readonly representedTreeResource?: boolean;
+  readonly evidence: EvidenceClass;
+}
+
+export interface PlaybackRenderFrame {
+  readonly schemaVersion: "aoe-sim.render-frame.v1";
+  readonly fromTimeMs: SimTimeMs;
+  readonly timeMs: SimTimeMs;
+  readonly durationMs: SimTimeMs;
+  readonly entityUpdates: readonly RenderEntitySnapshot[];
+  readonly projectiles: readonly SnapshotProjectile[];
+  readonly diagnostics: SimulationDiagnostics;
+}
+
 export interface WorldSnapshotBody {
   readonly schemaVersion: "aoe-sim.snapshot.v1";
   readonly timeMs: SimTimeMs;
@@ -723,12 +760,17 @@ export interface WorldSnapshotBody {
 
 export interface WorldSnapshot extends WorldSnapshotBody {
   readonly checksum: string;
+  readonly render: {
+    readonly representedTreeEntityIds: readonly EntityId[];
+  };
 }
 
 export interface SimulationDiagnostics {
   readonly schemaVersion: "aoe-sim.diagnostics.v1";
   readonly isPlaying: boolean;
   readonly checksum: string;
+  readonly checksumVerifiedAtMs: SimTimeMs;
+  readonly checksumCurrent: boolean;
   readonly schedulerPending: number;
   readonly schedulerExecuted: number;
   readonly currentTimeMs: SimTimeMs;
@@ -743,6 +785,7 @@ export interface SimulationDiagnostics {
   readonly economy: EconomyDiagnostics;
   readonly combat: CombatDiagnostics;
   readonly trees: TreeActiveSetDiagnostics;
+  readonly playbackFrameEntityUpdates?: number;
   readonly lastSeekRepeat?: {
     readonly timeMs: SimTimeMs;
     readonly checksum: string;

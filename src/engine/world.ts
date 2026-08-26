@@ -10,6 +10,8 @@ import type {
   FixedPoint,
   PathFailureReason,
   PlayerId,
+  RenderEntitySnapshot,
+  RenderResourceNodeSnapshot,
   ReplayScenarioV1,
   ResourceKind,
   RouteDiagnostics,
@@ -493,6 +495,7 @@ export class WorldState {
   private nextCombatOrdinal = 0;
   private nextProjectileOrdinal = 0;
   private nextDamageOrdinal = 0;
+  private readonly renderBaselineSignatures = new Map<EntityId, string>();
 
   public constructor(
     private readonly scenario: ReplayScenarioV1,
@@ -653,6 +656,38 @@ export class WorldState {
     return this.treeActiveSet.diagnostics();
   }
 
+  public representedTreeEntityIds(): readonly EntityId[] {
+    return this.treeActiveSet.representedTreeEntityIds();
+  }
+
+  public resetRenderBaseline(): void {
+    this.renderBaselineSignatures.clear();
+    for (const entity of this.entities.values()) {
+      this.renderBaselineSignatures.set(entity.id, renderEntitySignature(entity));
+    }
+  }
+
+  public createRenderEntityUpdates(): readonly RenderEntitySnapshot[] {
+    const updates: RenderEntitySnapshot[] = [];
+    for (const entity of this.entities.values()) {
+      const signature = renderEntitySignature(entity);
+      if (this.renderBaselineSignatures.get(entity.id) === signature) {
+        continue;
+      }
+
+      this.renderBaselineSignatures.set(entity.id, signature);
+      updates.push(snapshotRenderEntity(entity, this.isTrackedTreeResource(entity, entity.resourceNode)));
+    }
+
+    return updates;
+  }
+
+  public createProjectileRenderData(): readonly SnapshotProjectile[] {
+    return [...this.combatProjectiles.values()]
+      .sort((left, right) => left.impactAtMs - right.impactAtMs || left.id.localeCompare(right.id))
+      .map((projectile) => snapshotProjectile(projectile, this.timeMs));
+  }
+
   public warn(message: string): void {
     this.warnings.push(`${this.timeMs}ms ${message}`);
     if (this.warnings.length > 12) {
@@ -746,7 +781,7 @@ export class WorldState {
   }
 
   public createEconomyDiagnostics(): EconomyDiagnostics {
-    const economy = this.createEconomySnapshot();
+    const economy = this.createEconomyDiagnosticSummary();
     return dropUndefined({
       handledIntentCount: this.economyStats.handledIntentCount,
       gatherCommands: this.economyStats.gatherCommands,
@@ -758,15 +793,15 @@ export class WorldState {
       unsupportedIntents: this.economyStats.unsupportedIntents,
       activeWorkers: economy.activeWorkers,
       carryingWorkers: economy.carryingWorkers,
-      stockpileSummary: summarizeStockpiles(economy.players),
-      ledgerSummary: summarizeLedgers(economy.players),
+      stockpileSummary: economy.stockpileSummary,
+      ledgerSummary: economy.ledgerSummary,
       depletedNodes: economy.depletedNodes,
       constructionSites: economy.constructionSites,
       completedConstruction: this.economyStats.completedConstruction,
       productionQueueItems: economy.productionQueueItems,
       spawnedUnits: this.economyStats.spawnedUnits,
-      conservationBalanced: economy.conservation.balanced,
-      firstDivergence: economy.firstDivergence,
+      conservationBalanced: economy.conservationBalanced,
+      firstDivergence: this.firstEconomyDivergence,
       lastEvents: [...this.economyEvents]
     }) as EconomyDiagnostics;
   }
@@ -865,7 +900,10 @@ export class WorldState {
 
     return deepFreeze({
       ...body,
-      checksum: checksumStable(body)
+      checksum: checksumStable(body),
+      render: {
+        representedTreeEntityIds: [...this.treeActiveSet.representedTreeEntityIds()]
+      }
     });
   }
 
@@ -915,6 +953,64 @@ export class WorldState {
     }) as SnapshotEconomySummary;
   }
 
+  private createEconomyDiagnosticSummary(): {
+    readonly activeWorkers: number;
+    readonly carryingWorkers: number;
+    readonly stockpileSummary: string;
+    readonly ledgerSummary: string;
+    readonly depletedNodes: number;
+    readonly constructionSites: number;
+    readonly productionQueueItems: number;
+    readonly conservationBalanced: boolean;
+  } {
+    const carrying = new Map<PlayerId, Record<ResourceKind, FixedPoint>>();
+    let activeWorkers = 0;
+    let carryingWorkers = 0;
+    let constructionSites = 0;
+    let productionQueueItems = 0;
+
+    for (const entity of this.entities.values()) {
+      if (entity.workerTask !== undefined) {
+        activeWorkers += 1;
+      }
+      if (entity.carry?.resource && entity.carry.amountFp > 0) {
+        carryingWorkers += 1;
+        const playerCarry = carrying.get(entity.playerId) ?? createResourceRecord(0);
+        playerCarry[entity.carry.resource] += entity.carry.amountFp;
+        carrying.set(entity.playerId, playerCarry);
+      }
+      if (entity.construction?.state === "foundation") {
+        constructionSites += 1;
+      }
+      productionQueueItems += entity.production?.queue.length ?? 0;
+    }
+
+    let depletedNodes = 0;
+    let nodesBalanced = true;
+    for (const node of this.resourceNodes.values()) {
+      if (node.depleted) {
+        depletedNodes += 1;
+      }
+      if (node.remainingAmountFp + node.extractedAmountFp !== node.initialAmountFp) {
+        nodesBalanced = false;
+      }
+    }
+
+    const players = [...this.playerEconomies.values()].sort((left, right) =>
+      left.playerId.localeCompare(right.playerId)
+    );
+    return {
+      activeWorkers,
+      carryingWorkers,
+      stockpileSummary: summarizeEconomyStockpiles(players),
+      ledgerSummary: summarizeEconomyLedgers(players, carrying),
+      depletedNodes,
+      constructionSites,
+      productionQueueItems,
+      conservationBalanced: nodesBalanced && ledgersBalanced(players, carrying)
+    };
+  }
+
   private createCombatSnapshot(): SnapshotCombatSummary {
     const activeEpisodes = [...this.entities.values()].filter(
       (entity) => entity.lifecycle.state === "alive" && entity.combat?.active
@@ -922,9 +1018,7 @@ export class WorldState {
 
     return {
       activeEpisodes,
-      projectiles: [...this.combatProjectiles.values()]
-        .sort((left, right) => left.impactAtMs - right.impactAtMs || left.id.localeCompare(right.id))
-        .map((projectile) => snapshotProjectile(projectile, this.timeMs)),
+      projectiles: this.createProjectileRenderData(),
       projectileCount: this.combatProjectiles.size,
       deaths: this.combatDeaths.slice(-8).map((event) =>
         dropUndefined({
@@ -992,6 +1086,112 @@ export function toFixedPoint(value: number): FixedPoint {
 
 export function fromFixedPoint(value: FixedPoint): number {
   return Number((value / FIXED_POINT_SCALE).toFixed(3));
+}
+
+function renderEntitySignature(entity: EntityState): string {
+  return (
+    `${entity.kind}|${entity.dataId ?? ""}|${entity.classId ?? ""}|${entity.label ?? ""}|${entity.playerId}|` +
+    `${entity.position.xFp},${entity.position.yFp},${entity.position.evidence}|${entity.facing}|` +
+    `${entity.radiusFp}|${entity.evidence}|${renderLifecycleSignature(entity.lifecycle)}|` +
+    `${renderTaskSignature(entity.task)}|${renderCarrySignature(entity.carry)}|` +
+    `${renderResourceNodeSignature(entity.resourceNode)}`
+  );
+}
+
+function renderLifecycleSignature(lifecycle: EntityLifecycleState): string {
+  return (
+    `${lifecycle.state},${lifecycle.evidence},${lifecycle.deadAtMs ?? ""},${lifecycle.killedById ?? ""},` +
+    `${lifecycle.deathReason ?? ""},${lifecycle.reconciledAtMs ?? ""},${lifecycle.correctionReason ?? ""},` +
+    `${lifecycle.previousDeathAtMs ?? ""}`
+  );
+}
+
+function renderTaskSignature(task: EntityTask): string {
+  if (task.kind === "idle") {
+    return `${task.kind},${task.evidence}`;
+  }
+
+  if (
+    task.kind === "gathering" ||
+    task.kind === "dropping-off" ||
+    task.kind === "building" ||
+    task.kind === "attacking"
+  ) {
+    const resource = "resource" in task ? task.resource : "";
+    return `${task.kind},${task.commandId},${task.targetId},${resource},${task.evidence}`;
+  }
+
+  let route = `${task.route.status},${task.route.staticVersion},${task.route.nextWaypointIndex},` +
+    `${task.route.pathNodeCount},${task.route.searchedNodeCount},${task.route.failureReason ?? ""},` +
+    `${task.route.failureDetail ?? ""},${task.route.lastCorrection?.timeMs ?? ""},` +
+    `${task.route.lastCorrection?.reason ?? ""},${task.route.lastCorrection?.blockerId ?? ""},` +
+    `${task.route.lastCorrection?.tileX ?? ""},${task.route.lastCorrection?.tileY ?? ""}`;
+  if (task.kind === "moving") {
+    for (const waypoint of task.route.waypoints) {
+      route += `,${waypoint.xFp}:${waypoint.yFp}:${waypoint.tileX}:${waypoint.tileY}`;
+    }
+  }
+
+  return (
+    `${task.kind},${task.commandId},${task.destination.xFp},${task.destination.yFp},${task.evidence},` +
+    `${route}`
+  );
+}
+
+function renderCarrySignature(carry: WorkerCarryState | undefined): string {
+  if (!carry || carry.amountFp <= 0) {
+    return "none";
+  }
+
+  return `${carry.resource ?? ""},${carry.amountFp},${carry.capacityFp},${carry.evidence}`;
+}
+
+function renderResourceNodeSignature(node: ResourceNodeState | undefined): string {
+  if (!node) {
+    return "none";
+  }
+
+  return (
+    `${node.id},${node.resource},${node.family},${node.depleted ? 1 : 0},` +
+    `${node.depletionTimeMs ?? ""},${node.evidence}`
+  );
+}
+
+function snapshotRenderEntity(entity: EntityState, representedTreeResource: boolean): RenderEntitySnapshot {
+  return dropUndefined({
+    id: entity.id,
+    kind: entity.kind,
+    dataId: entity.dataId,
+    classId: entity.classId,
+    label: entity.label,
+    playerId: entity.playerId,
+    lifecycle: snapshotLifecycle(entity.lifecycle),
+    facing: entity.facing,
+    radiusTiles: fromFixedPoint(entity.radiusFp),
+    position: {
+      x: fromFixedPoint(entity.position.xFp),
+      y: fromFixedPoint(entity.position.yFp),
+      xFp: entity.position.xFp,
+      yFp: entity.position.yFp,
+      evidence: entity.position.evidence
+    },
+    task: snapshotTask(entity.task, entity.lastRoute),
+    carry: snapshotCarry(entity.carry),
+    resourceNode: entity.resourceNode ? snapshotRenderResourceNode(entity.resourceNode) : undefined,
+    representedTreeResource,
+    evidence: entity.evidence
+  }) as RenderEntitySnapshot;
+}
+
+function snapshotRenderResourceNode(node: ResourceNodeState): RenderResourceNodeSnapshot {
+  return dropUndefined({
+    id: node.id,
+    resource: node.resource,
+    family: node.family,
+    depleted: node.depleted,
+    depletionTimeMs: node.depletionTimeMs,
+    evidence: node.evidence
+  }) as RenderResourceNodeSnapshot;
 }
 
 function snapshotTask(task: EntityTask, lastRoute: PlannedRoute | undefined): SnapshotTask {
@@ -1400,7 +1600,7 @@ function checkConservation(
   };
 }
 
-function summarizeStockpiles(players: readonly SnapshotPlayerEconomy[]): string {
+function summarizeEconomyStockpiles(players: readonly PlayerEconomyState[]): string {
   if (!players.length) {
     return "none";
   }
@@ -1415,18 +1615,22 @@ function summarizeStockpiles(players: readonly SnapshotPlayerEconomy[]): string 
     .join(" | ");
 }
 
-function summarizeLedgers(players: readonly SnapshotPlayerEconomy[]): string {
+function summarizeEconomyLedgers(
+  players: readonly PlayerEconomyState[],
+  carrying: ReadonlyMap<PlayerId, Record<ResourceKind, FixedPoint>>
+): string {
   let extractedFp = 0;
   let depositedFp = 0;
   let spentFp = 0;
   let carryingFp = 0;
   for (const player of players) {
+    const playerCarry = carrying.get(player.playerId);
     for (const resource of resourceKinds) {
       const ledger = player.ledger[resource];
       extractedFp += ledger.extractedFp;
       depositedFp += ledger.depositedFp;
       spentFp += ledger.spentFp;
-      carryingFp += ledger.carryingFp;
+      carryingFp += playerCarry?.[resource] ?? 0;
     }
   }
 
@@ -1434,6 +1638,27 @@ function summarizeLedgers(players: readonly SnapshotPlayerEconomy[]): string {
     `extract ${formatResource(extractedFp)}, carry ${formatResource(carryingFp)}, ` +
     `deposit ${formatResource(depositedFp)}, spend ${formatResource(spentFp)}`
   );
+}
+
+function ledgersBalanced(
+  players: readonly PlayerEconomyState[],
+  carrying: ReadonlyMap<PlayerId, Record<ResourceKind, FixedPoint>>
+): boolean {
+  for (const player of players) {
+    const playerCarry = carrying.get(player.playerId);
+    for (const resource of resourceKinds) {
+      const ledger = player.ledger[resource];
+      const expectedStockpile = ledger.baselineFp + ledger.depositedFp + ledger.refundedFp - ledger.spentFp;
+      if (expectedStockpile !== player.stockpileFp[resource]) {
+        return false;
+      }
+      if (ledger.extractedFp - ledger.depositedFp !== (playerCarry?.[resource] ?? 0)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function formatCombatRange(active: ActiveCombatState): string {

@@ -1,14 +1,39 @@
 import { drawPixelToken, evidenceColor } from "./pixel-tokens";
-import type { EntitySnapshot, MapBounds, PlayerDefinition, WorldSnapshot } from "../replay/model";
+import type {
+  EntityId,
+  MapBounds,
+  PlaybackRenderFrame,
+  PlayerDefinition,
+  RenderEntitySnapshot,
+  SnapshotProjectile,
+  WorldSnapshot
+} from "../replay/model";
 
 interface TerrainCache {
   readonly key: string;
   readonly canvas: HTMLCanvasElement;
 }
 
+interface TreeCache {
+  readonly key: string;
+  readonly canvas: HTMLCanvasElement;
+}
+
+type EntityDrawMode = "dense" | "tokens";
+
 export class CanvasRenderer {
   private readonly context: CanvasRenderingContext2D;
   private terrainCache: TerrainCache | undefined;
+  private treeCache: TreeCache | undefined;
+  private treeCacheDirty = true;
+  private map: MapBounds | undefined;
+  private players: readonly PlayerDefinition[] = [];
+  private readonly playerColors = new Map<string, string>();
+  private readonly entityCache = new Map<EntityId, RenderEntitySnapshot>();
+  private readonly nonTreeEntities = new Map<EntityId, RenderEntitySnapshot>();
+  private readonly treeEntityIds = new Set<EntityId>();
+  private projectiles: readonly SnapshotProjectile[] = [];
+  private renderedTimeMs: number | undefined;
 
   public constructor(private readonly canvas: HTMLCanvasElement) {
     const context = canvas.getContext("2d", {
@@ -24,7 +49,76 @@ export class CanvasRenderer {
   }
 
   public draw(snapshot: WorldSnapshot): void {
-    this.syncCanvasLayout(snapshot.map);
+    this.resetFromSnapshot(snapshot);
+    this.drawCurrent();
+  }
+
+  public drawFrame(frame: PlaybackRenderFrame): boolean {
+    if (!this.map || frame.fromTimeMs !== this.renderedTimeMs) {
+      return false;
+    }
+
+    for (const entity of frame.entityUpdates) {
+      this.applyEntityUpdate(entity);
+    }
+    this.projectiles = frame.projectiles;
+    this.renderedTimeMs = frame.timeMs;
+    this.drawCurrent();
+    return true;
+  }
+
+  private resetFromSnapshot(snapshot: WorldSnapshot): void {
+    this.terrainCache = undefined;
+    this.treeCache = undefined;
+    this.treeCacheDirty = true;
+    this.map = snapshot.map;
+    this.players = snapshot.players;
+    this.projectiles = snapshot.combat.projectiles;
+    this.renderedTimeMs = snapshot.timeMs;
+    this.playerColors.clear();
+    this.entityCache.clear();
+    this.nonTreeEntities.clear();
+    this.treeEntityIds.clear();
+
+    for (const id of snapshot.render.representedTreeEntityIds) {
+      this.treeEntityIds.add(id);
+    }
+
+    for (const player of snapshot.players) {
+      this.playerColors.set(player.id, player.color);
+    }
+    for (const entity of snapshot.entities) {
+      this.applyEntityUpdate(entity);
+    }
+    this.treeCacheDirty = true;
+  }
+
+  private applyEntityUpdate(entity: RenderEntitySnapshot): void {
+    const wasTree = this.treeEntityIds.has(entity.id);
+    const isTree = entity.representedTreeResource ?? wasTree;
+    this.entityCache.set(entity.id, entity);
+
+    if (isTree) {
+      this.treeEntityIds.add(entity.id);
+      this.nonTreeEntities.delete(entity.id);
+      this.treeCacheDirty = true;
+      return;
+    }
+
+    this.nonTreeEntities.set(entity.id, entity);
+    if (wasTree) {
+      this.treeEntityIds.delete(entity.id);
+      this.treeCacheDirty = true;
+    }
+  }
+
+  private drawCurrent(): void {
+    const map = this.map;
+    if (!map) {
+      return;
+    }
+
+    this.syncCanvasLayout(map);
 
     const { context, canvas } = this;
     context.imageSmoothingEnabled = false;
@@ -34,39 +128,39 @@ export class CanvasRenderer {
 
     const tileSize = Math.max(
       1,
-      Math.floor(
-        Math.min((canvas.width - 16) / snapshot.map.widthTiles, (canvas.height - 16) / snapshot.map.heightTiles)
-      )
+      Math.floor(Math.min((canvas.width - 16) / map.widthTiles, (canvas.height - 16) / map.heightTiles))
     );
-    const originX = Math.floor((canvas.width - snapshot.map.widthTiles * tileSize) / 2);
-    const originY = Math.floor((canvas.height - snapshot.map.heightTiles * tileSize) / 2);
+    const originX = Math.floor((canvas.width - map.widthTiles * tileSize) / 2);
+    const originY = Math.floor((canvas.height - map.heightTiles * tileSize) / 2);
+    const drawMode: EntityDrawMode = this.entityCache.size > 1200 || tileSize <= 2 ? "dense" : "tokens";
 
-    this.drawTerrain(snapshot, originX, originY, tileSize);
-    this.drawTasks(snapshot, originX, originY, tileSize);
-    this.drawProjectiles(snapshot, originX, originY, tileSize);
+    this.drawTerrain(map, originX, originY, tileSize);
+    this.drawTasks(originX, originY, tileSize);
+    this.drawProjectiles(originX, originY, tileSize);
 
-    if (snapshot.entities.length > 1200 || tileSize <= 2) {
-      this.drawDenseEntities(snapshot, originX, originY, tileSize);
+    if (drawMode === "dense") {
+      this.drawTreeLayer(map, originX, originY, tileSize, drawMode);
+      this.drawDenseEntities(originX, originY, tileSize);
       return;
     }
 
-    for (const entity of [...snapshot.entities].sort(compareEntityDepth)) {
+    for (const entity of [...this.entityCache.values()].sort(compareEntityDepth)) {
       const screen = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
-      drawPixelToken(context, entity, snapshot.players, screen.x, screen.y, tileSize);
+      drawPixelToken(context, entity, this.players, screen.x, screen.y, tileSize);
     }
   }
 
-  private drawTerrain(snapshot: WorldSnapshot, originX: number, originY: number, tileSize: number): void {
+  private drawTerrain(map: MapBounds, originX: number, originY: number, tileSize: number): void {
     const { context } = this;
 
-    if (snapshot.map.tileGrid) {
-      context.drawImage(this.renderTerrainCache(snapshot.map, tileSize).canvas, originX, originY);
+    if (map.tileGrid) {
+      context.drawImage(this.renderTerrainCache(map, tileSize).canvas, originX, originY);
     } else {
       context.fillStyle = "#26351c";
-      context.fillRect(originX, originY, snapshot.map.widthTiles * tileSize, snapshot.map.heightTiles * tileSize);
+      context.fillRect(originX, originY, map.widthTiles * tileSize, map.heightTiles * tileSize);
 
-      for (let y = 0; y < snapshot.map.heightTiles; y += 1) {
-        for (let x = 0; x < snapshot.map.widthTiles; x += 1) {
+      for (let y = 0; y < map.heightTiles; y += 1) {
+        for (let x = 0; x < map.widthTiles; x += 1) {
           context.fillStyle = (x + y) % 2 === 0 ? "#2b3b20" : "#314324";
           context.fillRect(originX + x * tileSize, originY + y * tileSize, tileSize, tileSize);
         }
@@ -78,15 +172,29 @@ export class CanvasRenderer {
     context.strokeRect(
       originX - 1,
       originY - 1,
-      snapshot.map.widthTiles * tileSize + 2,
-      snapshot.map.heightTiles * tileSize + 2
+      map.widthTiles * tileSize + 2,
+      map.heightTiles * tileSize + 2
     );
   }
 
-  private drawTasks(snapshot: WorldSnapshot, originX: number, originY: number, tileSize: number): void {
+  private drawTreeLayer(
+    map: MapBounds,
+    originX: number,
+    originY: number,
+    tileSize: number,
+    drawMode: EntityDrawMode
+  ): void {
+    if (!this.treeEntityIds.size) {
+      return;
+    }
+
+    this.context.drawImage(this.renderTreeCache(map, tileSize, drawMode).canvas, originX, originY);
+  }
+
+  private drawTasks(originX: number, originY: number, tileSize: number): void {
     const { context } = this;
 
-    for (const entity of snapshot.entities) {
+    for (const entity of this.nonTreeEntities.values()) {
       if (entity.task.kind !== "moving" || !entity.task.destination) {
         continue;
       }
@@ -112,7 +220,7 @@ export class CanvasRenderer {
       context.fillRect(end.x - 1, end.y - 1, 3, 3);
     }
 
-    for (const entity of snapshot.entities) {
+    for (const entity of this.nonTreeEntities.values()) {
       if (entity.task.kind !== "path-failed" || !entity.task.destination) {
         continue;
       }
@@ -129,14 +237,14 @@ export class CanvasRenderer {
     }
   }
 
-  private drawProjectiles(snapshot: WorldSnapshot, originX: number, originY: number, tileSize: number): void {
+  private drawProjectiles(originX: number, originY: number, tileSize: number): void {
     const { context } = this;
     context.save();
     context.strokeStyle = "#f6d77f";
     context.fillStyle = "#fff1a8";
     context.lineWidth = 1;
 
-    for (const projectile of snapshot.combat.projectiles) {
+    for (const projectile of this.projectiles) {
       const start = worldToScreen(projectile.start.x, projectile.start.y, originX, originY, tileSize);
       const point = worldToScreen(projectile.x, projectile.y, originX, originY, tileSize);
       context.beginPath();
@@ -149,16 +257,12 @@ export class CanvasRenderer {
     context.restore();
   }
 
-  private drawDenseEntities(snapshot: WorldSnapshot, originX: number, originY: number, tileSize: number): void {
+  private drawDenseEntities(originX: number, originY: number, tileSize: number): void {
     const { context } = this;
-    const colors = new Map(snapshot.players.map((player) => [player.id, player.color]));
     context.save();
 
-    for (const entity of snapshot.entities) {
-      const screen = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
-      const size = entity.playerId === "gaia" ? 1 : Math.max(2, tileSize);
-      context.fillStyle = denseEntityColor(entity, colors, snapshot.players);
-      context.fillRect(screen.x, screen.y, size, size);
+    for (const entity of this.nonTreeEntities.values()) {
+      drawDenseEntity(context, entity, this.playerColors, this.players, originX, originY, tileSize);
     }
 
     context.restore();
@@ -201,6 +305,50 @@ export class CanvasRenderer {
     return this.terrainCache;
   }
 
+  private renderTreeCache(map: MapBounds, tileSize: number, drawMode: EntityDrawMode): TreeCache {
+    const key = `${map.widthTiles}x${map.heightTiles}:${tileSize}:${map.sourceMapId ?? "unknown"}:${drawMode}`;
+    if (!this.treeCacheDirty && this.treeCache?.key === key) {
+      return this.treeCache;
+    }
+
+    const treeCanvas = document.createElement("canvas");
+    treeCanvas.width = map.widthTiles * tileSize;
+    treeCanvas.height = map.heightTiles * tileSize;
+    const treeContext = treeCanvas.getContext("2d", {
+      alpha: true
+    });
+    if (!treeContext) {
+      throw new Error("Canvas 2D is unavailable");
+    }
+
+    treeContext.imageSmoothingEnabled = false;
+    const trees: RenderEntitySnapshot[] = [];
+    for (const id of this.treeEntityIds) {
+      const entity = this.entityCache.get(id);
+      if (entity) {
+        trees.push(entity);
+      }
+    }
+
+    if (drawMode === "dense") {
+      for (const entity of trees) {
+        drawDenseEntity(treeContext, entity, this.playerColors, this.players, 0, 0, tileSize);
+      }
+    } else {
+      for (const entity of trees.sort(compareEntityDepth)) {
+        const screen = worldToScreen(entity.position.x, entity.position.y, 0, 0, tileSize);
+        drawPixelToken(treeContext, entity, this.players, screen.x, screen.y, tileSize);
+      }
+    }
+
+    this.treeCache = {
+      key,
+      canvas: treeCanvas
+    };
+    this.treeCacheDirty = false;
+    return this.treeCache;
+  }
+
   private syncCanvasLayout(map: MapBounds): void {
     const widthTiles = Math.max(1, map.widthTiles);
     const heightTiles = Math.max(1, map.heightTiles);
@@ -237,37 +385,37 @@ function worldToScreen(
   };
 }
 
-function compareEntityDepth(left: EntitySnapshot, right: EntitySnapshot): number {
+function compareEntityDepth(left: RenderEntitySnapshot, right: RenderEntitySnapshot): number {
   return left.position.y - right.position.y || left.id.localeCompare(right.id);
 }
 
-function terrainColor(terrainId: number, elevation: number): string {
-  const palette = new Map([
-    [3, "#536044"],
-    [11, "#243b26"],
-    [14, "#325b32"],
-    [48, "#5d6647"],
-    [89, "#2b4424"],
-    [112, "#394a2d"]
-  ]);
-  const base = palette.get(terrainId) ?? "#34412c";
-
-  if (elevation <= 0) {
-    return base;
-  }
-
-  return elevation === 1 ? lighten(base, 12) : lighten(base, 22);
+function drawDenseEntity(
+  context: CanvasRenderingContext2D,
+  entity: RenderEntitySnapshot,
+  colors: ReadonlyMap<string, string>,
+  players: readonly PlayerDefinition[],
+  originX: number,
+  originY: number,
+  tileSize: number
+): void {
+  const screen = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
+  const size = entity.playerId === "gaia" ? 1 : Math.max(2, tileSize);
+  context.fillStyle = denseEntityColor(entity, colors, players);
+  context.fillRect(screen.x, screen.y, size, size);
 }
 
 function denseEntityColor(
-  entity: EntitySnapshot,
+  entity: RenderEntitySnapshot,
   colors: ReadonlyMap<string, string>,
   players: readonly PlayerDefinition[]
 ): string {
+  if (entity.lifecycle.state === "dead") {
+    return "#5f5b53";
+  }
+  if (entity.resourceNode?.depleted) {
+    return "#7c6f55";
+  }
   if (entity.playerId !== "gaia") {
-    if (entity.lifecycle.state === "dead") {
-      return "#5f5b53";
-    }
     return colors.get(entity.playerId) ?? players.find((player) => player.id === entity.playerId)?.color ?? "#f4ead7";
   }
 
@@ -285,6 +433,25 @@ function denseEntityColor(
   }
 
   return "#96a17d";
+}
+
+
+function terrainColor(terrainId: number, elevation: number): string {
+  const palette = new Map([
+    [3, "#536044"],
+    [11, "#243b26"],
+    [14, "#325b32"],
+    [48, "#5d6647"],
+    [89, "#2b4424"],
+    [112, "#394a2d"]
+  ]);
+  const base = palette.get(terrainId) ?? "#34412c";
+
+  if (elevation <= 0) {
+    return base;
+  }
+
+  return elevation === 1 ? lighten(base, 12) : lighten(base, 22);
 }
 
 function lighten(color: string, amount: number): string {

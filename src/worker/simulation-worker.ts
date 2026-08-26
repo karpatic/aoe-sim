@@ -41,7 +41,7 @@ function handleMessage(message: ClientToWorker): void {
       return;
     case "play":
       cancelSeekJob();
-      requireEngine().advanceTo(message.fromTimeMs ?? requireEngine().currentTimeMs);
+      requireEngine().advanceToTime(message.fromTimeMs ?? requireEngine().currentTimeMs);
       startPlayback();
       postAck(message.requestId, message.type);
       return;
@@ -57,8 +57,7 @@ function handleMessage(message: ClientToWorker): void {
     case "step":
       cancelSeekJob();
       stopPlayback();
-      requireEngine().advanceBy(message.deltaMs ?? requireEngine().stepMs);
-      postSnapshot(message.requestId);
+      postSnapshot(message.requestId, requireEngine().advanceBy(message.deltaMs ?? requireEngine().stepMs));
       return;
     case "snapshot":
       postSnapshot(message.requestId);
@@ -85,9 +84,10 @@ function startPlayback(): void {
       stopPlayback();
     }
 
-    if (playbackBatchCount % PLAYBACK_SNAPSHOT_BATCH_INTERVAL === 0 || isTerminalSnapshot) {
-      const snapshot = activeEngine.snapshot();
-      postSnapshot(undefined, snapshot);
+    if (isTerminalSnapshot) {
+      postSnapshot(undefined);
+    } else if (playbackBatchCount % PLAYBACK_SNAPSHOT_BATCH_INTERVAL === 0) {
+      postPlaybackFrame();
     }
   }, PLAYBACK_TIMER_INTERVAL_MS);
 }
@@ -195,7 +195,7 @@ function postReady(requestId: RequestId): void {
     type: "ready",
     requestId,
     snapshot,
-    diagnostics: activeEngine.diagnostics(isPlaying, snapshot)
+    diagnostics: activeEngine.diagnostics(isPlaying)
   });
 }
 
@@ -213,7 +213,7 @@ function postSnapshot(requestId?: RequestId, snapshot = requireEngine().snapshot
   const message: WorkerToClient = {
     type: "snapshot",
     snapshot,
-    diagnostics: activeEngine.diagnostics(isPlaying, snapshot)
+    diagnostics: activeEngine.diagnostics(isPlaying)
   };
 
   if (requestId) {
@@ -227,13 +227,18 @@ function postSnapshot(requestId?: RequestId, snapshot = requireEngine().snapshot
   workerScope.postMessage(message);
 }
 
+function postPlaybackFrame(): void {
+  workerScope.postMessage({
+    type: "playback-frame",
+    frame: requireEngine().createPlaybackRenderFrame(isPlaying)
+  });
+}
+
 function postDiagnostics(requestId: RequestId): void {
-  const activeEngine = requireEngine();
-  const snapshot = activeEngine.snapshot();
   workerScope.postMessage({
     type: "diagnostics",
     requestId,
-    diagnostics: activeEngine.diagnostics(isPlaying, snapshot)
+    diagnostics: requireEngine().diagnostics(isPlaying)
   });
 }
 

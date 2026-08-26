@@ -1,4 +1,5 @@
 import type {
+  PlaybackRenderFrame,
   ReplayScenarioV1,
   RulesetV1,
   SimTimeMs,
@@ -61,6 +62,10 @@ export type WorkerToClient =
       readonly requestId?: RequestId;
       readonly snapshot: WorldSnapshot;
       readonly diagnostics: SimulationDiagnostics;
+    }
+  | {
+      readonly type: "playback-frame";
+      readonly frame: PlaybackRenderFrame;
     }
   | {
       readonly type: "diagnostics";

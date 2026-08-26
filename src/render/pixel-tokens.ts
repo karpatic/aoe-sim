@@ -1,4 +1,4 @@
-import type { EntitySnapshot, EvidenceClass, PlayerDefinition } from "../replay/model";
+import type { EvidenceClass, PlayerDefinition, RenderEntitySnapshot } from "../replay/model";
 
 const evidenceColors: Record<EvidenceClass, string> = {
   observed: "#f4ead7",
@@ -8,7 +8,7 @@ const evidenceColors: Record<EvidenceClass, string> = {
 
 export function drawPixelToken(
   context: CanvasRenderingContext2D,
-  entity: EntitySnapshot,
+  entity: RenderEntitySnapshot,
   players: readonly PlayerDefinition[],
   x: number,
   y: number,

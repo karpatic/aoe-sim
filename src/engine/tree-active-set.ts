@@ -203,6 +203,10 @@ export class TreeActiveSet {
     return node !== undefined && this.trackedTreeResourceIds.has(entity.id);
   }
 
+  public representedTreeEntityIds(): readonly EntityId[] {
+    return this.allTreeResourceIds;
+  }
+
   public diagnostics(): TreeActiveSetDiagnostics {
     return {
       representedTreeTotal: this.allTreeResourceIds.length,

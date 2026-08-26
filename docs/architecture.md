@@ -2,12 +2,17 @@
 
 Milestone 6 keeps the runtime split into four small stages.
 
-1. The main thread loads JSON artifacts, owns DOM controls, and renders cloned snapshots.
+1. The main thread loads JSON artifacts, owns DOM controls, and renders authoritative snapshots plus playback deltas.
 2. The Web Worker owns `SimulationEngine`, `WorldState`, and the deterministic scheduler.
 3. A separate parser worker owns local `.aoe2record` parsing and compatibility reports.
-4. The Canvas renderer draws only the `WorldSnapshot` it receives.
+4. The Canvas renderer resets from immutable `WorldSnapshot` values and applies time-contiguous render-only playback
+   frames. A frame gap fails closed by requesting another authoritative snapshot.
 
-The protocol in `src/protocol.ts` is intentionally narrow: `initialize`, `play`, `pause`, `seek`, `step`, `snapshot`, and `diagnostics`. The main thread never receives mutable engine objects.
+The protocol in `src/protocol.ts` is intentionally narrow: `initialize`, `play`, `pause`, `seek`, `step`, `snapshot`, and
+`diagnostics`, plus worker-originated playback frames. Ordinary playback frames contain only changed renderer-visible
+entities and current projectiles; they do not build, checksum, freeze, or transfer the complete world. Ready, pause,
+step, seek, explicit Sync, and terminal boundaries still return authoritative checksummed snapshots. The main thread
+never receives mutable engine objects.
 
 Local replay upload uses a separate protocol in `src/replay/local-recording.ts` and worker entrypoint `src/worker/replay-parser-worker.ts`. The main thread reads the selected file with `File.arrayBuffer`, transfers that `ArrayBuffer` to the parser worker, and receives only derived parser output: hashes, metadata, operation counts, comparison rows, and unsupported mapping notes. That report is displayed in the DOM but is not fed into `SimulationEngine`.
 
@@ -33,4 +38,8 @@ Local parser compatibility checks reconcile the known recording against the comm
 
 Resource conservation is explicit in snapshots. Extraction increases node `extracted` and worker/player carry, deposits transfer carry into stockpiles, and spending reduces stockpiles through ledgers. Divergence diagnostics record the first unsupported or inconsistent economy condition without mutating state to fit expected replay timeseries.
 
-The Canvas renderer caches the static real terrain layer and uses a dense point rendering path for the 9,806-object replay start state. The detailed original pixel tokens remain active for small scenarios.
+The Canvas renderer caches the static real terrain and represented-tree layers and uses a dense point rendering path for
+the 9,806-object replay start state. Tree cache identity comes from the engine's represented-resource classification,
+not display-name heuristics. Ordinary playback draws only cached trees and current non-tree entities; tree appearance
+updates invalidate the tree layer. The detailed original pixel tokens and depth ordering remain active for small
+scenarios.

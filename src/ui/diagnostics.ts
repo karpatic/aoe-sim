@@ -1,11 +1,12 @@
 import { formatSimTime } from "./timeline";
-import type { SimulationDiagnostics, WorldSnapshot } from "../replay/model";
+import type { PlaybackRenderFrame, SimulationDiagnostics, SnapshotProjectile, WorldSnapshot } from "../replay/model";
 
 export function renderDiagnostics(
   root: HTMLElement,
   snapshot: WorldSnapshot | undefined,
   diagnostics: SimulationDiagnostics | undefined,
-  provenance: readonly string[]
+  provenance: readonly string[],
+  frame?: PlaybackRenderFrame
 ): void {
   const disclosureState = readDisclosureState(root);
   root.replaceChildren();
@@ -15,8 +16,11 @@ export function renderDiagnostics(
     return;
   }
 
-  appendRow(root, "time", formatSimTime(snapshot.timeMs));
+  const timeMs = diagnostics.currentTimeMs;
+  const projectiles = frame?.projectiles ?? snapshot.combat.projectiles;
+  appendRow(root, "time", formatSimTime(timeMs));
   appendRow(root, "checksum", diagnostics.checksum);
+  appendRow(root, "verified checksum", checksumStatus(diagnostics));
   appendRow(
     root,
     "map",
@@ -43,6 +47,9 @@ export function renderDiagnostics(
   );
   appendRow(root, "combat unsupported", firstUnsupported(diagnostics.combat.firstUnsupported));
   appendRow(root, "step", `${diagnostics.stepMs}ms`);
+  if (diagnostics.playbackFrameEntityUpdates !== undefined) {
+    appendRow(root, "playback frame", `${diagnostics.playbackFrameEntityUpdates} entity updates`);
+  }
   appendRow(
     root,
     "evidence",
@@ -82,8 +89,8 @@ export function renderDiagnostics(
   appendDisclosureRow(
     root,
     "projectiles",
-    `${snapshot.combat.projectiles.length} in-flight ${pluralize("projectile", snapshot.combat.projectiles.length)}`,
-    snapshot.combat.projectiles.map(formatProjectile),
+    `${projectiles.length} in-flight ${pluralize("projectile", projectiles.length)}`,
+    projectiles.map(formatProjectile),
     disclosureState.projectiles
   );
   appendDisclosureRow(
@@ -130,6 +137,11 @@ export function renderDiagnostics(
     diagnostics.warnings,
     disclosureState.warnings
   );
+}
+
+function checksumStatus(diagnostics: SimulationDiagnostics): string {
+  const verifiedAt = formatSimTime(diagnostics.checksumVerifiedAtMs);
+  return diagnostics.checksumCurrent ? `current at ${verifiedAt}` : `stale; last full snapshot at ${verifiedAt}`;
 }
 
 function seekStatus(repeat: NonNullable<SimulationDiagnostics["lastSeekRepeat"]>): string {
@@ -305,7 +317,7 @@ function formatActiveCombat(attacker: SimulationDiagnostics["combat"]["attackers
   );
 }
 
-function formatProjectile(projectile: WorldSnapshot["combat"]["projectiles"][number]): string {
+function formatProjectile(projectile: SnapshotProjectile): string {
   return (
     `${projectile.id} ${projectile.attackerId}->${projectile.targetId} ` +
     `${formatSimTime(projectile.launchedAtMs)}-${formatSimTime(projectile.impactAtMs)} ` +

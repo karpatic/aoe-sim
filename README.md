@@ -42,7 +42,8 @@ Carlos has not opted into automated tests for this repository. This milestone us
 - Starting objects are only partially reconciled through `aoe2rec` `next_object_id = 9806`; per-object owners, data IDs, HP, and observed positions still come from the committed `aoc-mgz` scenario.
 - `public/rules/ruleset-current.report.json` records source hashes, extractor/parser identity, field coverage, and unresolved raw effect operation/attribute diagnostics.
 - `public/rules/glade-120x120.coverage.json` resolves every starting entity data ID and every command-referenced unit, building, and technology ID for the replay fixture.
-- Renderer consumes snapshots only and cannot mutate simulation state.
+- Renderer receives authoritative immutable snapshots at lifecycle boundaries and time-contiguous render deltas during
+  playback. It caches terrain and represented trees locally without mutating simulation state.
 - Evidence classes remain explicit: `observed`, `simulated`, and `reconciled`.
 
 Replay command destinations are observed intent, not observed continuous positions. The path chosen from that intent, intermediate positions, carried resources, deposits, depletion, spending, construction, production, and ledgers are simulated. Timeseries comparisons and first divergence records are diagnostics; they do not silently fit engine state to a known replay outcome.

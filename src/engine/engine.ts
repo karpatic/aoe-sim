@@ -6,6 +6,7 @@ import { advanceMovement } from "./systems/movement";
 import { advanceCombat, hasCombatState } from "./systems/combat";
 import { WorldState } from "./world";
 import type {
+  PlaybackRenderFrame,
   ReplayCommand,
   ReplayScenarioV1,
   RulesetV1,
@@ -24,6 +25,9 @@ export class SimulationEngine {
   private readonly rng = new SeededRng(DEFAULT_SEED);
   private world: WorldState;
   private lastSeekRepeat: SimulationDiagnostics["lastSeekRepeat"];
+  private lastVerifiedChecksum = "unverified";
+  private lastVerifiedChecksumTimeMs: SimTimeMs = 0;
+  private renderBaselineTimeMs: SimTimeMs = 0;
 
   public constructor(
     private readonly scenario: ReplayScenarioV1,
@@ -67,7 +71,7 @@ export class SimulationEngine {
     }
 
     this.advanceToTime(targetTimeMs);
-    return this.world.createSnapshot();
+    return this.snapshot();
   }
 
   public advanceToTime(timeMs: SimTimeMs): void {
@@ -158,28 +162,52 @@ export class SimulationEngine {
   }
 
   public snapshot(): WorldSnapshot {
-    return this.world.createSnapshot();
+    const snapshot = this.world.createSnapshot();
+    this.lastVerifiedChecksum = snapshot.checksum;
+    this.lastVerifiedChecksumTimeMs = snapshot.timeMs;
+    this.renderBaselineTimeMs = snapshot.timeMs;
+    this.world.resetRenderBaseline();
+    return snapshot;
   }
 
-  public diagnostics(isPlaying: boolean, snapshot = this.snapshot()): SimulationDiagnostics {
+  public createPlaybackRenderFrame(isPlaying: boolean): PlaybackRenderFrame {
+    const entityUpdates = this.world.createRenderEntityUpdates();
+    const fromTimeMs = this.renderBaselineTimeMs;
+    this.renderBaselineTimeMs = this.world.timeMs;
+    return {
+      schemaVersion: "aoe-sim.render-frame.v1",
+      fromTimeMs,
+      timeMs: this.world.timeMs,
+      durationMs: this.durationMs,
+      entityUpdates,
+      projectiles: this.world.createProjectileRenderData(),
+      diagnostics: this.diagnostics(isPlaying, entityUpdates.length)
+    };
+  }
+
+  public diagnostics(isPlaying: boolean, playbackFrameEntityUpdates?: number): SimulationDiagnostics {
+    const checksumCurrent = this.lastVerifiedChecksumTimeMs === this.world.timeMs;
     const diagnostics: SimulationDiagnostics = {
       schemaVersion: "aoe-sim.diagnostics.v1",
       isPlaying,
-      checksum: snapshot.checksum,
+      checksum: this.lastVerifiedChecksum,
+      checksumVerifiedAtMs: this.lastVerifiedChecksumTimeMs,
+      checksumCurrent,
       schedulerPending: this.scheduler.pendingCount,
       schedulerExecuted: this.scheduler.executedCount,
-      currentTimeMs: snapshot.timeMs,
+      currentTimeMs: this.world.timeMs,
       durationMs: this.durationMs,
       stepMs: this.stepMs,
       commandCount: this.commandTape.length,
-      appliedCommandCount: snapshot.appliedCommandIds.length,
-      observedIntentCount: snapshot.observedIntentIds.length,
+      appliedCommandCount: this.world.appliedCommandIds.length,
+      observedIntentCount: this.world.observedIntentIds.length,
       unsupportedCommandCount: this.scenario.unsupported.commandCount,
       seed: this.rng.currentSeed,
       routes: this.world.createRouteDiagnostics(),
       economy: this.world.createEconomyDiagnostics(),
       combat: this.world.createCombatDiagnostics(),
       trees: this.world.createTreeActiveSetDiagnostics(),
+      ...(playbackFrameEntityUpdates === undefined ? {} : { playbackFrameEntityUpdates }),
       warnings: [...this.world.warnings]
     };
 
@@ -196,6 +224,7 @@ export class SimulationEngine {
   private reset(): void {
     this.lastSeekRepeat = undefined;
     this.world = new WorldState(this.scenario, this.ruleset);
+    this.renderBaselineTimeMs = this.world.timeMs;
     initializeEconomy(this.world);
     this.scheduler.reset();
 

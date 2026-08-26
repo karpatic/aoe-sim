@@ -12,7 +12,13 @@ import type {
   LocalReplayParserRequest,
   LocalReplayParserResponse
 } from "./replay/local-recording";
-import type { ReplayScenarioV1, RulesetV1, SimulationDiagnostics, WorldSnapshot } from "./replay/model";
+import type {
+  PlaybackRenderFrame,
+  ReplayScenarioV1,
+  RulesetV1,
+  SimulationDiagnostics,
+  WorldSnapshot
+} from "./replay/model";
 
 const canvas = must<HTMLCanvasElement>("#world");
 const status = must<HTMLElement>("#status");
@@ -44,6 +50,7 @@ const scenarioOptions: Record<string, string> = {
 let requestOrdinal = 0;
 let currentSnapshot: WorldSnapshot | undefined;
 let currentDiagnostics: SimulationDiagnostics | undefined;
+let currentRenderFrame: PlaybackRenderFrame | undefined;
 let referenceScenario: ReplayScenarioV1 | undefined;
 let localRecordingReport: LocalReplayCompatibilityReport | undefined;
 let activeRecordingRequestId = "";
@@ -85,10 +92,6 @@ sync.addEventListener("click", () => {
     type: "snapshot",
     requestId: nextRequestId()
   });
-  post({
-    type: "diagnostics",
-    requestId: nextRequestId()
-  });
 });
 
 scenarioSelect.addEventListener("change", () => {
@@ -127,6 +130,7 @@ async function initialize(): Promise<void> {
   setEnabled(false);
   currentSnapshot = undefined;
   currentDiagnostics = undefined;
+  currentRenderFrame = undefined;
   provenanceSummary = [];
   status.textContent = "Loading scenario";
   playPause.textContent = "Play";
@@ -203,6 +207,7 @@ function handleWorkerMessage(message: WorkerToClient): void {
     case "snapshot":
       currentSnapshot = freezeSnapshot(message.snapshot);
       currentDiagnostics = message.diagnostics;
+      currentRenderFrame = undefined;
       renderer.draw(currentSnapshot);
       setTimeline(seek, timeLabel, durationLabel, currentSnapshot.timeMs, currentSnapshot.durationMs);
       renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary);
@@ -210,15 +215,28 @@ function handleWorkerMessage(message: WorkerToClient): void {
       status.textContent = currentDiagnostics.isPlaying ? "Playing" : "Paused";
       playPause.textContent = currentDiagnostics.isPlaying ? "Pause" : "Play";
       return;
+    case "playback-frame":
+      if (!renderer.drawFrame(message.frame)) {
+        status.textContent = "Resynchronizing render state";
+        post({ type: "snapshot", requestId: nextRequestId() });
+        return;
+      }
+      currentRenderFrame = message.frame;
+      currentDiagnostics = message.frame.diagnostics;
+      setTimeline(seek, timeLabel, durationLabel, message.frame.timeMs, message.frame.durationMs);
+      renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary, message.frame);
+      status.textContent = currentDiagnostics.isPlaying ? "Playing" : "Paused";
+      playPause.textContent = currentDiagnostics.isPlaying ? "Pause" : "Play";
+      return;
     case "ack":
       currentDiagnostics = message.diagnostics;
-      renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary);
+      renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary, currentRenderFrame);
       status.textContent = currentDiagnostics.isPlaying ? "Playing" : "Paused";
       playPause.textContent = currentDiagnostics.isPlaying ? "Pause" : "Play";
       return;
     case "diagnostics":
       currentDiagnostics = message.diagnostics;
-      renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary);
+      renderDiagnostics(diagnosticsRoot, currentSnapshot, currentDiagnostics, provenanceSummary, currentRenderFrame);
       return;
     case "error":
       status.textContent = message.message;
