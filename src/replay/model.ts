@@ -667,17 +667,19 @@ export interface CombatDiagnostics {
 }
 
 export interface TreeActiveSetDiagnostics {
-  readonly totalTreeResources: number;
-  readonly liveTreeResources: number;
-  readonly treeTileCount: number;
-  readonly interiorTreeTileCount: number;
-  readonly activeTotal: number;
-  readonly activeExposed: number;
-  readonly dormantInterior: number;
-  readonly siegeActivated: number;
-  readonly siegeTreeDestructionActive: boolean;
-  readonly capableSiegeUnits: number;
+  readonly representedTreeTotal: number;
+  readonly liveRepresentedTreeTotal: number;
+  readonly exposedTreeTotal: number;
+  readonly villagerVisibleExposedActive: number;
+  readonly dormantTreeTotal: number;
+  readonly siegeActivatedTreeTotal: number;
+  readonly activeTreeTotal: number;
+  readonly qualifyingVillagerCount: number;
+  readonly villagerActivationRadiusTiles: number;
+  readonly capableSiegeUnitCount: number;
   readonly siegeActivationRadiusTiles: number;
+  readonly treeTileTotal: number;
+  readonly interiorTreeTileTotal: number;
 }
 
 export interface EntitySnapshot {

@@ -638,7 +638,7 @@ export class WorldState {
   }
 
   public refreshTreeActiveSet(): void {
-    this.treeActiveSet.refreshSiegeActivation(this);
+    this.treeActiveSet.refreshActivation(this);
   }
 
   public activeSimulationEntities(): readonly EntityState[] {

@@ -262,14 +262,13 @@ function combatSummary(combat: SimulationDiagnostics["combat"]): string {
 }
 
 function treeSummary(trees: SimulationDiagnostics["trees"]): string {
-  const siegeState = trees.siegeTreeDestructionActive
-    ? `siege on (${trees.capableSiegeUnits}, r${trees.siegeActivationRadiusTiles})`
-    : "siege off";
   return (
-    `${trees.totalTreeResources} total / ${trees.liveTreeResources} live, ` +
-    `${trees.activeExposed} exposed, ${trees.dormantInterior} dormant, ` +
-    `${trees.siegeActivated} siege, ${trees.interiorTreeTileCount}/${trees.treeTileCount} interior tiles, ` +
-    siegeState
+    `${trees.representedTreeTotal} total / ${trees.liveRepresentedTreeTotal} live, ` +
+    `${trees.exposedTreeTotal} exposed, ${trees.villagerVisibleExposedActive} villager-visible active, ` +
+    `${trees.siegeActivatedTreeTotal} siege active, ${trees.activeTreeTotal} active, ` +
+    `${trees.dormantTreeTotal} dormant, villagers ${trees.qualifyingVillagerCount} r${trees.villagerActivationRadiusTiles}, ` +
+    `siege ${trees.capableSiegeUnitCount} r${trees.siegeActivationRadiusTiles}, ` +
+    `${trees.interiorTreeTileTotal}/${trees.treeTileTotal} interior tiles`
   );
 }
 

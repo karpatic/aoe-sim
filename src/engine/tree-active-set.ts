@@ -6,8 +6,11 @@ const TREE_RESOURCE_CLASS_ID = 15;
 const TREE_CUTTING_SIEGE_CLASS_ID = 13;
 const TREE_CUTTING_SIEGE_KINDS = new Set(["onager", "siege-onager"]);
 
+export const TREE_VILLAGER_VIEW_RADIUS_TILES = 6;
 export const TREE_SIEGE_ACTIVATION_RADIUS_TILES = 10;
 
+const TREE_VILLAGER_VIEW_RADIUS_FP = TREE_VILLAGER_VIEW_RADIUS_TILES * FIXED_POINT_SCALE;
+const TREE_VILLAGER_VIEW_RADIUS_SQUARED = TREE_VILLAGER_VIEW_RADIUS_FP * TREE_VILLAGER_VIEW_RADIUS_FP;
 const TREE_SIEGE_ACTIVATION_RADIUS_FP = TREE_SIEGE_ACTIVATION_RADIUS_TILES * FIXED_POINT_SCALE;
 const TREE_SIEGE_ACTIVATION_RADIUS_SQUARED =
   TREE_SIEGE_ACTIVATION_RADIUS_FP * TREE_SIEGE_ACTIVATION_RADIUS_FP;
@@ -34,11 +37,13 @@ interface TileOffset {
 
 export class TreeActiveSet {
   private readonly trackedTreeResourceIds = new Set<EntityId>();
-  private readonly liveInteriorTreeIds = new Set<EntityId>();
   private readonly liveExposedTreeIds = new Set<EntityId>();
+  private readonly liveTreeIdsByTile = new Map<string, EntityId[]>();
+  private readonly villagerActivatedTreeIds = new Set<EntityId>();
   private readonly siegeActivatedTreeIds = new Set<EntityId>();
   private readonly activeTreeIds = new Set<EntityId>();
   private readonly activeEntityIdSet = new Set<EntityId>();
+  private readonly representedVillagerEntityIds = new Set<EntityId>();
   private readonly capableSiegeEntityIds = new Set<EntityId>();
   private allTreeResourceIds: EntityId[] = [];
   private liveTreeResourceIds: EntityId[] = [];
@@ -46,7 +51,7 @@ export class TreeActiveSet {
   private activeEntityRefs: readonly EntityState[] | undefined;
   private treeTileCount = 0;
   private interiorTreeTileCount = 0;
-  private siegeTreeDestructionActive = false;
+  private qualifyingVillagers = 0;
   private capableSiegeUnits = 0;
 
   public rebuild(world: WorldState): void {
@@ -54,8 +59,8 @@ export class TreeActiveSet {
     const allTreeResourceIds: EntityId[] = [];
     const liveTreeResourceIds: EntityId[] = [];
     this.trackedTreeResourceIds.clear();
-    this.liveInteriorTreeIds.clear();
     this.liveExposedTreeIds.clear();
+    this.liveTreeIdsByTile.clear();
 
     for (const node of world.resourceNodes.values()) {
       const entity = world.entities.get(node.id);
@@ -83,6 +88,9 @@ export class TreeActiveSet {
     for (const ids of treeIdsByTile.values()) {
       ids.sort();
     }
+    for (const [key, ids] of treeIdsByTile) {
+      this.liveTreeIdsByTile.set(key, ids);
+    }
 
     const interiorTileKeys = new Set<string>();
     for (const [key] of [...treeIdsByTile.entries()].sort(compareTileEntries)) {
@@ -93,9 +101,12 @@ export class TreeActiveSet {
     }
 
     for (const [key, ids] of treeIdsByTile) {
-      const targetSet = interiorTileKeys.has(key) ? this.liveInteriorTreeIds : this.liveExposedTreeIds;
+      if (interiorTileKeys.has(key)) {
+        continue;
+      }
+
       for (const id of ids) {
-        targetSet.add(id);
+        this.liveExposedTreeIds.add(id);
       }
     }
 
@@ -103,11 +114,14 @@ export class TreeActiveSet {
     this.liveTreeResourceIds = liveTreeResourceIds.sort();
     this.treeTileCount = treeIdsByTile.size;
     this.interiorTreeTileCount = interiorTileKeys.size;
-    this.rebuildCapableSiegeIndex(world);
-    this.refreshSiegeActivation(world, true);
+    this.rebuildUnitIndexes(world);
+    this.refreshActivation(world, true);
   }
 
   public observeEntity(world: WorldState, entity: EntityState): void {
+    if (hasRepresentedVillagerIdentity(world, entity)) {
+      this.representedVillagerEntityIds.add(entity.id);
+    }
     if (hasRepresentedTreeDestructionIdentity(world, entity)) {
       this.capableSiegeEntityIds.add(entity.id);
     }
@@ -116,50 +130,56 @@ export class TreeActiveSet {
     }
   }
 
-  public refreshSiegeActivation(world: WorldState, forceRebuild = false): void {
-    if (!forceRebuild && this.capableSiegeEntityIds.size === 0 && !this.siegeTreeDestructionActive) {
-      return;
-    }
-
+  public refreshActivation(world: WorldState, forceRebuild = false): void {
+    const qualifyingVillagers = this.liveRepresentedVillagerEntities(world);
     const capableSiege = this.liveTreeCuttingSiegeEntities(world);
+    const nextVillagerActivatedTreeIds = new Set<EntityId>();
     const nextSiegeActivatedTreeIds = new Set<EntityId>();
 
+    for (const villager of qualifyingVillagers) {
+      this.addTreesInRadius(
+        world,
+        villager,
+        TREE_VILLAGER_VIEW_RADIUS_TILES,
+        TREE_VILLAGER_VIEW_RADIUS_SQUARED,
+        nextVillagerActivatedTreeIds,
+        (treeId) => this.liveExposedTreeIds.has(treeId)
+      );
+    }
+
     if (capableSiege.length) {
-      for (const treeId of this.liveInteriorTreeIds) {
-        const tree = world.entities.get(treeId);
-        if (!tree) {
-          continue;
-        }
-        if (isWithinSiegeActivationRadius(tree, capableSiege)) {
-          nextSiegeActivatedTreeIds.add(treeId);
-        }
+      for (const siege of capableSiege) {
+        this.addTreesInRadius(
+          world,
+          siege,
+          TREE_SIEGE_ACTIVATION_RADIUS_TILES,
+          TREE_SIEGE_ACTIVATION_RADIUS_SQUARED,
+          nextSiegeActivatedTreeIds
+        );
       }
     }
 
-    const nextSiegeTreeDestructionActive = capableSiege.length > 0;
-    const changed =
-      forceRebuild ||
-      nextSiegeTreeDestructionActive !== this.siegeTreeDestructionActive ||
-      capableSiege.length !== this.capableSiegeUnits ||
-      !setsEqual(nextSiegeActivatedTreeIds, this.siegeActivatedTreeIds);
-
-    if (!changed) {
-      return;
-    }
-
-    this.siegeActivatedTreeIds.clear();
-    this.activeTreeIds.clear();
-    for (const id of this.liveExposedTreeIds) {
-      this.activeTreeIds.add(id);
-    }
+    const nextActiveTreeIds = new Set(nextVillagerActivatedTreeIds);
     for (const id of nextSiegeActivatedTreeIds) {
-      this.siegeActivatedTreeIds.add(id);
-      this.activeTreeIds.add(id);
+      nextActiveTreeIds.add(id);
     }
 
-    this.siegeTreeDestructionActive = nextSiegeTreeDestructionActive;
+    const activeTreeMembershipChanged = !setsEqual(nextActiveTreeIds, this.activeTreeIds);
+    if (!setsEqual(nextVillagerActivatedTreeIds, this.villagerActivatedTreeIds)) {
+      replaceSet(this.villagerActivatedTreeIds, nextVillagerActivatedTreeIds);
+    }
+    if (!setsEqual(nextSiegeActivatedTreeIds, this.siegeActivatedTreeIds)) {
+      replaceSet(this.siegeActivatedTreeIds, nextSiegeActivatedTreeIds);
+    }
+    if (activeTreeMembershipChanged) {
+      replaceSet(this.activeTreeIds, nextActiveTreeIds);
+    }
+
+    this.qualifyingVillagers = qualifyingVillagers.length;
     this.capableSiegeUnits = capableSiege.length;
-    this.rebuildActiveEntityIds(world);
+    if (forceRebuild || activeTreeMembershipChanged) {
+      this.rebuildActiveEntityIds(world);
+    }
   }
 
   public activeEntities(world: WorldState): readonly EntityState[] {
@@ -184,30 +204,46 @@ export class TreeActiveSet {
   }
 
   public diagnostics(): TreeActiveSetDiagnostics {
-    const activeExposed = this.liveExposedTreeIds.size;
-    const siegeActivated = this.siegeActivatedTreeIds.size;
     return {
-      totalTreeResources: this.allTreeResourceIds.length,
-      liveTreeResources: this.liveTreeResourceIds.length,
-      treeTileCount: this.treeTileCount,
-      interiorTreeTileCount: this.interiorTreeTileCount,
-      activeTotal: activeExposed + siegeActivated,
-      activeExposed,
-      dormantInterior: this.liveInteriorTreeIds.size - siegeActivated,
-      siegeActivated,
-      siegeTreeDestructionActive: this.siegeTreeDestructionActive,
-      capableSiegeUnits: this.capableSiegeUnits,
-      siegeActivationRadiusTiles: TREE_SIEGE_ACTIVATION_RADIUS_TILES
+      representedTreeTotal: this.allTreeResourceIds.length,
+      liveRepresentedTreeTotal: this.liveTreeResourceIds.length,
+      exposedTreeTotal: this.liveExposedTreeIds.size,
+      villagerVisibleExposedActive: this.villagerActivatedTreeIds.size,
+      dormantTreeTotal: this.liveTreeResourceIds.length - this.activeTreeIds.size,
+      siegeActivatedTreeTotal: this.siegeActivatedTreeIds.size,
+      activeTreeTotal: this.activeTreeIds.size,
+      qualifyingVillagerCount: this.qualifyingVillagers,
+      villagerActivationRadiusTiles: TREE_VILLAGER_VIEW_RADIUS_TILES,
+      capableSiegeUnitCount: this.capableSiegeUnits,
+      siegeActivationRadiusTiles: TREE_SIEGE_ACTIVATION_RADIUS_TILES,
+      treeTileTotal: this.treeTileCount,
+      interiorTreeTileTotal: this.interiorTreeTileCount
     };
   }
 
-  private rebuildCapableSiegeIndex(world: WorldState): void {
+  private rebuildUnitIndexes(world: WorldState): void {
+    this.representedVillagerEntityIds.clear();
     this.capableSiegeEntityIds.clear();
     for (const entity of world.entities.values()) {
+      if (hasRepresentedVillagerIdentity(world, entity)) {
+        this.representedVillagerEntityIds.add(entity.id);
+      }
       if (hasRepresentedTreeDestructionIdentity(world, entity)) {
         this.capableSiegeEntityIds.add(entity.id);
       }
     }
+  }
+
+  private liveRepresentedVillagerEntities(world: WorldState): EntityState[] {
+    const villagers: EntityState[] = [];
+    for (const id of [...this.representedVillagerEntityIds].sort()) {
+      const entity = world.entities.get(id);
+      if (entityHasRepresentedVillagerActivation(world, entity)) {
+        villagers.push(entity);
+      }
+    }
+
+    return villagers;
   }
 
   private liveTreeCuttingSiegeEntities(world: WorldState): EntityState[] {
@@ -222,14 +258,53 @@ export class TreeActiveSet {
     return siege;
   }
 
+  private addTreesInRadius(
+    world: WorldState,
+    activator: EntityState,
+    radiusTiles: number,
+    radiusSquared: number,
+    output: Set<EntityId>,
+    acceptsTree?: (treeId: EntityId) => boolean
+  ): void {
+    const centerTile = pointToTile(activator.position.xFp, activator.position.yFp);
+    for (let y = centerTile.y - radiusTiles; y <= centerTile.y + radiusTiles; y += 1) {
+      for (let x = centerTile.x - radiusTiles; x <= centerTile.x + radiusTiles; x += 1) {
+        const treeIds = this.liveTreeIdsByTile.get(tileKey({ x, y }));
+        if (!treeIds) {
+          continue;
+        }
+
+        for (const treeId of treeIds) {
+          if (output.has(treeId) || (acceptsTree && !acceptsTree(treeId))) {
+            continue;
+          }
+
+          const tree = world.entities.get(treeId);
+          if (tree && distanceSquared(tree.position, activator.position) <= radiusSquared) {
+            output.add(treeId);
+          }
+        }
+      }
+    }
+  }
+
   private rebuildActiveEntityIds(world: WorldState): void {
     const activeEntityIds: EntityId[] = [];
-    this.activeEntityIdSet.clear();
+    const nextActiveEntityIdSet = new Set<EntityId>();
     for (const entity of world.entities.values()) {
       if (!this.trackedTreeResourceIds.has(entity.id) || this.activeTreeIds.has(entity.id)) {
-        this.activeEntityIdSet.add(entity.id);
+        nextActiveEntityIdSet.add(entity.id);
         activeEntityIds.push(entity.id);
       }
+    }
+
+    if (setsEqual(nextActiveEntityIdSet, this.activeEntityIdSet)) {
+      return;
+    }
+
+    this.activeEntityIdSet.clear();
+    for (const id of nextActiveEntityIdSet) {
+      this.activeEntityIdSet.add(id);
     }
     this.activeEntityIds = activeEntityIds;
     this.invalidateActiveEntityRefs();
@@ -283,9 +358,24 @@ export function entityHasRepresentedTreeDestructionCapability(
     hasRepresentedTreeDestructionIdentity(world, entity);
 }
 
+function entityHasRepresentedVillagerActivation(
+  world: WorldState,
+  entity: EntityState | undefined
+): entity is EntityState {
+  return entity !== undefined &&
+    entity.lifecycle.state === "alive" &&
+    entity.hp > 0 &&
+    hasRepresentedVillagerIdentity(world, entity);
+}
+
 function treeCuttingTechnologyAllowsRepresentedState(_world: WorldState, _entity: EntityState): boolean {
   // Current snapshots do not carry researched technology state, so represented onager identity is the evidence.
   return true;
+}
+
+function hasRepresentedVillagerIdentity(world: WorldState, entity: EntityState): boolean {
+  const rule = world.resolveUnitRule(entity.dataId, entity.kind);
+  return rule?.token === "villager" || entity.pathing.token === "villager" || rule?.classId === 4;
 }
 
 function hasRepresentedTreeDestructionIdentity(world: WorldState, entity: EntityState): boolean {
@@ -311,16 +401,6 @@ function isInteriorTreeTile(treeIdsByTile: ReadonlyMap<string, readonly EntityId
   }
 
   return true;
-}
-
-function isWithinSiegeActivationRadius(tree: EntityState, siege: readonly EntityState[]): boolean {
-  for (const entity of siege) {
-    if (distanceSquared(tree.position, entity.position) <= TREE_SIEGE_ACTIVATION_RADIUS_SQUARED) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 function hasTreeIdentity(entity: EntityState, rule: RulesetUnit | undefined): boolean {
@@ -400,6 +480,13 @@ function distanceSquared(
 
 function readNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function replaceSet(target: Set<EntityId>, source: ReadonlySet<EntityId>): void {
+  target.clear();
+  for (const value of source) {
+    target.add(value);
+  }
 }
 
 function setsEqual(left: ReadonlySet<EntityId>, right: ReadonlySet<EntityId>): boolean {
