@@ -7,6 +7,8 @@ type SimulationWorkerScope = typeof globalThis & {
 };
 
 const workerScope = self as SimulationWorkerScope;
+const PLAYBACK_TIMER_INTERVAL_MS = 100;
+const PLAYBACK_BATCH_MS = 200;
 const SEEK_CHUNK_WALL_BUDGET_MS = 35;
 const SEEK_PROGRESS_INTERVAL_MS = 500;
 const SEEK_SLICE_STEP_BUDGET = 5;
@@ -73,14 +75,13 @@ function startPlayback(): void {
   isPlaying = true;
   playTimer = setInterval(() => {
     const activeEngine = requireEngine();
-    const snapshot = activeEngine.advanceBy(100);
-    postSnapshot(undefined, snapshot);
-
+    const snapshot = activeEngine.advanceBy(PLAYBACK_BATCH_MS);
     if (snapshot.timeMs >= activeEngine.durationMs) {
       stopPlayback();
-      postSnapshot(undefined, snapshot);
     }
-  }, 100);
+
+    postSnapshot(undefined, snapshot);
+  }, PLAYBACK_TIMER_INTERVAL_MS);
 }
 
 function stopPlayback(): void {
