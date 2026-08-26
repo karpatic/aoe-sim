@@ -1059,6 +1059,7 @@ function snapshotCombatEpisode(active: ActiveCombatState): SnapshotCombatEpisode
     lastDistanceTiles: active.lastDistanceFp === undefined ? undefined : fromFixedPoint(active.lastDistanceFp),
     inRange: active.inRange,
     retargetCount: active.retargetCount,
+    routeTargetId: active.routeTargetId,
     unsupportedMechanic: active.unsupportedMechanic,
     lastDamage: active.lastDamage ? snapshotDamageEvent(active.lastDamage) : undefined
   }) as SnapshotCombatEpisode;
@@ -1143,6 +1144,7 @@ function snapshotProjectile(projectile: CombatProjectileState, timeMs: SimTimeMs
     projectileKind: projectile.projectileKind,
     speedFpPerSecond: projectile.speedFpPerSecond,
     commandId: projectile.commandId,
+    damage: snapshotDamageCalculation(projectile.damage),
     evidence: projectile.evidence
   }) as SnapshotProjectile;
 }

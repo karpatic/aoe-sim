@@ -1,6 +1,6 @@
 # AoE Sim
 
-Greenfield browser simulation foundation for replay-constrained Age of Empires II reconstruction. Milestone 4 adds a deterministic villager economy and construction vertical slice while preserving replay commands as observed intent and simulated execution as separate evidence.
+Greenfield browser simulation foundation for replay-constrained Age of Empires II reconstruction. Milestone 5 adds deterministic combat intent, range, reload, projectile, damage, death, retargeting, and reconciliation diagnostics while preserving replay commands as observed intent and simulated execution as separate evidence.
 
 ## Commands
 
@@ -21,7 +21,7 @@ Carlos has not opted into automated tests for this repository. This milestone us
 - Worker protocol for `initialize`, `play`, `pause`, `seek`, `step`, `snapshot`, and `diagnostics`.
 - Deterministic event ordering by `(time, sourceSequence, insertionOrdinal)`.
 - Integer millisecond simulation time and fixed-point positions.
-- Real replay fixture import from `game.json` plus a compact synthetic economy fixture.
+- Real replay fixture import from `game.json` plus compact synthetic economy and combat fixtures.
 - Compact 120x120 row-major terrain/elevation inputs interpreted through actor terrain restriction matrices where available.
 - All starting Gaia/player objects with stable `obj:<instance_id>` IDs, data IDs, class IDs, owner, and observed starting positions.
 - Complete timestamped action tape preserving source index, source sequence, actor IDs, target IDs, destinations where present, and raw action kind.
@@ -33,6 +33,9 @@ Carlos has not opted into automated tests for this repository. This milestone us
 - Simulated production queues spend costs and population headroom, train units from represented rules, spawn stable simulated IDs, and honor resolvable gather points.
 - Farms are represented as finite food nodes on completed farm foundations with deterministic reseeding when the player can pay the represented farm cost.
 - Per-player economy snapshots expose stockpiles, population, extraction/carry/deposit/spending ledgers, conservation checks, and first divergence diagnostics.
+- Observed attack commands create combat intent only; simulated melee contact and projectile impacts apply DAT attack/armor class damage with explicit calculation provenance and represented minimum damage.
+- Simulated combat paths actors into legal range, applies reload cadence, launches deterministic projectiles, uses stable retarget candidate ordering, marks simulated deaths, clears dead occupancy, and reconciles later observed activity after incompatible simulated death.
+- Combat snapshots and diagnostics expose active episodes, in-flight projectiles, damage events, deaths, retargets, reconciliations, unsupported mechanics, and scoped omissions.
 - `public/rules/ruleset-current.report.json` records source hashes, extractor/parser identity, field coverage, and unresolved raw effect operation/attribute diagnostics.
 - `public/rules/glade-120x120.coverage.json` resolves every starting entity data ID and every command-referenced unit, building, and technology ID for the replay fixture.
 - Renderer consumes snapshots only and cannot mutate simulation state.

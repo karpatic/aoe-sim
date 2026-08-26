@@ -364,6 +364,7 @@ export interface SnapshotCombatEpisode {
   readonly lastDistanceTiles?: number;
   readonly inRange?: boolean;
   readonly retargetCount: number;
+  readonly routeTargetId?: EntityId;
   readonly unsupportedMechanic?: string;
   readonly lastDamage?: SnapshotDamageEvent;
 }
@@ -569,6 +570,7 @@ export interface SnapshotProjectile {
   readonly projectileKind?: string;
   readonly speedFpPerSecond: number;
   readonly commandId?: string;
+  readonly damage: SnapshotDamageCalculation;
   readonly evidence: EvidenceClass;
 }
 

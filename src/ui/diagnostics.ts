@@ -297,7 +297,7 @@ function formatProjectile(projectile: WorldSnapshot["combat"]["projectiles"][num
   return (
     `${projectile.id} ${projectile.attackerId}->${projectile.targetId} ` +
     `${formatSimTime(projectile.launchedAtMs)}-${formatSimTime(projectile.impactAtMs)} ` +
-    `at ${projectile.x.toFixed(2)},${projectile.y.toFixed(2)}`
+    `at ${projectile.x.toFixed(2)},${projectile.y.toFixed(2)} dmg ${projectile.damage.appliedDamage}`
   );
 }
 

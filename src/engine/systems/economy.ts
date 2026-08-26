@@ -191,6 +191,7 @@ function applyOrderIntent(world: WorldState, command: ObservedIntentCommand): bo
   }
 
   let handled = false;
+  let incompatibleActors = 0;
   for (const actorId of command.actorIds) {
     const worker = world.entities.get(actorId);
     if (!worker) {
@@ -199,6 +200,10 @@ function applyOrderIntent(world: WorldState, command: ObservedIntentCommand): bo
       continue;
     }
     if (!isWorker(world, worker)) {
+      continue;
+    }
+    if (!isCommandActorCompatible(command, worker) || !canWorkerUseResourceTarget(world, worker, target)) {
+      incompatibleActors += 1;
       continue;
     }
 
@@ -210,6 +215,10 @@ function applyOrderIntent(world: WorldState, command: ObservedIntentCommand): bo
     world.economyStats.handledIntentCount += 1;
     world.economyStats.gatherCommands += 1;
     world.recordEconomyEvent(`gather ${command.id} -> ${target.id}`);
+  } else if (incompatibleActors > 0) {
+    world.economyStats.unsupportedIntents += 1;
+    world.recordEconomyDivergence("resource target ownership is not compatible with command actors", command.id);
+    world.recordEconomyEvent(`unsupported ${command.id}: incompatible resource ownership`);
   }
 
   return handled;
@@ -237,6 +246,9 @@ function applyGatherPointIntent(world: WorldState, command: ObservedIntentComman
       continue;
     }
     if (!actor.production) {
+      continue;
+    }
+    if (!isCommandActorCompatible(command, actor) || (target && !canWorkerUseResourceTarget(world, actor, target))) {
       continue;
     }
 
@@ -343,6 +355,9 @@ function applyQueueIntent(world: WorldState, command: ObservedIntentCommand): bo
       world.recordEconomyDivergence(`unresolved producer ${actorId}`, command.id);
       continue;
     }
+    if (!isCommandActorCompatible(command, producer)) {
+      continue;
+    }
     if (!producer.production) {
       const producerRule = world.resolveUnitRule(producer.dataId, producer.kind);
       if (producerRule && isProductionBuilding(producer, producerRule)) {
@@ -419,6 +434,9 @@ function assignBuildersToFoundation(world: WorldState, command: ObservedIntentCo
     if (!worker) {
       world.economyStats.unresolvedActors += 1;
       world.recordEconomyDivergence(`unresolved builder ${actorId}`, command.id);
+      continue;
+    }
+    if (!isCommandActorCompatible(command, worker)) {
       continue;
     }
     if (!isWorker(world, worker)) {
@@ -1208,6 +1226,15 @@ function findNearestDropSite(world: WorldState, worker: EntityState, resource: R
   }
 
   return best;
+}
+
+function isCommandActorCompatible(command: ObservedIntentCommand, actor: EntityState): boolean {
+  return command.playerId === undefined || actor.playerId === command.playerId;
+}
+
+function canWorkerUseResourceTarget(world: WorldState, worker: EntityState, node: ResourceNodeState): boolean {
+  const target = world.entities.get(node.id);
+  return target !== undefined && (target.playerId === "gaia" || target.playerId === worker.playerId);
 }
 
 function createResourceNodeState(entity: EntityState, rule: RulesetUnit): ResourceNodeState | undefined {

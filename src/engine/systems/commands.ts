@@ -12,10 +12,24 @@ export function applyReplayCommand(world: WorldState, command: ReplayCommand, ru
     case "observed-intent":
       world.observedIntentIds.push(command.id);
       reconcileObservedActorActivity(world, command);
-      if (applyCombatIntent(world, command) || applyEconomyIntent(world, command)) {
+      const combatHandled = applyCombatIntent(world, command);
+      const economyHandled = !combatHandled && applyEconomyIntent(world, command);
+      if (economyHandled) {
+        cancelCombatForActors(world, command.actorIds);
+      }
+      if (combatHandled || economyHandled) {
         world.appliedCommandIds.push(command.id);
       }
       return;
+  }
+}
+
+function cancelCombatForActors(world: WorldState, actorIds: readonly string[]): void {
+  for (const actorId of actorIds) {
+    const actor = world.entities.get(actorId);
+    if (actor) {
+      cancelCombatForCommand(actor);
+    }
   }
 }
 
