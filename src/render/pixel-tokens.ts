@@ -33,8 +33,10 @@ export function drawPixelToken(
     drawScout(context, color, half, entity.facing);
   } else if (entity.kind.includes("villager")) {
     drawVillager(context, color, half);
+  } else if (entity.classId === 80 || entity.kind.includes("town-center") || entity.kind.includes("house")) {
+    drawBuilding(context, color, half);
   } else if (isResource(entity.kind)) {
-    drawResource(context, half, Boolean(entity.resourceNode?.depleted));
+    drawResource(context, entity, half);
   } else {
     drawMarker(context, color, half);
   }
@@ -82,13 +84,38 @@ function drawMarker(context: CanvasRenderingContext2D, color: string, half: numb
   context.fillRect(-1, -1, 2, 2);
 }
 
-function drawResource(context: CanvasRenderingContext2D, half: number, depleted: boolean): void {
+function drawBuilding(context: CanvasRenderingContext2D, color: string, half: number): void {
+  context.fillStyle = "#241f18";
+  context.fillRect(-half - 1, -half - 1, half * 2 + 2, half * 2 + 2);
+  context.fillStyle = color;
+  context.fillRect(-half, -half, half * 2, half * 2);
+  context.fillStyle = "#d8c89a";
+  context.fillRect(-Math.max(1, Math.floor(half / 2)), -1, Math.max(2, half), 2);
+}
+
+function drawResource(context: CanvasRenderingContext2D, entity: RenderEntitySnapshot, half: number): void {
+  const depleted = Boolean(entity.resourceNode?.depleted);
   context.fillStyle = depleted ? "#403a2c" : "#4c7b39";
   context.fillRect(-half, -half + 1, half * 2, half * 2 - 2);
-  context.fillStyle = depleted ? "#7c6f55" : "#b34f58";
+  context.fillStyle = depleted ? "#7c6f55" : resourceAccent(entity);
   context.fillRect(-half + 1, -half + 1, 2, 2);
   context.fillRect(half - 2, -1, 2, 2);
   context.fillRect(-1, half - 2, 2, 2);
+}
+
+function resourceAccent(entity: RenderEntitySnapshot): string {
+  switch (entity.resourceNode?.resource) {
+    case "gold":
+      return "#e2c34f";
+    case "stone":
+      return "#c4ccc7";
+    case "food":
+      return entity.kind.includes("bush") ? "#c85d78" : "#dfc58b";
+    case "wood":
+      return "#4f7c36";
+    default:
+      return "#b34f58";
+  }
 }
 
 function drawDead(context: CanvasRenderingContext2D, half: number): void {

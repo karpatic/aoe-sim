@@ -261,8 +261,14 @@ export class CanvasRenderer {
     const { context } = this;
     context.save();
 
-    for (const entity of this.nonTreeEntities.values()) {
-      drawDenseEntity(context, entity, this.playerColors, this.players, originX, originY, tileSize);
+    // Stable Gaia objects belong behind player buildings and moving units. Rendering in explicit
+    // passes also prevents dense resource markers from covering an overlapping building footprint.
+    for (const drawLayer of ["gaia", "building", "unit"] as const) {
+      for (const entity of this.nonTreeEntities.values()) {
+        if (denseEntityLayer(entity) === drawLayer) {
+          drawDenseEntity(context, entity, this.playerColors, this.players, originX, originY, tileSize);
+        }
+      }
     }
 
     context.restore();
@@ -399,9 +405,63 @@ function drawDenseEntity(
   tileSize: number
 ): void {
   const screen = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
-  const size = entity.playerId === "gaia" ? 1 : Math.max(2, tileSize);
+  if (isDenseBuilding(entity)) {
+    drawDenseBuilding(context, entity, colors, players, screen.x, screen.y, tileSize);
+    return;
+  }
+
+  const size = entity.resourceNode
+    ? Math.max(3, Math.round(tileSize * 0.65))
+    : entity.playerId === "gaia"
+      ? 1
+      : Math.max(2, tileSize);
   context.fillStyle = denseEntityColor(entity, colors, players);
-  context.fillRect(screen.x, screen.y, size, size);
+  context.fillRect(screen.x - Math.floor(size / 2), screen.y - Math.floor(size / 2), size, size);
+}
+
+function denseEntityLayer(entity: RenderEntitySnapshot): "gaia" | "building" | "unit" {
+  if (isDenseBuilding(entity)) {
+    return "building";
+  }
+  return entity.playerId === "gaia" || entity.resourceNode ? "gaia" : "unit";
+}
+
+function isDenseBuilding(entity: RenderEntitySnapshot): boolean {
+  return (
+    entity.classId === 80 ||
+    entity.kind.includes("town-center") ||
+    entity.kind.includes("house") ||
+    entity.kind.includes("mill") ||
+    entity.kind.includes("camp") ||
+    entity.kind.includes("dock") ||
+    entity.kind.includes("barracks") ||
+    entity.kind.includes("range") ||
+    entity.kind.includes("stable") ||
+    entity.kind.includes("workshop") ||
+    entity.kind.includes("castle") ||
+    entity.kind.includes("tower") ||
+    entity.kind.includes("wall") ||
+    entity.kind.includes("gate")
+  );
+}
+
+function drawDenseBuilding(
+  context: CanvasRenderingContext2D,
+  entity: RenderEntitySnapshot,
+  colors: ReadonlyMap<string, string>,
+  players: readonly PlayerDefinition[],
+  x: number,
+  y: number,
+  tileSize: number
+): void {
+  const halfSize = Math.max(2, Math.round(Math.max(entity.radiusTiles, 0.55) * tileSize));
+  const size = halfSize * 2 + 1;
+  context.fillStyle = "#241f18";
+  context.fillRect(x - halfSize - 1, y - halfSize - 1, size + 2, size + 2);
+  context.fillStyle = denseEntityColor(entity, colors, players);
+  context.fillRect(x - halfSize, y - halfSize, size, size);
+  context.fillStyle = "#d8c89a";
+  context.fillRect(x - Math.max(1, Math.floor(halfSize / 2)), y - 1, Math.max(2, halfSize), 2);
 }
 
 function denseEntityColor(
@@ -414,6 +474,18 @@ function denseEntityColor(
   }
   if (entity.resourceNode?.depleted) {
     return "#7c6f55";
+  }
+  if (entity.resourceNode?.resource === "gold") {
+    return "#e2c34f";
+  }
+  if (entity.resourceNode?.resource === "stone") {
+    return "#c4ccc7";
+  }
+  if (entity.resourceNode?.resource === "food") {
+    return entity.kind.includes("bush") ? "#c85d78" : "#dfc58b";
+  }
+  if (entity.resourceNode?.resource === "wood") {
+    return "#4f7c36";
   }
   if (entity.playerId !== "gaia") {
     return colors.get(entity.playerId) ?? players.find((player) => player.id === entity.playerId)?.color ?? "#f4ead7";
