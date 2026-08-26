@@ -9,6 +9,7 @@ type SimulationWorkerScope = typeof globalThis & {
 const workerScope = self as SimulationWorkerScope;
 const PLAYBACK_TIMER_INTERVAL_MS = 100;
 const PLAYBACK_BATCH_MS = 400;
+const PLAYBACK_SNAPSHOT_BATCH_INTERVAL = 2;
 const SEEK_CHUNK_WALL_BUDGET_MS = 35;
 const SEEK_PROGRESS_INTERVAL_MS = 500;
 const SEEK_SLICE_STEP_BUDGET = 5;
@@ -20,6 +21,7 @@ let playTimer: number | undefined;
 let seekTimer: number | undefined;
 let activeJobId = 0;
 let isPlaying = false;
+let playbackBatchCount = 0;
 
 workerScope.onmessage = (event: MessageEvent<ClientToWorker>) => {
   try {
@@ -73,14 +75,19 @@ function startPlayback(): void {
   }
 
   isPlaying = true;
+  playbackBatchCount = 0;
   playTimer = setInterval(() => {
     const activeEngine = requireEngine();
     const snapshot = activeEngine.advanceBy(PLAYBACK_BATCH_MS);
-    if (snapshot.timeMs >= activeEngine.durationMs) {
+    playbackBatchCount += 1;
+    const isTerminalSnapshot = snapshot.timeMs >= activeEngine.durationMs;
+    if (isTerminalSnapshot) {
       stopPlayback();
     }
 
-    postSnapshot(undefined, snapshot);
+    if (playbackBatchCount % PLAYBACK_SNAPSHOT_BATCH_INTERVAL === 0 || isTerminalSnapshot) {
+      postSnapshot(undefined, snapshot);
+    }
   }, PLAYBACK_TIMER_INTERVAL_MS);
 }
 
@@ -91,6 +98,7 @@ function stopPlayback(): void {
   }
 
   isPlaying = false;
+  playbackBatchCount = 0;
 }
 
 function startSeek(requestId: RequestId, targetTimeMs: number): void {
