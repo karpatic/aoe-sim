@@ -78,14 +78,15 @@ function startPlayback(): void {
   playbackBatchCount = 0;
   playTimer = setInterval(() => {
     const activeEngine = requireEngine();
-    const snapshot = activeEngine.advanceBy(PLAYBACK_BATCH_MS);
+    activeEngine.advanceByTime(PLAYBACK_BATCH_MS);
     playbackBatchCount += 1;
-    const isTerminalSnapshot = snapshot.timeMs >= activeEngine.durationMs;
+    const isTerminalSnapshot = activeEngine.currentTimeMs >= activeEngine.durationMs;
     if (isTerminalSnapshot) {
       stopPlayback();
     }
 
     if (playbackBatchCount % PLAYBACK_SNAPSHOT_BATCH_INTERVAL === 0 || isTerminalSnapshot) {
+      const snapshot = activeEngine.snapshot();
       postSnapshot(undefined, snapshot);
     }
   }, PLAYBACK_TIMER_INTERVAL_MS);

@@ -43,6 +43,7 @@ export class TreeActiveSet {
   private allTreeResourceIds: EntityId[] = [];
   private liveTreeResourceIds: EntityId[] = [];
   private activeEntityIds: EntityId[] = [];
+  private activeEntityRefs: readonly EntityState[] | undefined;
   private treeTileCount = 0;
   private interiorTreeTileCount = 0;
   private siegeTreeDestructionActive = false;
@@ -116,6 +117,10 @@ export class TreeActiveSet {
   }
 
   public refreshSiegeActivation(world: WorldState, forceRebuild = false): void {
+    if (!forceRebuild && this.capableSiegeEntityIds.size === 0 && !this.siegeTreeDestructionActive) {
+      return;
+    }
+
     const capableSiege = this.liveTreeCuttingSiegeEntities(world);
     const nextSiegeActivatedTreeIds = new Set<EntityId>();
 
@@ -157,7 +162,11 @@ export class TreeActiveSet {
     this.rebuildActiveEntityIds(world);
   }
 
-  public activeEntities(world: WorldState): EntityState[] {
+  public activeEntities(world: WorldState): readonly EntityState[] {
+    if (this.activeEntityRefs) {
+      return this.activeEntityRefs;
+    }
+
     const output: EntityState[] = [];
     for (const id of this.activeEntityIds) {
       const entity = world.entities.get(id);
@@ -166,7 +175,8 @@ export class TreeActiveSet {
       }
     }
 
-    return output;
+    this.activeEntityRefs = output;
+    return this.activeEntityRefs;
   }
 
   public isTrackedTreeResource(entity: EntityState, node: ResourceNodeState | undefined): boolean {
@@ -213,13 +223,16 @@ export class TreeActiveSet {
   }
 
   private rebuildActiveEntityIds(world: WorldState): void {
-    this.activeEntityIds = [];
+    const activeEntityIds: EntityId[] = [];
     this.activeEntityIdSet.clear();
     for (const entity of world.entities.values()) {
       if (!this.trackedTreeResourceIds.has(entity.id) || this.activeTreeIds.has(entity.id)) {
-        this.addActiveEntityId(entity.id);
+        this.activeEntityIdSet.add(entity.id);
+        activeEntityIds.push(entity.id);
       }
     }
+    this.activeEntityIds = activeEntityIds;
+    this.invalidateActiveEntityRefs();
   }
 
   private addActiveEntityId(id: EntityId): void {
@@ -229,6 +242,11 @@ export class TreeActiveSet {
 
     this.activeEntityIdSet.add(id);
     this.activeEntityIds.push(id);
+    this.invalidateActiveEntityRefs();
+  }
+
+  private invalidateActiveEntityRefs(): void {
+    this.activeEntityRefs = undefined;
   }
 }
 

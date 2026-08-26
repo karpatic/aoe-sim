@@ -55,6 +55,10 @@ export class SimulationEngine {
     return this.advanceTo(this.world.timeMs + deltaMs);
   }
 
+  public advanceByTime(deltaMs: SimTimeMs): void {
+    this.advanceToTime(this.world.timeMs + deltaMs);
+  }
+
   public advanceTo(timeMs: SimTimeMs): WorldSnapshot {
     const targetTimeMs = clampTime(timeMs, this.durationMs);
 
