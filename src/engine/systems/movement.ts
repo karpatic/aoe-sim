@@ -9,6 +9,7 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
   }
 
   const activeEntities = world.activeSimulationEntities();
+  const dynamicCollisionIndex = new DynamicCollisionIndex(activeEntities);
   const entities = activeEntities
     .filter(
       (entity) =>
@@ -58,11 +59,23 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
         ignoreDynamicActorIds,
         world.entities,
         true,
-        activeEntities
+        dynamicCollisionIndex.candidates(entity, proposed.xFp, proposed.yFp)
       );
 
       if (!occupancy.ok) {
-        if (tryApplyBump(world, entity, route, dx, dy, distanceFp, stepFp, occupancy.blockerId, activeEntities)) {
+        if (
+          tryApplyBump(
+            world,
+            entity,
+            route,
+            dx,
+            dy,
+            distanceFp,
+            stepFp,
+            occupancy.blockerId,
+            dynamicCollisionIndex
+          )
+        ) {
           break;
         }
 
@@ -78,6 +91,14 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
         route.lastCorrection = correction;
         route.blockedStepCount += 1;
 
+        // Route planning models terrain and static footprints, not moving units. Replanning around a
+        // dynamic blocker therefore produces the same route and can spiral into repeated A* searches.
+        // Keep trying deterministic bumps on later steps and wait when none is currently legal.
+        if (correction.reason === "dynamic-blocked") {
+          route.blockedStepCount = Math.min(route.blockedStepCount, REPLAN_AFTER_BLOCKED_STEPS);
+          break;
+        }
+
         if (route.blockedStepCount >= REPLAN_AFTER_BLOCKED_STEPS) {
           if (!replanRoute(world, entity, correction.reason, correction)) {
             break;
@@ -90,6 +111,7 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
         ...proposed,
         evidence: "simulated"
       };
+      dynamicCollisionIndex.update(entity);
       route.blockedStepCount = 0;
       travelFp -= stepFp;
 
@@ -197,7 +219,7 @@ function tryApplyBump(
   distanceFp: FixedPoint,
   stepFp: FixedPoint,
   blockerId: EntityId | undefined,
-  dynamicEntities: Iterable<EntityState>
+  dynamicCollisionIndex: DynamicCollisionIndex
 ): boolean {
   const unitX = Math.trunc((dx * stepFp) / distanceFp);
   const unitY = Math.trunc((dy * stepFp) / distanceFp);
@@ -219,7 +241,7 @@ function tryApplyBump(
       ignoreDynamicActorIds,
       world.entities,
       true,
-      dynamicEntities
+      dynamicCollisionIndex.candidates(entity, attempt.xFp, attempt.yFp)
     );
     if (!check.ok) {
       continue;
@@ -230,6 +252,7 @@ function tryApplyBump(
       yFp: attempt.yFp,
       evidence: "simulated"
     };
+    dynamicCollisionIndex.update(entity);
     route.blockedStepCount = 0;
     const wasSameBlocker =
       route.lastCorrection?.reason === "dynamic-blocked" && route.lastCorrection.blockerId === blockerId;
@@ -246,6 +269,64 @@ function tryApplyBump(
   }
 
   return false;
+}
+
+class DynamicCollisionIndex {
+  private readonly buckets = new Map<string, Set<EntityState>>();
+  private readonly bucketKeysByEntity = new Map<EntityId, readonly string[]>();
+
+  public constructor(entities: readonly EntityState[]) {
+    for (const entity of entities) {
+      if (entity.lifecycle.state === "alive" && entity.pathing.occupancyKind === "dynamic") {
+        this.add(entity);
+      }
+    }
+  }
+
+  public candidates(entity: EntityState, xFp: FixedPoint, yFp: FixedPoint): Iterable<EntityState> {
+    const candidates = new Set<EntityState>();
+    for (const key of collisionBucketKeys(xFp, yFp, entity.pathing.collisionRadiusFp)) {
+      for (const candidate of this.buckets.get(key) ?? []) {
+        candidates.add(candidate);
+      }
+    }
+    return candidates;
+  }
+
+  public update(entity: EntityState): void {
+    for (const key of this.bucketKeysByEntity.get(entity.id) ?? []) {
+      const bucket = this.buckets.get(key);
+      bucket?.delete(entity);
+      if (bucket?.size === 0) {
+        this.buckets.delete(key);
+      }
+    }
+    this.add(entity);
+  }
+
+  private add(entity: EntityState): void {
+    const keys = collisionBucketKeys(entity.position.xFp, entity.position.yFp, entity.pathing.collisionRadiusFp);
+    this.bucketKeysByEntity.set(entity.id, keys);
+    for (const key of keys) {
+      const bucket = this.buckets.get(key) ?? new Set<EntityState>();
+      bucket.add(entity);
+      this.buckets.set(key, bucket);
+    }
+  }
+}
+
+function collisionBucketKeys(xFp: FixedPoint, yFp: FixedPoint, radiusFp: FixedPoint): readonly string[] {
+  const minX = Math.floor((xFp - radiusFp) / 1000);
+  const maxX = Math.floor((xFp + radiusFp) / 1000);
+  const minY = Math.floor((yFp - radiusFp) / 1000);
+  const maxY = Math.floor((yFp + radiusFp) / 1000);
+  const keys: string[] = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      keys.push(`${x},${y}`);
+    }
+  }
+  return keys;
 }
 
 function bumpAttempts(xFp: FixedPoint, yFp: FixedPoint, unitX: FixedPoint, unitY: FixedPoint): readonly Position[] {
