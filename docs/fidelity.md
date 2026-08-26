@@ -17,6 +17,7 @@ Current support:
 - synthetic economy fixture with observed gather, build, gather-point, queue, and farm intent for exercising the implemented vertical slice on a compact map;
 - deterministic A* pathfinding with stable tie-breaking, bounded search, fixed-point waypoint following, conservative initial building/resource occupancy, dynamic bump checks, and route failure diagnostics;
 - deterministic villager gather/carry/drop-off loops with finite resource nodes, same-family nearby retargeting, farm depletion/reseeding, construction progress, production queues, population accounting, stable simulated entity IDs, and per-player resource conservation ledgers;
+- deterministic tree active-set diagnostics that keep interior forest trees dormant for per-step simulation scans while preserving every tree in authoritative state, occupancy, snapshots, and checksums;
 - immutable snapshots, state checksums, and repeat-seek diagnostics.
 - local `.aoe2record` compatibility parsing in a dedicated worker through `aoe2rec-js@0.1.22`, with selected bytes kept inside the browser.
 - fixture comparison for replay identity, build/version, duration, human players, map ID/dimensions/tile terrain/elevation counts, action count, and mapped action-kind counts.
@@ -30,6 +31,7 @@ Current omissions:
 - direct scenario import from uploaded `.aoe2record` files;
 - starting object table reconciliation through `aoe2rec-js`, beyond the current `next_object_id` proxy;
 - use of direct-parser random seeds in simulation; they are reported as parser header facts only.
+- separate researched tree-destruction technology state. Until that state is represented, live onager and siege-onager identities in the normalized ruleset are treated as evidence that tree destruction is active and wake dormant interior trees within 10 tiles of their current position.
 
 Ruleset fidelity:
 

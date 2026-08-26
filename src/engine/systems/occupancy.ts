@@ -182,7 +182,8 @@ export class PathingState {
     yFp: FixedPoint,
     ignoreDynamicActorIds: ReadonlySet<EntityId>,
     entities: ReadonlyMap<EntityId, EntityState>,
-    checkDynamic = true
+    checkDynamic = true,
+    dynamicEntities: Iterable<EntityState> = entities.values()
   ): OccupancyCheck {
     if (!this.isPointInsideMap(xFp, yFp)) {
       return {
@@ -198,7 +199,7 @@ export class PathingState {
     }
 
     if (checkDynamic) {
-      const dynamicBlocker = this.findDynamicBlocker(entity, xFp, yFp, ignoreDynamicActorIds, entities);
+      const dynamicBlocker = this.findDynamicBlocker(entity, xFp, yFp, ignoreDynamicActorIds, dynamicEntities);
       if (dynamicBlocker) {
         return {
           ok: false,
@@ -418,7 +419,8 @@ export class PathingState {
     tileY: number,
     ignoreDynamicActorIds: ReadonlySet<EntityId>,
     entities: ReadonlyMap<EntityId, EntityState>,
-    checkDynamic: boolean
+    checkDynamic: boolean,
+    dynamicEntities: Iterable<EntityState> = entities.values()
   ): OccupancyCheck {
     if (!isInsideTileBounds(this.map, tileX, tileY)) {
       return {
@@ -455,7 +457,7 @@ export class PathingState {
         toFixedPoint(tileX + 0.5),
         toFixedPoint(tileY + 0.5),
         ignoreDynamicActorIds,
-        entities
+        dynamicEntities
       );
       if (dynamicBlocker) {
         return {
@@ -480,10 +482,10 @@ export class PathingState {
     xFp: FixedPoint,
     yFp: FixedPoint,
     ignoreDynamicActorIds: ReadonlySet<EntityId>,
-    entities: ReadonlyMap<EntityId, EntityState>
+    entities: Iterable<EntityState>
   ): EntityState | undefined {
     let blocker: EntityState | undefined;
-    for (const other of entities.values()) {
+    for (const other of entities) {
       if (
         other.id === entity.id ||
         ignoreDynamicActorIds.has(other.id) ||

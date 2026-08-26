@@ -666,6 +666,20 @@ export interface CombatDiagnostics {
   readonly lastEvents: readonly string[];
 }
 
+export interface TreeActiveSetDiagnostics {
+  readonly totalTreeResources: number;
+  readonly liveTreeResources: number;
+  readonly treeTileCount: number;
+  readonly interiorTreeTileCount: number;
+  readonly activeTotal: number;
+  readonly activeExposed: number;
+  readonly dormantInterior: number;
+  readonly siegeActivated: number;
+  readonly siegeTreeDestructionActive: boolean;
+  readonly capableSiegeUnits: number;
+  readonly siegeActivationRadiusTiles: number;
+}
+
 export interface EntitySnapshot {
   readonly id: EntityId;
   readonly kind: string;
@@ -726,6 +740,7 @@ export interface SimulationDiagnostics {
   readonly routes: RouteDiagnostics;
   readonly economy: EconomyDiagnostics;
   readonly combat: CombatDiagnostics;
+  readonly trees: TreeActiveSetDiagnostics;
   readonly lastSeekRepeat?: {
     readonly timeMs: SimTimeMs;
     readonly checksum: string;

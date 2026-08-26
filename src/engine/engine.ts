@@ -84,9 +84,7 @@ export class SimulationEngine {
 
       if (deltaMs > 0) {
         if (hasContinuousState) {
-          advanceMovement(this.world, deltaMs);
-          advanceEconomy(this.world, deltaMs);
-          advanceCombat(this.world, deltaMs);
+          this.advanceContinuousSystems(deltaMs);
         }
         this.world.timeMs = nextTimeMs;
       }
@@ -123,9 +121,7 @@ export class SimulationEngine {
       const nextTimeMs = Math.min(this.world.timeMs + this.stepMs, target, nextEventTime ?? Number.MAX_SAFE_INTEGER);
       const deltaMs = nextTimeMs - this.world.timeMs;
       if (deltaMs > 0) {
-        advanceMovement(this.world, deltaMs);
-        advanceEconomy(this.world, deltaMs);
-        advanceCombat(this.world, deltaMs);
+        this.advanceContinuousSystems(deltaMs);
         this.world.timeMs = nextTimeMs;
         stepCount += 1;
       }
@@ -179,6 +175,7 @@ export class SimulationEngine {
       routes: this.world.createRouteDiagnostics(),
       economy: this.world.createEconomyDiagnostics(),
       combat: this.world.createCombatDiagnostics(),
+      trees: this.world.createTreeActiveSetDiagnostics(),
       warnings: [...this.world.warnings]
     };
 
@@ -213,7 +210,7 @@ export class SimulationEngine {
       return true;
     }
 
-    for (const entity of this.world.entities.values()) {
+    for (const entity of this.world.activeSimulationEntities()) {
       if (
         entity.task.kind === "moving" ||
         (entity.workerTask !== undefined && entity.workerTask.phase !== "stalled") ||
@@ -224,6 +221,15 @@ export class SimulationEngine {
     }
 
     return false;
+  }
+
+  private advanceContinuousSystems(deltaMs: SimTimeMs): void {
+    advanceMovement(this.world, deltaMs);
+    this.world.refreshTreeActiveSet();
+    advanceEconomy(this.world, deltaMs);
+    this.world.refreshTreeActiveSet();
+    advanceCombat(this.world, deltaMs);
+    this.world.refreshTreeActiveSet();
   }
 
   private handleEvent(event: ScheduledEvent): void {

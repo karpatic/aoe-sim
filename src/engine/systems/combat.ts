@@ -122,6 +122,7 @@ export function reconcileObservedActorActivity(world: WorldState, command: Repla
     if (actor.pathing.occupancyKind === "static") {
       world.pathing.rebuildStaticObstacles(world.entities);
     }
+    world.refreshTreeActiveSet();
   }
 }
 
@@ -146,7 +147,7 @@ export function advanceCombat(world: WorldState, deltaMs: SimTimeMs): void {
 
   resolveProjectileImpacts(world, world.timeMs);
 
-  const attackers = [...world.entities.values()]
+  const attackers = world.activeSimulationEntities()
     .filter((entity) => entity.lifecycle.state === "alive" && entity.combat?.active)
     .sort(compareEntities);
   for (const attacker of attackers) {
@@ -161,7 +162,7 @@ export function hasCombatState(world: WorldState): boolean {
     return true;
   }
 
-  for (const entity of world.entities.values()) {
+  for (const entity of world.activeSimulationEntities()) {
     if (entity.lifecycle.state === "alive" && entity.combat?.active && entity.combat.active.state !== "unsupported") {
       return true;
     }
@@ -411,7 +412,7 @@ function resolveActiveTarget(
 
 function acquireTarget(world: WorldState, attacker: EntityState, profile: CombatProfile): EntityState | undefined {
   const radiusFp = Math.max(profile.maxRangeFp + ACQUISITION_RADIUS_FP, toFixedPoint(2));
-  const candidates = [...world.entities.values()]
+  const candidates = world.activeSimulationEntities()
     .filter(
       (target) =>
         target.id !== attacker.id &&
@@ -746,6 +747,7 @@ function markDead(world: WorldState, target: EntityState, attacker: EntityState,
     return;
   }
 
+  const wasTrackedTree = world.isTrackedTreeResource(target, target.resourceNode);
   target.lifecycle = {
     state: "dead",
     evidence: "simulated",
@@ -768,6 +770,11 @@ function markDead(world: WorldState, target: EntityState, attacker: EntityState,
   world.recordCombatEvent(`death ${target.id} killed by ${attacker.id}`, event.timeMs);
   if (target.pathing.occupancyKind === "static") {
     world.pathing.rebuildStaticObstacles(world.entities);
+  }
+  if (wasTrackedTree) {
+    world.rebuildTreeActiveSet();
+  } else {
+    world.refreshTreeActiveSet();
   }
 }
 

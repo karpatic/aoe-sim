@@ -22,6 +22,7 @@ export function renderDiagnostics(
     "map",
     `${snapshot.map.widthTiles}x${snapshot.map.heightTiles} / ${snapshot.entities.length} objects`
   );
+  appendRow(root, "trees", treeSummary(diagnostics.trees));
   appendRow(root, "scheduler", `${diagnostics.schedulerExecuted} done / ${diagnostics.schedulerPending} queued`);
   appendRow(
     root,
@@ -257,6 +258,18 @@ function combatSummary(combat: SimulationDiagnostics["combat"]): string {
     `${combat.activeEpisodes} active, ${combat.projectilesInFlight} projectiles, ` +
     `${combat.damageEvents} hits, ${combat.deaths} deaths, ${combat.reconciliations} reconciled, ` +
     `${combat.retargets} retargets (${active})`
+  );
+}
+
+function treeSummary(trees: SimulationDiagnostics["trees"]): string {
+  const siegeState = trees.siegeTreeDestructionActive
+    ? `siege on (${trees.capableSiegeUnits}, r${trees.siegeActivationRadiusTiles})`
+    : "siege off";
+  return (
+    `${trees.totalTreeResources} total / ${trees.liveTreeResources} live, ` +
+    `${trees.activeExposed} exposed, ${trees.dormantInterior} dormant, ` +
+    `${trees.siegeActivated} siege, ${trees.interiorTreeTileCount}/${trees.treeTileCount} interior tiles, ` +
+    siegeState
   );
 }
 

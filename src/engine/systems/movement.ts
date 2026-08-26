@@ -8,7 +8,8 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
     return;
   }
 
-  const entities = [...world.entities.values()]
+  const activeEntities = world.activeSimulationEntities();
+  const entities = activeEntities
     .filter(
       (entity) =>
         entity.lifecycle.state === "alive" &&
@@ -56,11 +57,12 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
         proposed.yFp,
         ignoreDynamicActorIds,
         world.entities,
-        true
+        true,
+        activeEntities
       );
 
       if (!occupancy.ok) {
-        if (tryApplyBump(world, entity, route, dx, dy, distanceFp, stepFp, occupancy.blockerId)) {
+        if (tryApplyBump(world, entity, route, dx, dy, distanceFp, stepFp, occupancy.blockerId, activeEntities)) {
           break;
         }
 
@@ -194,7 +196,8 @@ function tryApplyBump(
   dy: FixedPoint,
   distanceFp: FixedPoint,
   stepFp: FixedPoint,
-  blockerId: EntityId | undefined
+  blockerId: EntityId | undefined,
+  dynamicEntities: Iterable<EntityState>
 ): boolean {
   const unitX = Math.trunc((dx * stepFp) / distanceFp);
   const unitY = Math.trunc((dy * stepFp) / distanceFp);
@@ -215,7 +218,8 @@ function tryApplyBump(
       attempt.yFp,
       ignoreDynamicActorIds,
       world.entities,
-      true
+      true,
+      dynamicEntities
     );
     if (!check.ok) {
       continue;

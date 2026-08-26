@@ -1,5 +1,6 @@
 import { checksumStable } from "./checksum";
 import { PathingState } from "./systems/occupancy";
+import { TreeActiveSet } from "./tree-active-set";
 import type {
   CommandDestination,
   EntityId,
@@ -31,6 +32,7 @@ import type {
   SnapshotResourceNode,
   SnapshotRoute,
   SnapshotTask,
+  TreeActiveSetDiagnostics,
   WorldSnapshot,
   WorldSnapshotBody
 } from "../replay/model";
@@ -483,6 +485,7 @@ export class WorldState {
   ];
   public firstCombatUnsupported?: CombatDivergence;
   public firstCombatDivergence?: CombatDivergence;
+  public readonly treeActiveSet = new TreeActiveSet();
   public readonly pathing: PathingState;
   public readonly rulesByDataId = new Map<number, RulesetUnit>();
   public readonly rulesByKind = new Map<string, RulesetUnit>();
@@ -535,6 +538,7 @@ export class WorldState {
     }
 
     this.pathing = new PathingState(this.scenario.map, ruleset, this.entities);
+    this.rebuildTreeActiveSet();
   }
 
   public resolveUnitRule(dataId: number | undefined, kind: string | undefined): RulesetUnit | undefined {
@@ -624,8 +628,29 @@ export class WorldState {
       input.rule
     );
     this.entities.set(entity.id, entity);
+    this.treeActiveSet.observeEntity(this, entity);
     this.pathing.rebuildStaticObstacles(this.entities);
     return entity;
+  }
+
+  public rebuildTreeActiveSet(): void {
+    this.treeActiveSet.rebuild(this);
+  }
+
+  public refreshTreeActiveSet(): void {
+    this.treeActiveSet.refreshSiegeActivation(this);
+  }
+
+  public activeSimulationEntities(): EntityState[] {
+    return this.treeActiveSet.activeEntities(this);
+  }
+
+  public isTrackedTreeResource(entity: EntityState, node: ResourceNodeState | undefined): boolean {
+    return this.treeActiveSet.isTrackedTreeResource(entity, node);
+  }
+
+  public createTreeActiveSetDiagnostics(): TreeActiveSetDiagnostics {
+    return this.treeActiveSet.diagnostics();
   }
 
   public warn(message: string): void {

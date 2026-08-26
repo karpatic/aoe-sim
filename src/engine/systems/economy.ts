@@ -97,6 +97,8 @@ export function initializeEconomy(world: WorldState): void {
     initializeEntityEconomy(world, entity);
   }
 
+  world.rebuildTreeActiveSet();
+
   for (const entity of [...world.entities.values()].sort(compareEntities)) {
     const economy = world.playerEconomies.get(entity.playerId);
     if (!economy) {
@@ -451,7 +453,7 @@ function assignBuildersToFoundation(world: WorldState, command: ObservedIntentCo
 }
 
 function advanceWorkers(world: WorldState, deltaMs: SimTimeMs): void {
-  const workers = [...world.entities.values()]
+  const workers = world.activeSimulationEntities()
     .filter((entity) => entity.lifecycle.state === "alive" && entity.workerTask)
     .sort(compareEntities);
   for (const worker of workers) {
@@ -600,7 +602,7 @@ function advanceBuildWorker(
 }
 
 function advanceProduction(world: WorldState, deltaMs: SimTimeMs): void {
-  const producers = [...world.entities.values()]
+  const producers = world.activeSimulationEntities()
     .filter((entity) => entity.lifecycle.state === "alive" && entity.production?.queue.length)
     .sort(compareEntities);
   for (const producer of producers) {
@@ -839,6 +841,7 @@ function routeWorkerToTarget(
 }
 
 function unstickWorkerFromStaticFootprint(world: WorldState, worker: EntityState): void {
+  const dynamicEntities = world.activeSimulationEntities();
   const current = world.pathing.checkOccupancyAtPosition(
     worker,
     worker.position.xFp,
@@ -875,7 +878,8 @@ function unstickWorkerFromStaticFootprint(world: WorldState, worker: EntityState
         candidate.yFp,
         new Set([worker.id]),
         world.entities,
-        true
+        true,
+        dynamicEntities
       );
       if (!check.ok) {
         continue;
@@ -974,6 +978,7 @@ function touchDistanceFp(worker: EntityState, target: EntityState): FixedPoint {
 }
 
 function depleteNode(world: WorldState, entity: EntityState, node: ResourceNodeState): void {
+  const wasTrackedTree = world.isTrackedTreeResource(entity, node);
   node.depleted = true;
   node.depletionTimeMs = world.timeMs;
   entity.hp = 0;
@@ -983,6 +988,9 @@ function depleteNode(world: WorldState, entity: EntityState, node: ResourceNodeS
   };
   if (node.family !== "farm") {
     world.pathing.rebuildStaticObstacles(world.entities);
+  }
+  if (wasTrackedTree) {
+    world.rebuildTreeActiveSet();
   }
   world.recordEconomyEvent(`depleted ${node.id} ${node.resource}`);
 }
@@ -1033,7 +1041,7 @@ function completeConstruction(world: WorldState, target: EntityState, constructi
   world.economyStats.completedConstruction += 1;
   world.recordEconomyEvent(`completed ${target.id}`);
 
-  for (const worker of [...world.entities.values()].filter(
+  for (const worker of world.activeSimulationEntities().filter(
     (entity) => entity.workerTask?.kind === "build" && entity.workerTask.targetId === target.id
   )) {
     finishBuilderAfterConstruction(world, worker, target);
@@ -1211,7 +1219,7 @@ function findNearestDropSite(world: WorldState, worker: EntityState, resource: R
   const acceptedIds = new Set(COMMON_DROP_SITES[resource]);
   let best: EntityState | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const entity of world.entities.values()) {
+  for (const entity of world.activeSimulationEntities()) {
     if (entity.playerId !== worker.playerId || entity.construction?.state === "foundation") {
       continue;
     }
