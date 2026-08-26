@@ -1,6 +1,6 @@
 # Provenance
 
-Milestone 4 commits normalized browser artifacts, DAT-derived factual rules, deterministic movement diagnostics, and simulated economy/construction diagnostics, not raw replay or DAT inputs.
+Milestone 6 commits normalized browser artifacts, DAT-derived factual rules, deterministic simulation diagnostics, and local replay compatibility diagnostics, not raw replay or DAT inputs.
 
 - `public/fixtures/glade-120x120.scenario.json` is generated from `game.json` and `game.aoe2record`.
 - `public/fixtures/glade-120x120.report.json` reconciles source counts, promoted MOVE counts, resolved/unresolved MOVE actor references, artifact hashes, terrain IDs, and omitted collections.
@@ -8,6 +8,8 @@ Milestone 4 commits normalized browser artifacts, DAT-derived factual rules, det
 - `public/rules/ruleset-current.json` is generated from the installed `empires2_x2_p1.dat` and English localization strings.
 - `public/rules/ruleset-current.report.json` records extractor/parser/source hashes, field coverage, and unresolved raw effect diagnostics.
 - `public/rules/glade-120x120.coverage.json` resolves the pinned scenario's starting entity data IDs and command unit/building/technology IDs against the full ruleset.
+- `src/worker/replay-parser-worker.ts` parses selected local `.aoe2record` files with the pinned `aoe2rec-js` WASM package and returns only derived compatibility data to the UI.
+- `docs/replay-upload.md` records the direct parser identity, license evidence, known fixture reconciliation, and unsupported mappings.
 - No original AoE graphics, audio, raw replay bytes, raw DAT bytes, or raw parser output are committed.
 
 Pinned source hashes:
@@ -21,13 +23,26 @@ Pinned source hashes:
 - Steam appmanifest `appmanifest_813780.acf`: Steam build ID `24094652`
 - DAT parser `genieutils.datfile`: pinned commit `e1ff9db0b11442587b96f1a65ffdb972cff2d9fc`
 - rules extractor `tools/build-ruleset.py`: recorded inside the generated ruleset
+- local upload parser package `aoe2rec-js@0.1.22`: `sha256:39c94c55f7a35a689ad496d2562d29eaab676d3c2aa42f002823d2c7ff2cdb1d`
+- local upload parser WASM `aoe2rec_js_bg.wasm`: `sha256:cc048829dae76e2e2dbeb90b19271c773b7806345c1192e48adf2663248dd545`
+- local upload parser license file: `sha256:8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90`
 
-Parser identity:
+Scenario parser identity:
 
 - project: `aoc-mgz`
 - package version: `1.8.51`
 - immutable commit: `b4a30d8539c2fed4cbfc7b8cfec874e65cdc50a2`
 - `aocref` version: `2.0.38`
+
+Local upload parser identity:
+
+- project: `aoe2rec`
+- package: `aoe2rec-js`
+- version: `0.1.22`
+- immutable package commit: `a6b8125c1206aa3b0646fbe3eae436d368640e49`
+- distribution: npm tarball pinned by exact version and lockfile integrity
+- license: MIT
+- source URL: `https://github.com/aoe2ct/aoe2rec.git`
 
 Replay identity:
 
@@ -54,3 +69,10 @@ Generated ruleset hash policy:
 `provenance.generatedArtifact.sha256` is the SHA-256 of the canonical ruleset JSON while that field contains `sha256:self-excluded`. The committed file hash is recorded in `ruleset-current.report.json` as `artifact.fileSha256`.
 
 The importers reject machine-local paths in generated scenario, ruleset, and report data. Source basenames and hashes are retained; absolute source paths from the parser output, Steam install, and Python environment are not.
+
+Known local replay compatibility:
+
+- The browser upload path compares selected files against the committed Glade scenario reference, not against raw replay bytes in the repository.
+- The known local fixture at `/home/carlos/Documents/GitHub/www/aoe/game.aoe2record` has `sha256:67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc` and reconciles with `aoe2rec-js@0.1.22` for identity, versions, duration, players, map tile counts, terrain/elevation counts, total actions, and mapped action-kind counts.
+- Starting objects reconcile only as the `next_object_id = 9806` proxy. The per-object table remains sourced from the committed `aoc-mgz` scenario until the direct parser exposes or maps it.
+- Unsupported or corrupt local files produce compatibility reports and do not initialize simulation state.

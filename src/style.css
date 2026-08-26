@@ -158,6 +158,56 @@ input[type="range"] {
   accent-color: #d8ad52;
 }
 
+.upload-panel {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.9rem 0;
+  border-top: 1px solid #454735;
+  border-bottom: 1px solid #454735;
+}
+
+.section-heading {
+  display: grid;
+  gap: 0.2rem;
+}
+
+h2 {
+  margin: 0;
+  color: #a9d6c4;
+  font-size: 0.98rem;
+  font-weight: 720;
+}
+
+.file-control {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  color: #bdc8b4;
+  font-size: 0.9rem;
+}
+
+input[type="file"] {
+  width: 100%;
+  min-width: 0;
+  color: #eee0bd;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 0.7rem;
+  border: 1px solid #5f806d;
+  border-radius: 6px;
+  padding: 0.48rem 0.72rem;
+  color: #f6fff3;
+  background: #2d5345;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button:hover {
+  border-color: #a9d6c4;
+  background: #356551;
+}
+
 .diagnostics {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -166,6 +216,10 @@ input[type="range"] {
   padding-top: 0.25rem;
   color: #eee0bd;
   font-size: 0.9rem;
+}
+
+.local-recording-report {
+  padding-top: 0;
 }
 
 .diagnostics dt {

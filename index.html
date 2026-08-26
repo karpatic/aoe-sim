@@ -41,6 +41,18 @@
             <span id="duration-label">0.000s</span>
           </label>
 
+          <section class="upload-panel" aria-labelledby="recording-heading">
+            <div class="section-heading">
+              <h2 id="recording-heading">Local Replay</h2>
+              <p id="recording-status" class="status">No local file selected</p>
+            </div>
+            <label class="file-control">
+              <span>.aoe2record</span>
+              <input id="recording-file" type="file" accept=".aoe2record,application/octet-stream" />
+            </label>
+            <dl id="recording-report" class="diagnostics local-recording-report"></dl>
+          </section>
+
           <dl id="diagnostics" class="diagnostics"></dl>
         </aside>
       </section>
