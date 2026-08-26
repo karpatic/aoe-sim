@@ -21,7 +21,13 @@ export function drawPixelToken(
 
   context.save();
   context.translate(Math.round(x), Math.round(y));
-  drawEvidenceFrame(context, entity.position.evidence, half + 2);
+  drawEvidenceFrame(context, entity.lifecycle.evidence, half + 2);
+
+  if (entity.lifecycle.state === "dead") {
+    drawDead(context, half);
+    context.restore();
+    return;
+  }
 
   if (entity.kind.includes("scout")) {
     drawScout(context, color, half, entity.facing);
@@ -83,6 +89,19 @@ function drawResource(context: CanvasRenderingContext2D, half: number, depleted:
   context.fillRect(-half + 1, -half + 1, 2, 2);
   context.fillRect(half - 2, -1, 2, 2);
   context.fillRect(-1, half - 2, 2, 2);
+}
+
+function drawDead(context: CanvasRenderingContext2D, half: number): void {
+  context.strokeStyle = "#c86458";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(-half, -half);
+  context.lineTo(half, half);
+  context.moveTo(half, -half);
+  context.lineTo(-half, half);
+  context.stroke();
+  context.fillStyle = "#302b25";
+  context.fillRect(-1, -1, 2, 2);
 }
 
 function drawCarry(context: CanvasRenderingContext2D, resource: string, half: number): void {

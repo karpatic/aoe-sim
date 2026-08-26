@@ -102,7 +102,7 @@ export class PathingState {
   public rebuildStaticObstacles(entities: ReadonlyMap<EntityId, EntityState>, incrementVersion = true): void {
     this.staticBlockers = new Array(this.map.widthTiles * this.map.heightTiles);
     const staticEntities = [...entities.values()]
-      .filter((entity) => entity.pathing.occupancyKind === "static")
+      .filter((entity) => entity.lifecycle.state === "alive" && entity.pathing.occupancyKind === "static")
       .sort((left, right) => left.id.localeCompare(right.id));
 
     for (const entity of staticEntities) {
@@ -487,6 +487,7 @@ export class PathingState {
       if (
         other.id === entity.id ||
         ignoreDynamicActorIds.has(other.id) ||
+        other.lifecycle.state !== "alive" ||
         other.pathing.occupancyKind !== "dynamic"
       ) {
         continue;

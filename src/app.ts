@@ -23,7 +23,8 @@ const worker = new Worker(new URL("./worker/simulation-worker.ts", import.meta.u
 });
 const scenarioOptions: Record<string, string> = {
   replay: "./fixtures/glade-120x120.scenario.json",
-  synthetic: "./fixtures/scenario.json"
+  synthetic: "./fixtures/scenario.json",
+  combat: "./fixtures/combat.scenario.json"
 };
 
 let requestOrdinal = 0;

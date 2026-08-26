@@ -4,6 +4,7 @@ export type PlayerId = string;
 export type SimTimeMs = number;
 export type FixedPoint = number;
 export type ResourceKind = "food" | "wood" | "stone" | "gold";
+export type EntityLifecycleState = "alive" | "dead";
 
 export interface EvidencePoint {
   readonly x: number;
@@ -280,8 +281,101 @@ export interface SnapshotPosition {
   readonly evidence: EvidenceClass;
 }
 
+export interface SnapshotLifecycle {
+  readonly state: EntityLifecycleState;
+  readonly evidence: EvidenceClass;
+  readonly deadAtMs?: SimTimeMs;
+  readonly killedById?: EntityId;
+  readonly deathReason?: "combat";
+  readonly reconciledAtMs?: SimTimeMs;
+  readonly correctionReason?: string;
+  readonly previousDeathAtMs?: SimTimeMs;
+}
+
+export interface SnapshotCombatIntent {
+  readonly commandId: string;
+  readonly rawKind: string;
+  readonly issuedAtMs: SimTimeMs;
+  readonly sourceSequence: number;
+  readonly targetId?: EntityId;
+  readonly destination?: CommandDestination;
+  readonly evidence: EvidenceClass;
+  readonly resolution:
+    | "resolved-target"
+    | "ground-unsupported"
+    | "unresolved-actor"
+    | "unresolved-target"
+    | "unsupported";
+  readonly reason?: string;
+}
+
+export interface SnapshotCombatVectorEntry {
+  readonly classId: number;
+  readonly amount: number;
+}
+
+export interface SnapshotDamageClassMatch {
+  readonly classId: number;
+  readonly attackAmount: number;
+  readonly armorAmount: number;
+  readonly appliedAmount: number;
+}
+
+export interface SnapshotDamageCalculation {
+  readonly attackerRuleId?: number;
+  readonly attackerKind: string;
+  readonly targetRuleId?: number;
+  readonly targetKind: string;
+  readonly attackVector: readonly SnapshotCombatVectorEntry[];
+  readonly armorVector: readonly SnapshotCombatVectorEntry[];
+  readonly matches: readonly SnapshotDamageClassMatch[];
+  readonly skippedAttackClasses: readonly number[];
+  readonly rawDamage: number;
+  readonly appliedDamage: number;
+  readonly minimumDamageApplied: boolean;
+}
+
+export interface SnapshotDamageEvent {
+  readonly id: string;
+  readonly timeMs: SimTimeMs;
+  readonly attackerId: EntityId;
+  readonly targetId: EntityId;
+  readonly amount: number;
+  readonly targetHpBefore: number;
+  readonly targetHpAfter: number;
+  readonly source: "melee" | "projectile";
+  readonly projectileId?: string;
+  readonly commandId?: string;
+  readonly calculation: SnapshotDamageCalculation;
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotCombatEpisode {
+  readonly id: string;
+  readonly state: "closing" | "attacking" | "reloading" | "retargeting" | "unsupported";
+  readonly targetId?: EntityId;
+  readonly targetSource: "command" | "acquired";
+  readonly startedAtMs: SimTimeMs;
+  readonly lastStateChangeMs: SimTimeMs;
+  readonly nextAttackReadyAtMs: SimTimeMs;
+  readonly reloadMs: SimTimeMs;
+  readonly minRangeTiles: number;
+  readonly maxRangeTiles: number;
+  readonly lastDistanceTiles?: number;
+  readonly inRange?: boolean;
+  readonly retargetCount: number;
+  readonly unsupportedMechanic?: string;
+  readonly lastDamage?: SnapshotDamageEvent;
+}
+
+export interface SnapshotEntityCombat {
+  readonly intent?: SnapshotCombatIntent;
+  readonly episode?: SnapshotCombatEpisode;
+  readonly lastDamage?: SnapshotDamageEvent;
+}
+
 export interface SnapshotTask {
-  readonly kind: "idle" | "moving" | "path-failed" | "gathering" | "dropping-off" | "building";
+  readonly kind: "idle" | "moving" | "path-failed" | "gathering" | "dropping-off" | "building" | "attacking";
   readonly commandId?: string;
   readonly targetId?: EntityId;
   readonly resource?: ResourceKind;
@@ -459,6 +553,40 @@ export interface SnapshotPathingSummary {
   readonly failedRoutes: number;
 }
 
+export interface SnapshotProjectile {
+  readonly id: string;
+  readonly attackerId: EntityId;
+  readonly targetId: EntityId;
+  readonly launchedAtMs: SimTimeMs;
+  readonly impactAtMs: SimTimeMs;
+  readonly x: number;
+  readonly y: number;
+  readonly xFp: FixedPoint;
+  readonly yFp: FixedPoint;
+  readonly start: SnapshotPosition;
+  readonly target: SnapshotPosition;
+  readonly projectileRuleId?: number;
+  readonly projectileKind?: string;
+  readonly speedFpPerSecond: number;
+  readonly commandId?: string;
+  readonly evidence: EvidenceClass;
+}
+
+export interface SnapshotCombatSummary {
+  readonly activeEpisodes: number;
+  readonly projectiles: readonly SnapshotProjectile[];
+  readonly projectileCount: number;
+  readonly deaths: readonly {
+    readonly entityId: EntityId;
+    readonly timeMs: SimTimeMs;
+    readonly killedById?: EntityId;
+    readonly evidence: EvidenceClass;
+  }[];
+  readonly reconciliationEvents: readonly string[];
+  readonly lastDamageEvents: readonly SnapshotDamageEvent[];
+  readonly notes: readonly string[];
+}
+
 export interface RouteDiagnostics {
   readonly planned: number;
   readonly completed: number;
@@ -500,6 +628,42 @@ export interface EconomyDiagnostics {
   readonly lastEvents: readonly string[];
 }
 
+export interface CombatDiagnostics {
+  readonly observedIntentCount: number;
+  readonly resolvedAttackIntents: number;
+  readonly unresolvedAttackIntents: number;
+  readonly unsupportedIntents: number;
+  readonly activeEpisodes: number;
+  readonly attackers: readonly {
+    readonly attackerId: EntityId;
+    readonly targetId?: EntityId;
+    readonly state: SnapshotCombatEpisode["state"];
+    readonly range: string;
+    readonly hp: string;
+    readonly reload: string;
+  }[];
+  readonly projectilesInFlight: number;
+  readonly projectilesLaunched: number;
+  readonly projectilesImpacted: number;
+  readonly meleeContacts: number;
+  readonly damageEvents: number;
+  readonly deaths: number;
+  readonly reconciliations: number;
+  readonly retargets: number;
+  readonly firstUnsupported?: {
+    readonly timeMs: SimTimeMs;
+    readonly commandId?: string;
+    readonly reason: string;
+  };
+  readonly firstDivergence?: {
+    readonly timeMs: SimTimeMs;
+    readonly commandId?: string;
+    readonly reason: string;
+  };
+  readonly lastDamageEvents: readonly SnapshotDamageEvent[];
+  readonly lastEvents: readonly string[];
+}
+
 export interface EntitySnapshot {
   readonly id: EntityId;
   readonly kind: string;
@@ -508,10 +672,13 @@ export interface EntitySnapshot {
   readonly label?: string;
   readonly playerId: PlayerId;
   readonly hp: number;
+  readonly maxHp: number;
+  readonly lifecycle: SnapshotLifecycle;
   readonly facing: -1 | 1;
   readonly radiusTiles: number;
   readonly position: SnapshotPosition;
   readonly task: SnapshotTask;
+  readonly combat?: SnapshotEntityCombat;
   readonly carry?: SnapshotCarry;
   readonly worker?: SnapshotWorkerState;
   readonly resourceNode?: SnapshotResourceNode;
@@ -532,6 +699,7 @@ export interface WorldSnapshotBody {
   readonly evidenceCounts: Record<EvidenceClass, number>;
   readonly pathing: SnapshotPathingSummary;
   readonly economy: SnapshotEconomySummary;
+  readonly combat: SnapshotCombatSummary;
   readonly provenance: ScenarioProvenance;
 }
 
@@ -555,6 +723,7 @@ export interface SimulationDiagnostics {
   readonly seed: number;
   readonly routes: RouteDiagnostics;
   readonly economy: EconomyDiagnostics;
+  readonly combat: CombatDiagnostics;
   readonly lastSeekRepeat?: {
     readonly timeMs: SimTimeMs;
     readonly checksum: string;

@@ -1,0 +1,250 @@
+{
+  "schemaVersion": "aoe-sim.scenario.v1",
+  "scenarioId": "synthetic-m5-combat-slice",
+  "displayName": "Milestone 5 combat slice",
+  "durationMs": 30000,
+  "versions": {
+    "replayVersion": "synthetic-milestone-5",
+    "gameVersion": "synthetic-milestone-5",
+    "buildVersion": 0,
+    "dataset": "original synthetic fixture"
+  },
+  "map": {
+    "widthTiles": 24,
+    "heightTiles": 16
+  },
+  "players": [
+    {
+      "id": "gaia",
+      "name": "Gaia",
+      "team": 0,
+      "color": "#8aa15f"
+    },
+    {
+      "id": "p1",
+      "name": "Blue",
+      "team": 1,
+      "color": "#3f7ecb"
+    },
+    {
+      "id": "p2",
+      "name": "Red",
+      "team": 2,
+      "color": "#bd4b4b"
+    }
+  ],
+  "teams": [
+    {
+      "id": "team-0",
+      "playerIds": ["gaia"],
+      "sourceTeamIds": [0]
+    },
+    {
+      "id": "team-1",
+      "playerIds": ["p1"],
+      "sourceTeamIds": [1]
+    },
+    {
+      "id": "team-2",
+      "playerIds": ["p2"],
+      "sourceTeamIds": [2]
+    }
+  ],
+  "entities": [
+    {
+      "id": "p1-scout-melee",
+      "kind": "scout-cavalry",
+      "playerId": "p1",
+      "hp": 45,
+      "position": { "x": 4, "y": 7, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 448,
+      "classId": 47,
+      "label": "Scout Cavalry"
+    },
+    {
+      "id": "p1-archer-ranged",
+      "kind": "archer",
+      "playerId": "p1",
+      "hp": 30,
+      "position": { "x": 4, "y": 12, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 4,
+      "classId": 0,
+      "label": "Archer"
+    },
+    {
+      "id": "p1-skirm-min-range",
+      "kind": "skirmisher",
+      "playerId": "p1",
+      "hp": 30,
+      "position": { "x": 14.6, "y": 11, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 7,
+      "classId": 0,
+      "label": "Skirmisher"
+    },
+    {
+      "id": "p2-villager-reconciled",
+      "kind": "villager-male",
+      "playerId": "p2",
+      "hp": 6,
+      "position": { "x": 8, "y": 7, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 83,
+      "classId": 4,
+      "label": "Villager"
+    },
+    {
+      "id": "p2-skirmisher-armored",
+      "kind": "skirmisher",
+      "playerId": "p2",
+      "hp": 3,
+      "position": { "x": 8, "y": 12, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 7,
+      "classId": 0,
+      "label": "Skirmisher"
+    },
+    {
+      "id": "p2-villager-retarget",
+      "kind": "villager-male",
+      "playerId": "p2",
+      "hp": 5,
+      "position": { "x": 9.5, "y": 13, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 83,
+      "classId": 4,
+      "label": "Villager"
+    },
+    {
+      "id": "p2-scout-too-close",
+      "kind": "scout-cavalry",
+      "playerId": "p2",
+      "hp": 2,
+      "position": { "x": 15.2, "y": 11, "evidence": "observed" },
+      "evidence": "observed",
+      "dataId": 448,
+      "classId": 47,
+      "label": "Scout Cavalry"
+    }
+  ],
+  "commands": [
+    {
+      "id": "cmd-0001-melee-attack",
+      "kind": "observed-intent",
+      "rawKind": "ATTACK",
+      "issuedAtMs": 100,
+      "sourceSequence": 1,
+      "playerId": "p1",
+      "actorIds": ["p1-scout-melee"],
+      "targetId": "p2-villager-reconciled",
+      "evidence": "observed",
+      "destination": {
+        "x": 8,
+        "y": 7,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "target_type": 83
+      }
+    },
+    {
+      "id": "cmd-0002-ranged-attack",
+      "kind": "observed-intent",
+      "rawKind": "ATTACK",
+      "issuedAtMs": 200,
+      "sourceSequence": 2,
+      "playerId": "p1",
+      "actorIds": ["p1-archer-ranged"],
+      "targetId": "p2-skirmisher-armored",
+      "evidence": "observed",
+      "destination": {
+        "x": 8,
+        "y": 12,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "target_type": 7
+      }
+    },
+    {
+      "id": "cmd-0003-min-range-attack",
+      "kind": "observed-intent",
+      "rawKind": "ATTACK",
+      "issuedAtMs": 300,
+      "sourceSequence": 3,
+      "playerId": "p1",
+      "actorIds": ["p1-skirm-min-range"],
+      "targetId": "p2-scout-too-close",
+      "evidence": "observed",
+      "destination": {
+        "x": 15.2,
+        "y": 11,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "target_type": 448
+      }
+    },
+    {
+      "id": "cmd-0004-later-actor-evidence",
+      "kind": "move",
+      "rawKind": "MOVE",
+      "issuedAtMs": 14000,
+      "sourceSequence": 4,
+      "playerId": "p2",
+      "actorIds": ["p2-villager-reconciled"],
+      "evidence": "observed",
+      "intentDestination": {
+        "x": 11,
+        "y": 7,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      }
+    }
+  ],
+  "randomSeeds": [],
+  "unsupported": {
+    "commandKinds": {},
+    "commandCount": 0,
+    "implementedCommandKinds": ["ATTACK", "MOVE"],
+    "unresolved": [
+      "Synthetic fixture commands are observed intent; combat contact, projectile impact, damage, death, retargeting, and reconciliation are simulated.",
+      "The fixture intentionally keeps HP low so represented armor, projectile timing, death, retargeting, and later-evidence reconciliation are visible in a compact run."
+    ]
+  },
+  "provenance": {
+    "replay": {
+      "id": "synthetic-m5-combat-slice",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "gameJson": {
+      "id": "synthetic-m5-combat-slice",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "parser": {
+      "id": "manual-original-m5",
+      "sha256": "sha256:not-applicable-manual"
+    },
+    "ruleset": {
+      "id": "aoe2de-current-24094652-dat-ce3530df",
+      "sha256": "sha256:c23b1ffd73f1178baa011f41d7d7faab98f7076eb885dcdd43711a295afb7eab"
+    },
+    "importer": {
+      "id": "manual-original-m5",
+      "sha256": "sha256:not-applicable-manual"
+    },
+    "generatedArtifact": {
+      "id": "synthetic-m5-combat-slice",
+      "sha256": "sha256:not-applicable-manual"
+    }
+  }
+}

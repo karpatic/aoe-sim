@@ -43,6 +43,7 @@ export class CanvasRenderer {
 
     this.drawTerrain(snapshot, originX, originY, tileSize);
     this.drawTasks(snapshot, originX, originY, tileSize);
+    this.drawProjectiles(snapshot, originX, originY, tileSize);
 
     if (snapshot.entities.length > 1200 || tileSize <= 2) {
       this.drawDenseEntities(snapshot, originX, originY, tileSize);
@@ -126,6 +127,26 @@ export class CanvasRenderer {
       context.lineTo(end.x - 3, end.y + 3);
       context.stroke();
     }
+  }
+
+  private drawProjectiles(snapshot: WorldSnapshot, originX: number, originY: number, tileSize: number): void {
+    const { context } = this;
+    context.save();
+    context.strokeStyle = "#f6d77f";
+    context.fillStyle = "#fff1a8";
+    context.lineWidth = 1;
+
+    for (const projectile of snapshot.combat.projectiles) {
+      const start = worldToScreen(projectile.start.x, projectile.start.y, originX, originY, tileSize);
+      const point = worldToScreen(projectile.x, projectile.y, originX, originY, tileSize);
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.lineTo(point.x, point.y);
+      context.stroke();
+      context.fillRect(point.x - 1, point.y - 1, 3, 3);
+    }
+
+    context.restore();
   }
 
   private drawDenseEntities(snapshot: WorldSnapshot, originX: number, originY: number, tileSize: number): void {
@@ -244,6 +265,9 @@ function denseEntityColor(
   players: readonly PlayerDefinition[]
 ): string {
   if (entity.playerId !== "gaia") {
+    if (entity.lifecycle.state === "dead") {
+      return "#5f5b53";
+    }
     return colors.get(entity.playerId) ?? players.find((player) => player.id === entity.playerId)?.color ?? "#f4ead7";
   }
 

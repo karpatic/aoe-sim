@@ -9,7 +9,12 @@ export function advanceMovement(world: WorldState, deltaMs: number): void {
   }
 
   const entities = [...world.entities.values()]
-    .filter((entity) => entity.task.kind === "moving" && entity.speedFpPerSecond > 0)
+    .filter(
+      (entity) =>
+        entity.lifecycle.state === "alive" &&
+        entity.task.kind === "moving" &&
+        entity.speedFpPerSecond > 0
+    )
     .sort((left, right) => left.id.localeCompare(right.id));
 
   for (const entity of entities) {

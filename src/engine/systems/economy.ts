@@ -434,7 +434,7 @@ function assignBuildersToFoundation(world: WorldState, command: ObservedIntentCo
 
 function advanceWorkers(world: WorldState, deltaMs: SimTimeMs): void {
   const workers = [...world.entities.values()]
-    .filter((entity) => entity.workerTask)
+    .filter((entity) => entity.lifecycle.state === "alive" && entity.workerTask)
     .sort(compareEntities);
   for (const worker of workers) {
     const task = worker.workerTask;
@@ -583,7 +583,7 @@ function advanceBuildWorker(
 
 function advanceProduction(world: WorldState, deltaMs: SimTimeMs): void {
   const producers = [...world.entities.values()]
-    .filter((entity) => entity.production?.queue.length)
+    .filter((entity) => entity.lifecycle.state === "alive" && entity.production?.queue.length)
     .sort(compareEntities);
   for (const producer of producers) {
     const production = producer.production;

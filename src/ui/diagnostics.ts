@@ -29,12 +29,18 @@ export function renderDiagnostics(
     `${diagnostics.appliedCommandCount} applied, ` +
       `${diagnostics.observedIntentCount} intent / ${diagnostics.commandCount}`
   );
-  appendRow(root, "unsupported", `${diagnostics.unsupportedCommandCount} observed intent commands`);
+  appendRow(root, "unsupported cmds", `${diagnostics.unsupportedCommandCount} observed intent commands`);
   appendRow(root, "routes", routeSummary(diagnostics.routes));
   appendRow(root, "economy", economySummary(diagnostics.economy));
+  appendRow(root, "combat", combatSummary(diagnostics.combat));
   appendRow(root, "stockpiles", diagnostics.economy.stockpileSummary);
   appendRow(root, "ledger", diagnostics.economy.ledgerSummary);
-  appendRow(root, "divergence", firstDivergence(diagnostics.economy.firstDivergence));
+  appendRow(
+    root,
+    "divergence",
+    firstDivergence(diagnostics.economy.firstDivergence, diagnostics.combat.firstDivergence)
+  );
+  appendRow(root, "combat unsupported", firstUnsupported(diagnostics.combat.firstUnsupported));
   appendRow(root, "step", `${diagnostics.stepMs}ms`);
   appendRow(
     root,
@@ -60,10 +66,54 @@ export function renderDiagnostics(
   );
   appendDisclosureRow(
     root,
+    "combat log",
+    `${diagnostics.combat.lastEvents.length} combat ${pluralize("event", diagnostics.combat.lastEvents.length)}`,
+    diagnostics.combat.lastEvents,
+    disclosureState["combat log"]
+  );
+  appendDisclosureRow(
+    root,
+    "active combat",
+    `${diagnostics.combat.attackers.length} active ${pluralize("episode", diagnostics.combat.attackers.length)}`,
+    diagnostics.combat.attackers.map(formatActiveCombat),
+    disclosureState["active combat"]
+  );
+  appendDisclosureRow(
+    root,
+    "projectiles",
+    `${snapshot.combat.projectiles.length} in-flight ${pluralize("projectile", snapshot.combat.projectiles.length)}`,
+    snapshot.combat.projectiles.map(formatProjectile),
+    disclosureState.projectiles
+  );
+  appendDisclosureRow(
+    root,
+    "damage log",
+    `${diagnostics.combat.lastDamageEvents.length} damage ` +
+      `${pluralize("event", diagnostics.combat.lastDamageEvents.length)}`,
+    diagnostics.combat.lastDamageEvents.map(formatDamageEvent),
+    disclosureState["damage log"]
+  );
+  appendDisclosureRow(
+    root,
+    "reconciliation",
+    `${snapshot.combat.reconciliationEvents.length} reconciliation ` +
+      `${pluralize("event", snapshot.combat.reconciliationEvents.length)}`,
+    snapshot.combat.reconciliationEvents,
+    disclosureState.reconciliation
+  );
+  appendDisclosureRow(
+    root,
     "economy notes",
     `${snapshot.economy.notes.length} scoped ${pluralize("note", snapshot.economy.notes.length)}`,
     snapshot.economy.notes,
     disclosureState["economy notes"]
+  );
+  appendDisclosureRow(
+    root,
+    "combat notes",
+    `${snapshot.combat.notes.length} scoped ${pluralize("note", snapshot.combat.notes.length)}`,
+    snapshot.combat.notes,
+    disclosureState["combat notes"]
   );
   appendDisclosureRow(
     root,
@@ -132,7 +182,18 @@ function appendDisclosureRow(
   root.append(term, detail);
 }
 
-type DisclosureKey = "provenance" | "route log" | "economy log" | "economy notes" | "warnings";
+type DisclosureKey =
+  | "provenance"
+  | "route log"
+  | "economy log"
+  | "combat log"
+  | "active combat"
+  | "projectiles"
+  | "damage log"
+  | "reconciliation"
+  | "economy notes"
+  | "combat notes"
+  | "warnings";
 
 function readDisclosureState(root: HTMLElement): Record<DisclosureKey, boolean> {
   return {
@@ -145,8 +206,26 @@ function readDisclosureState(root: HTMLElement): Record<DisclosureKey, boolean> 
     "economy log": Boolean(
       root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="economy log"]')?.open
     ),
+    "combat log": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="combat log"]')?.open
+    ),
+    "active combat": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="active combat"]')?.open
+    ),
+    projectiles: Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="projectiles"]')?.open
+    ),
+    "damage log": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="damage log"]')?.open
+    ),
+    reconciliation: Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="reconciliation"]')?.open
+    ),
     "economy notes": Boolean(
       root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="economy notes"]')?.open
+    ),
+    "combat notes": Boolean(
+      root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="combat notes"]')?.open
     ),
     warnings: Boolean(root.querySelector<HTMLDetailsElement>('details[data-diagnostics-disclosure="warnings"]')?.open)
   };
@@ -168,12 +247,68 @@ function economySummary(economy: SimulationDiagnostics["economy"]): string {
   );
 }
 
-function firstDivergence(divergence: SimulationDiagnostics["economy"]["firstDivergence"]): string {
+function combatSummary(combat: SimulationDiagnostics["combat"]): string {
+  const active = combat.attackers.length
+    ? combat.attackers
+        .map((attacker) => `${attacker.attackerId}->${attacker.targetId ?? "none"} ${attacker.reload}`)
+        .join(" | ")
+    : "none";
+  return (
+    `${combat.activeEpisodes} active, ${combat.projectilesInFlight} projectiles, ` +
+    `${combat.damageEvents} hits, ${combat.deaths} deaths, ${combat.reconciliations} reconciled, ` +
+    `${combat.retargets} retargets (${active})`
+  );
+}
+
+function firstDivergence(
+  economy: SimulationDiagnostics["economy"]["firstDivergence"],
+  combat: SimulationDiagnostics["combat"]["firstDivergence"]
+): string {
+  const divergence = economy ?? combat;
   if (!divergence) {
     return "none";
   }
 
-  return `${formatSimTime(divergence.timeMs)} ${divergence.commandId ? `${divergence.commandId}: ` : ""}${divergence.reason}`;
+  return (
+    `${formatSimTime(divergence.timeMs)} ` +
+    `${divergence.commandId ? `${divergence.commandId}: ` : ""}${divergence.reason}`
+  );
+}
+
+function firstUnsupported(unsupported: SimulationDiagnostics["combat"]["firstUnsupported"]): string {
+  if (!unsupported) {
+    return "none";
+  }
+
+  return (
+    `${formatSimTime(unsupported.timeMs)} ` +
+    `${unsupported.commandId ? `${unsupported.commandId}: ` : ""}${unsupported.reason}`
+  );
+}
+
+function formatActiveCombat(attacker: SimulationDiagnostics["combat"]["attackers"][number]): string {
+  return (
+    `${attacker.attackerId}->${attacker.targetId ?? "none"} ${attacker.state}; ` +
+    `range ${attacker.range}; hp ${attacker.hp}; reload ${attacker.reload}`
+  );
+}
+
+function formatProjectile(projectile: WorldSnapshot["combat"]["projectiles"][number]): string {
+  return (
+    `${projectile.id} ${projectile.attackerId}->${projectile.targetId} ` +
+    `${formatSimTime(projectile.launchedAtMs)}-${formatSimTime(projectile.impactAtMs)} ` +
+    `at ${projectile.x.toFixed(2)},${projectile.y.toFixed(2)}`
+  );
+}
+
+function formatDamageEvent(event: SimulationDiagnostics["combat"]["lastDamageEvents"][number]): string {
+  const matches = event.calculation.matches
+    .map((match) => `${match.classId}:${match.attackAmount}-${match.armorAmount}=${match.appliedAmount}`)
+    .join(", ");
+  return (
+    `${formatSimTime(event.timeMs)} ${event.source} ${event.attackerId}->${event.targetId} ` +
+    `${event.amount}hp (${event.targetHpBefore}->${event.targetHpAfter}); classes ${matches || "none"}`
+  );
 }
 
 function warningSummary(warnings: readonly string[]): string {

@@ -3,6 +3,7 @@ import { DeterministicScheduler, type ScheduledEvent } from "./scheduler";
 import { advanceEconomy, initializeEconomy } from "./systems/economy";
 import { applyReplayCommand } from "./systems/commands";
 import { advanceMovement } from "./systems/movement";
+import { advanceCombat, hasCombatState } from "./systems/combat";
 import { WorldState } from "./world";
 import type {
   ReplayCommand,
@@ -85,6 +86,7 @@ export class SimulationEngine {
         if (hasContinuousState) {
           advanceMovement(this.world, deltaMs);
           advanceEconomy(this.world, deltaMs);
+          advanceCombat(this.world, deltaMs);
         }
         this.world.timeMs = nextTimeMs;
       }
@@ -123,6 +125,7 @@ export class SimulationEngine {
       if (deltaMs > 0) {
         advanceMovement(this.world, deltaMs);
         advanceEconomy(this.world, deltaMs);
+        advanceCombat(this.world, deltaMs);
         this.world.timeMs = nextTimeMs;
         stepCount += 1;
       }
@@ -175,6 +178,7 @@ export class SimulationEngine {
       seed: this.rng.currentSeed,
       routes: this.world.createRouteDiagnostics(),
       economy: this.world.createEconomyDiagnostics(),
+      combat: this.world.createCombatDiagnostics(),
       warnings: [...this.world.warnings]
     };
 
@@ -205,6 +209,10 @@ export class SimulationEngine {
   }
 
   private hasContinuousState(): boolean {
+    if (hasCombatState(this.world)) {
+      return true;
+    }
+
     for (const entity of this.world.entities.values()) {
       if (
         entity.task.kind === "moving" ||

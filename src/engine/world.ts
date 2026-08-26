@@ -1,6 +1,7 @@
 import { checksumStable } from "./checksum";
 import { PathingState } from "./systems/occupancy";
 import type {
+  CommandDestination,
   EntityId,
   EntitySnapshot,
   EconomyDiagnostics,
@@ -14,11 +15,19 @@ import type {
   RulesetUnit,
   RulesetV1,
   SimTimeMs,
+  CombatDiagnostics,
   SnapshotCarry,
+  SnapshotCombatEpisode,
+  SnapshotCombatSummary,
+  SnapshotCombatVectorEntry,
   SnapshotConstruction,
+  SnapshotDamageCalculation,
+  SnapshotDamageEvent,
   SnapshotEconomySummary,
+  SnapshotEntityCombat,
   SnapshotPlayerEconomy,
   SnapshotProduction,
+  SnapshotProjectile,
   SnapshotResourceNode,
   SnapshotRoute,
   SnapshotTask,
@@ -180,6 +189,138 @@ export interface ResourceLedgerState {
   refundedFp: FixedPoint;
 }
 
+export interface EntityLifecycleState {
+  state: "alive" | "dead";
+  evidence: EvidenceClass;
+  deadAtMs?: SimTimeMs;
+  killedById?: EntityId;
+  deathReason?: "combat";
+  reconciledAtMs?: SimTimeMs;
+  correctionReason?: string;
+  previousDeathAtMs?: SimTimeMs;
+}
+
+export interface CombatIntentState {
+  commandId: string;
+  rawKind: string;
+  issuedAtMs: SimTimeMs;
+  sourceSequence: number;
+  targetId?: EntityId;
+  destination?: CommandDestination;
+  evidence: EvidenceClass;
+  resolution:
+    | "resolved-target"
+    | "ground-unsupported"
+    | "unresolved-actor"
+    | "unresolved-target"
+    | "unsupported";
+  reason?: string;
+}
+
+export interface CombatVectorEntryState {
+  classId: number;
+  amount: number;
+}
+
+export interface DamageClassMatchState {
+  classId: number;
+  attackAmount: number;
+  armorAmount: number;
+  appliedAmount: number;
+}
+
+export interface DamageCalculationState {
+  attackerRuleId?: number;
+  attackerKind: string;
+  targetRuleId?: number;
+  targetKind: string;
+  attackVector: readonly CombatVectorEntryState[];
+  armorVector: readonly CombatVectorEntryState[];
+  matches: readonly DamageClassMatchState[];
+  skippedAttackClasses: readonly number[];
+  rawDamage: number;
+  appliedDamage: number;
+  minimumDamageApplied: boolean;
+}
+
+export interface DamageEventState {
+  id: string;
+  timeMs: SimTimeMs;
+  attackerId: EntityId;
+  targetId: EntityId;
+  amount: number;
+  targetHpBefore: number;
+  targetHpAfter: number;
+  source: "melee" | "projectile";
+  projectileId?: string;
+  commandId?: string;
+  calculation: DamageCalculationState;
+  evidence: EvidenceClass;
+}
+
+export interface ActiveCombatState {
+  id: string;
+  state: SnapshotCombatEpisode["state"];
+  targetId?: EntityId;
+  targetSource: "command" | "acquired";
+  startedAtMs: SimTimeMs;
+  lastStateChangeMs: SimTimeMs;
+  nextAttackReadyAtMs: SimTimeMs;
+  reloadMs: SimTimeMs;
+  minRangeFp: FixedPoint;
+  maxRangeFp: FixedPoint;
+  lastDistanceFp?: FixedPoint;
+  inRange?: boolean;
+  retargetCount: number;
+  routeTargetId?: EntityId;
+  unsupportedMechanic?: string;
+  lastDamage?: DamageEventState;
+}
+
+export interface EntityCombatState {
+  intent?: CombatIntentState;
+  active?: ActiveCombatState;
+  lastDamage?: DamageEventState;
+}
+
+export interface CombatProjectileState {
+  id: string;
+  attackerId: EntityId;
+  targetId: EntityId;
+  launchedAtMs: SimTimeMs;
+  impactAtMs: SimTimeMs;
+  startXFp: FixedPoint;
+  startYFp: FixedPoint;
+  targetXFp: FixedPoint;
+  targetYFp: FixedPoint;
+  projectileRuleId?: number;
+  projectileKind?: string;
+  speedFpPerSecond: number;
+  commandId?: string;
+  damage: DamageCalculationState;
+  evidence: EvidenceClass;
+}
+
+export interface CombatDivergence {
+  timeMs: SimTimeMs;
+  reason: string;
+  commandId?: string;
+}
+
+interface MutableCombatStats {
+  observedIntentCount: number;
+  resolvedAttackIntents: number;
+  unresolvedAttackIntents: number;
+  unsupportedIntents: number;
+  projectilesLaunched: number;
+  projectilesImpacted: number;
+  meleeContacts: number;
+  damageEvents: number;
+  deaths: number;
+  reconciliations: number;
+  retargets: number;
+}
+
 export interface PlayerEconomyState {
   playerId: PlayerId;
   stockpileFp: Record<ResourceKind, FixedPoint>;
@@ -260,6 +401,13 @@ export type EntityTask =
       readonly targetId: EntityId;
       readonly evidence: EvidenceClass;
       readonly sourceSequence: number;
+    }
+  | {
+      readonly kind: "attacking";
+      readonly commandId: string;
+      readonly targetId: EntityId;
+      readonly evidence: EvidenceClass;
+      readonly sourceSequence: number;
     };
 
 export interface EntityState {
@@ -270,6 +418,8 @@ export interface EntityState {
   label?: string;
   playerId: string;
   hp: number;
+  maxHp: number;
+  lifecycle: EntityLifecycleState;
   facing: -1 | 1;
   radiusFp: FixedPoint;
   speedFpPerSecond: number;
@@ -282,6 +432,7 @@ export interface EntityState {
   resourceNode?: ResourceNodeState;
   construction?: ConstructionState;
   production?: ProductionState;
+  combat?: EntityCombatState;
   evidence: EvidenceClass;
 }
 
@@ -309,14 +460,36 @@ export class WorldState {
   public readonly economyNotes: string[] = [
     "Starting stockpiles are simulated baselines because the scenario artifact does not carry resource stocks.",
     "Node amounts use DAT values when represented and explicit family defaults otherwise.",
-    "Technology, civilization, placement, formation, market, repair, and cancellation modifiers are diagnostic-only in this slice.",
-    "Replay resource timeseries were not imported into the scenario artifact; diagnostics do not fit simulated state to them."
+    "Technology, civilization, placement, formation, market, repair, and cancellation modifiers are diagnostic-only " +
+      "in this slice.",
+    "Replay resource timeseries were not imported into the scenario artifact; diagnostics do not fit simulated state " +
+      "to them."
   ];
   public firstEconomyDivergence?: EconomyDivergence;
+  public readonly combatStats: MutableCombatStats = createCombatStats();
+  public readonly combatEvents: string[] = [];
+  public readonly combatDeaths: DamageEventState[] = [];
+  public readonly combatDamageEvents: DamageEventState[] = [];
+  public readonly combatReconciliationEvents: string[] = [];
+  public readonly combatProjectiles = new Map<string, CombatProjectileState>();
+  public readonly combatNotes: string[] = [
+    "Attack commands are stored as observed intent; only simulated contact, projectile impact, and damage change HP.",
+    "Damage uses DAT attack and armor class vectors with explicit matched classes and a represented minimum of one " +
+      "damage.",
+    "Elevation, splash, accuracy, garrison arrows, conversion, healing, repair, and civilization/technology " +
+      "modifiers are omitted in this slice.",
+    "Later observed actor activity after a simulated death creates a reconciled correction instead of silently " +
+      "resurrecting the entity."
+  ];
+  public firstCombatUnsupported?: CombatDivergence;
+  public firstCombatDivergence?: CombatDivergence;
   public readonly pathing: PathingState;
   public readonly rulesByDataId = new Map<number, RulesetUnit>();
   public readonly rulesByKind = new Map<string, RulesetUnit>();
   private nextSimOrdinal = 0;
+  private nextCombatOrdinal = 0;
+  private nextProjectileOrdinal = 0;
+  private nextDamageOrdinal = 0;
 
   public constructor(
     private readonly scenario: ReplayScenarioV1,
@@ -347,6 +520,7 @@ export class WorldState {
         label: entity.label,
         playerId: entity.playerId,
         hp: entity.hp ?? rule.maxHp,
+        maxHp: rule.maxHp,
         facing: 1,
         radiusFp: toFixedPoint(rule.radiusTiles),
         speedFpPerSecond: rule.speedFpPerSecond,
@@ -381,9 +555,38 @@ export class WorldState {
       .sort();
   }
 
+  public areHostilePlayers(left: PlayerId, right: PlayerId): boolean {
+    if (left === right || left === "gaia" || right === "gaia") {
+      return false;
+    }
+
+    const leftTeam = this.scenario.players.find((player) => player.id === left)?.team;
+    const rightTeam = this.scenario.players.find((player) => player.id === right)?.team;
+    if (leftTeam === undefined || rightTeam === undefined) {
+      return left !== right;
+    }
+
+    return leftTeam !== rightTeam;
+  }
+
   public createSimEntityId(prefix: string): EntityId {
     this.nextSimOrdinal += 1;
     return `sim:${prefix}:${this.nextSimOrdinal.toString().padStart(6, "0")}`;
+  }
+
+  public createCombatEpisodeId(prefix: string): string {
+    this.nextCombatOrdinal += 1;
+    return `combat:${prefix}:${this.nextCombatOrdinal.toString().padStart(6, "0")}`;
+  }
+
+  public createProjectileId(): string {
+    this.nextProjectileOrdinal += 1;
+    return `projectile:${this.nextProjectileOrdinal.toString().padStart(6, "0")}`;
+  }
+
+  public createDamageEventId(): string {
+    this.nextDamageOrdinal += 1;
+    return `damage:${this.nextDamageOrdinal.toString().padStart(6, "0")}`;
   }
 
   public addSimulatedEntity(input: {
@@ -406,6 +609,7 @@ export class WorldState {
         label: input.label ?? input.rule.label,
         playerId: input.playerId,
         hp: input.hp ?? input.rule.maxHp,
+        maxHp: input.rule.maxHp,
         facing: 1,
         radiusFp: toFixedPoint(input.rule.radiusTiles),
         speedFpPerSecond: input.rule.speedFpPerSecond,
@@ -457,6 +661,46 @@ export class WorldState {
     }) as EconomyDivergence;
   }
 
+  public recordCombatEvent(message: string, timeMs = this.timeMs): void {
+    this.combatEvents.push(`${timeMs}ms ${message}`);
+    if (this.combatEvents.length > 32) {
+      this.combatEvents.shift();
+    }
+  }
+
+  public recordCombatReconciliation(message: string, timeMs = this.timeMs): void {
+    const event = `${timeMs}ms ${message}`;
+    this.combatReconciliationEvents.push(event);
+    if (this.combatReconciliationEvents.length > 12) {
+      this.combatReconciliationEvents.shift();
+    }
+    this.recordCombatEvent(message, timeMs);
+  }
+
+  public recordCombatUnsupported(reason: string, commandId?: string): void {
+    if (this.firstCombatUnsupported) {
+      return;
+    }
+
+    this.firstCombatUnsupported = dropUndefined({
+      timeMs: this.timeMs,
+      commandId,
+      reason
+    }) as CombatDivergence;
+  }
+
+  public recordCombatDivergence(reason: string, commandId?: string): void {
+    if (this.firstCombatDivergence) {
+      return;
+    }
+
+    this.firstCombatDivergence = dropUndefined({
+      timeMs: this.timeMs,
+      commandId,
+      reason
+    }) as CombatDivergence;
+  }
+
   public createRouteDiagnostics(): RouteDiagnostics {
     const active = [...this.entities.values()].filter((entity) => entity.task.kind === "moving").length;
     const failedActive = [...this.entities.values()].filter((entity) => entity.task.kind === "path-failed").length;
@@ -502,6 +746,45 @@ export class WorldState {
     }) as EconomyDiagnostics;
   }
 
+  public createCombatDiagnostics(): CombatDiagnostics {
+    const attackers = [...this.entities.values()]
+      .filter((entity) => entity.lifecycle.state === "alive" && entity.combat?.active)
+      .sort(compareEntities)
+      .map((entity) => {
+        const active = entity.combat?.active;
+        const target = active?.targetId ? this.entities.get(active.targetId) : undefined;
+        return {
+          attackerId: entity.id,
+          targetId: active?.targetId,
+          state: active?.state ?? "unsupported",
+          range: active ? formatCombatRange(active) : "none",
+          hp: `${entity.hp}/${entity.maxHp}${target ? ` -> ${target.hp}/${target.maxHp}` : ""}`,
+          reload: active ? formatReload(this.timeMs, active.nextAttackReadyAtMs) : "none"
+        };
+      });
+
+    return dropUndefined({
+      observedIntentCount: this.combatStats.observedIntentCount,
+      resolvedAttackIntents: this.combatStats.resolvedAttackIntents,
+      unresolvedAttackIntents: this.combatStats.unresolvedAttackIntents,
+      unsupportedIntents: this.combatStats.unsupportedIntents,
+      activeEpisodes: attackers.length,
+      attackers,
+      projectilesInFlight: this.combatProjectiles.size,
+      projectilesLaunched: this.combatStats.projectilesLaunched,
+      projectilesImpacted: this.combatStats.projectilesImpacted,
+      meleeContacts: this.combatStats.meleeContacts,
+      damageEvents: this.combatStats.damageEvents,
+      deaths: this.combatStats.deaths,
+      reconciliations: this.combatStats.reconciliations,
+      retargets: this.combatStats.retargets,
+      firstUnsupported: this.firstCombatUnsupported,
+      firstDivergence: this.firstCombatDivergence,
+      lastDamageEvents: this.combatDamageEvents.slice(-6).map(snapshotDamageEvent),
+      lastEvents: [...this.combatEvents]
+    }) as CombatDiagnostics;
+  }
+
   public createSnapshot(): WorldSnapshot {
     const activeRoutes = [...this.entities.values()].filter((entity) => entity.task.kind === "moving").length;
     const failedRoutes = [...this.entities.values()].filter((entity) => entity.task.kind === "path-failed").length;
@@ -520,6 +803,8 @@ export class WorldState {
           label: entity.label,
           playerId: entity.playerId,
           hp: entity.hp,
+          maxHp: entity.maxHp,
+          lifecycle: snapshotLifecycle(entity.lifecycle),
           facing: entity.facing,
           radiusTiles: fromFixedPoint(entity.radiusFp),
           position: {
@@ -530,6 +815,7 @@ export class WorldState {
             evidence: entity.position.evidence
           },
           task: snapshotTask(entity.task, entity.lastRoute),
+          combat: snapshotCombat(entity.combat),
           carry: snapshotCarry(entity.carry),
           worker: snapshotWorker(entity.workerTask),
           resourceNode: entity.resourceNode ? snapshotResourceNode(entity.resourceNode) : undefined,
@@ -548,6 +834,7 @@ export class WorldState {
         failedRoutes
       },
       economy: this.createEconomySnapshot(),
+      combat: this.createCombatSnapshot(),
       provenance: this.scenario.provenance
     };
 
@@ -603,6 +890,31 @@ export class WorldState {
     }) as SnapshotEconomySummary;
   }
 
+  private createCombatSnapshot(): SnapshotCombatSummary {
+    const activeEpisodes = [...this.entities.values()].filter(
+      (entity) => entity.lifecycle.state === "alive" && entity.combat?.active
+    ).length;
+
+    return {
+      activeEpisodes,
+      projectiles: [...this.combatProjectiles.values()]
+        .sort((left, right) => left.impactAtMs - right.impactAtMs || left.id.localeCompare(right.id))
+        .map((projectile) => snapshotProjectile(projectile, this.timeMs)),
+      projectileCount: this.combatProjectiles.size,
+      deaths: this.combatDeaths.slice(-8).map((event) =>
+        dropUndefined({
+          entityId: event.targetId,
+          timeMs: event.timeMs,
+          killedById: event.attackerId,
+          evidence: event.evidence
+        }) as SnapshotCombatSummary["deaths"][number]
+      ),
+      reconciliationEvents: [...this.combatReconciliationEvents],
+      lastDamageEvents: this.combatDamageEvents.slice(-8).map(snapshotDamageEvent),
+      notes: [...this.combatNotes]
+    };
+  }
+
   private createEntityState(
     input: {
       readonly id: EntityId;
@@ -612,6 +924,7 @@ export class WorldState {
       readonly label?: string | undefined;
       readonly playerId: PlayerId;
       readonly hp: number | null;
+      readonly maxHp?: number | undefined;
       readonly facing?: -1 | 1 | undefined;
       readonly radiusFp?: FixedPoint | undefined;
       readonly speedFpPerSecond?: number | undefined;
@@ -629,6 +942,11 @@ export class WorldState {
       label: input.label,
       playerId: input.playerId,
       hp: input.hp ?? rule.maxHp,
+      maxHp: input.maxHp ?? rule.maxHp,
+      lifecycle: {
+        state: "alive",
+        evidence: input.evidence
+      },
       facing: input.facing ?? 1,
       radiusFp: input.radiusFp ?? toFixedPoint(rule.radiusTiles),
       speedFpPerSecond: input.speedFpPerSecond ?? rule.speedFpPerSecond,
@@ -660,7 +978,12 @@ function snapshotTask(task: EntityTask, lastRoute: PlannedRoute | undefined): Sn
     }) as SnapshotTask;
   }
 
-  if (task.kind === "gathering" || task.kind === "dropping-off" || task.kind === "building") {
+  if (
+    task.kind === "gathering" ||
+    task.kind === "dropping-off" ||
+    task.kind === "building" ||
+    task.kind === "attacking"
+  ) {
     return dropUndefined({
       kind: task.kind,
       commandId: task.commandId,
@@ -682,6 +1005,146 @@ function snapshotTask(task: EntityTask, lastRoute: PlannedRoute | undefined): Sn
     evidence: task.evidence,
     route: snapshotRoute(task.route)
   }) as SnapshotTask;
+}
+
+function snapshotLifecycle(lifecycle: EntityLifecycleState): import("../replay/model").SnapshotLifecycle {
+  return dropUndefined({
+    state: lifecycle.state,
+    evidence: lifecycle.evidence,
+    deadAtMs: lifecycle.deadAtMs,
+    killedById: lifecycle.killedById,
+    deathReason: lifecycle.deathReason,
+    reconciledAtMs: lifecycle.reconciledAtMs,
+    correctionReason: lifecycle.correctionReason,
+    previousDeathAtMs: lifecycle.previousDeathAtMs
+  }) as import("../replay/model").SnapshotLifecycle;
+}
+
+function snapshotCombat(combat: EntityCombatState | undefined): SnapshotEntityCombat | undefined {
+  if (!combat?.intent && !combat?.active && !combat?.lastDamage) {
+    return undefined;
+  }
+
+  return dropUndefined({
+    intent: combat.intent
+      ? dropUndefined({
+          commandId: combat.intent.commandId,
+          rawKind: combat.intent.rawKind,
+          issuedAtMs: combat.intent.issuedAtMs,
+          sourceSequence: combat.intent.sourceSequence,
+          targetId: combat.intent.targetId,
+          destination: combat.intent.destination,
+          evidence: combat.intent.evidence,
+          resolution: combat.intent.resolution,
+          reason: combat.intent.reason
+        })
+      : undefined,
+    episode: combat.active ? snapshotCombatEpisode(combat.active) : undefined,
+    lastDamage: combat.lastDamage ? snapshotDamageEvent(combat.lastDamage) : undefined
+  }) as SnapshotEntityCombat;
+}
+
+function snapshotCombatEpisode(active: ActiveCombatState): SnapshotCombatEpisode {
+  return dropUndefined({
+    id: active.id,
+    state: active.state,
+    targetId: active.targetId,
+    targetSource: active.targetSource,
+    startedAtMs: active.startedAtMs,
+    lastStateChangeMs: active.lastStateChangeMs,
+    nextAttackReadyAtMs: active.nextAttackReadyAtMs,
+    reloadMs: active.reloadMs,
+    minRangeTiles: fromFixedPoint(active.minRangeFp),
+    maxRangeTiles: fromFixedPoint(active.maxRangeFp),
+    lastDistanceTiles: active.lastDistanceFp === undefined ? undefined : fromFixedPoint(active.lastDistanceFp),
+    inRange: active.inRange,
+    retargetCount: active.retargetCount,
+    unsupportedMechanic: active.unsupportedMechanic,
+    lastDamage: active.lastDamage ? snapshotDamageEvent(active.lastDamage) : undefined
+  }) as SnapshotCombatEpisode;
+}
+
+function snapshotDamageEvent(event: DamageEventState): SnapshotDamageEvent {
+  return dropUndefined({
+    id: event.id,
+    timeMs: event.timeMs,
+    attackerId: event.attackerId,
+    targetId: event.targetId,
+    amount: event.amount,
+    targetHpBefore: event.targetHpBefore,
+    targetHpAfter: event.targetHpAfter,
+    source: event.source,
+    projectileId: event.projectileId,
+    commandId: event.commandId,
+    calculation: snapshotDamageCalculation(event.calculation),
+    evidence: event.evidence
+  }) as SnapshotDamageEvent;
+}
+
+function snapshotDamageCalculation(calculation: DamageCalculationState): SnapshotDamageCalculation {
+  return dropUndefined({
+    attackerRuleId: calculation.attackerRuleId,
+    attackerKind: calculation.attackerKind,
+    targetRuleId: calculation.targetRuleId,
+    targetKind: calculation.targetKind,
+    attackVector: calculation.attackVector.map(snapshotCombatVectorEntry),
+    armorVector: calculation.armorVector.map(snapshotCombatVectorEntry),
+    matches: calculation.matches.map((match) => ({
+      classId: match.classId,
+      attackAmount: match.attackAmount,
+      armorAmount: match.armorAmount,
+      appliedAmount: match.appliedAmount
+    })),
+    skippedAttackClasses: [...calculation.skippedAttackClasses],
+    rawDamage: calculation.rawDamage,
+    appliedDamage: calculation.appliedDamage,
+    minimumDamageApplied: calculation.minimumDamageApplied
+  }) as SnapshotDamageCalculation;
+}
+
+function snapshotCombatVectorEntry(entry: CombatVectorEntryState): SnapshotCombatVectorEntry {
+  return {
+    classId: entry.classId,
+    amount: entry.amount
+  };
+}
+
+function snapshotProjectile(projectile: CombatProjectileState, timeMs: SimTimeMs): SnapshotProjectile {
+  const durationMs = Math.max(1, projectile.impactAtMs - projectile.launchedAtMs);
+  const elapsedMs = Math.max(0, Math.min(durationMs, timeMs - projectile.launchedAtMs));
+  const xFp = projectile.startXFp + Math.trunc(((projectile.targetXFp - projectile.startXFp) * elapsedMs) / durationMs);
+  const yFp = projectile.startYFp + Math.trunc(((projectile.targetYFp - projectile.startYFp) * elapsedMs) / durationMs);
+
+  return dropUndefined({
+    id: projectile.id,
+    attackerId: projectile.attackerId,
+    targetId: projectile.targetId,
+    launchedAtMs: projectile.launchedAtMs,
+    impactAtMs: projectile.impactAtMs,
+    x: fromFixedPoint(xFp),
+    y: fromFixedPoint(yFp),
+    xFp,
+    yFp,
+    start: {
+      x: fromFixedPoint(projectile.startXFp),
+      y: fromFixedPoint(projectile.startYFp),
+      xFp: projectile.startXFp,
+      yFp: projectile.startYFp,
+      evidence: projectile.evidence
+    },
+    target: {
+      x: fromFixedPoint(projectile.targetXFp),
+      y: fromFixedPoint(projectile.targetYFp),
+      xFp: projectile.targetXFp,
+      yFp: projectile.targetYFp,
+      evidence: projectile.evidence
+    },
+    projectileRuleId: projectile.projectileRuleId,
+    projectileKind: projectile.projectileKind,
+    speedFpPerSecond: projectile.speedFpPerSecond,
+    commandId: projectile.commandId,
+    evidence: projectile.evidence
+  }) as SnapshotProjectile;
 }
 
 function snapshotRoute(route: PlannedRoute): SnapshotRoute {
@@ -946,6 +1409,19 @@ function summarizeLedgers(players: readonly SnapshotPlayerEconomy[]): string {
   );
 }
 
+function formatCombatRange(active: ActiveCombatState): string {
+  const distance = active.lastDistanceFp === undefined ? "unknown" : fromFixedPoint(active.lastDistanceFp).toFixed(2);
+  const min = fromFixedPoint(active.minRangeFp).toFixed(2);
+  const max = fromFixedPoint(active.maxRangeFp).toFixed(2);
+  const status = active.inRange === undefined ? "pending" : active.inRange ? "in" : "out";
+  return `${distance} tiles (${min}-${max}, ${status})`;
+}
+
+function formatReload(timeMs: SimTimeMs, readyAtMs: SimTimeMs): string {
+  const remainingMs = Math.max(0, readyAtMs - timeMs);
+  return remainingMs <= 0 ? "ready" : `${remainingMs}ms`;
+}
+
 function createRouteStats(): MutableRouteStats {
   return {
     planned: 0,
@@ -954,6 +1430,22 @@ function createRouteStats(): MutableRouteStats {
     replanned: 0,
     corrected: 0,
     unresolvedActors: 0
+  };
+}
+
+function createCombatStats(): MutableCombatStats {
+  return {
+    observedIntentCount: 0,
+    resolvedAttackIntents: 0,
+    unresolvedAttackIntents: 0,
+    unsupportedIntents: 0,
+    projectilesLaunched: 0,
+    projectilesImpacted: 0,
+    meleeContacts: 0,
+    damageEvents: 0,
+    deaths: 0,
+    reconciliations: 0,
+    retargets: 0
   };
 }
 
