@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:," />
-    <title>AoE II single-game data</title>
+    <title>AoE II schemas and parsed data</title>
     <style>
       * { box-sizing: border-box; }
       html, body { min-height: 100%; }
@@ -53,21 +53,21 @@
     <script type="module" crossorigin src="./assets/limits-BIuC5h1x.js"></script>
     <script type="module" crossorigin src="./assets/dataview-Brt3d6v_.js"></script>
   </head>
-  <body>
+  <body data-viewer-page="./dataview-data-viewer.html" data-viewer-title="Generated AoE II schemas and parsed data">
     <main class="shell">
       <details id="upload-panel" class="upload-panel" open>
         <summary>
-          <span class="panel-title">Replay controls</span>
+          <span class="panel-title">Replay data controls</span>
           <span class="panel-hint">Sanitized Glade default · choose another .aoe2record</span>
         </summary>
         <div class="upload-content">
           <div class="upload-header">
             <div>
-              <h1 id="page-heading">AoE II single-game data</h1>
-              <p class="privacy">A sanitized Glade replay loads by default. Other replay bytes stay in this browser worker.</p>
+              <h1 id="page-heading">Schemas and complete parsed data</h1>
+              <p class="privacy">The sanitized Glade replay loads automatically and is parsed in this browser worker.</p>
             </div>
             <nav aria-label="Related views">
-              <a class="back-link" href="./dataview-data.html">Schemas and parsed data</a>
+              <a class="back-link" href="./dataview.html">Dataview</a>
               ·
               <a class="back-link" href="./index.html">Simulator</a>
             </nav>
@@ -91,7 +91,7 @@
         </div>
       </details>
 
-      <section class="viewer-panel" aria-label="Generated dataview">
+      <section class="viewer-panel" aria-label="Generated schemas and parsed data">
         <p id="viewer-empty">The sanitized Glade replay is loading.</p>
         <div id="viewer-host"></div>
       </section>

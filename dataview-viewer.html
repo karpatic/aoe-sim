@@ -46,11 +46,11 @@
     #map-legend-details > #map-legend { padding: 0 .5rem .5rem; }
 
     .player-state { border: 1px solid #2f2f2f; border-left: .45rem solid var(--player-color); background: #17191b; color: #f4f0dc; }
-    .player-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: .15rem .65rem; min-height: 3.25rem; padding: .4rem .5rem .3rem; background: linear-gradient(#303438, #202326); }
-    .player-state h3 { margin: 0; font-size: 1rem; line-height: 1.15; }
-    .player-identity, .player-age { margin: 0; color: #d1cbb6; font-size: .75rem; line-height: 1.15; }
-    .player-identity { grid-column: 1; }
-    .player-age { grid-column: 2; grid-row: 1 / span 2; align-self: center; white-space: nowrap; }
+    .player-header { min-height: 2.25rem; padding: .48rem .55rem; overflow-x: auto; background: linear-gradient(#303438, #202326); }
+    .player-summary { display: flex; align-items: baseline; gap: .38rem; margin: 0; white-space: nowrap; font-size: .92rem; line-height: 1.15; }
+    .player-name { color: #fff; font-weight: 750; }
+    .player-meta { color: #d1cbb6; font-size: .78rem; font-weight: 500; }
+    .player-separator { color: #817d70; font-size: .75rem; font-weight: 400; }
     .economy-hud { width: 100%; table-layout: fixed; border-collapse: collapse; color: inherit; font-variant-numeric: tabular-nums; }
     .economy-hud caption { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     .economy-hud th, .economy-hud td { height: 1.65rem; padding: .12rem .25rem; border-top: 1px solid #3b3e40; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -107,7 +107,7 @@
     @media (max-width: 40rem) {
       .node, .primitive { margin-left: .6rem; }
       dd { margin-left: 1rem; }
-      .player-header { min-height: 3rem; }
+      .player-header { min-height: 2.25rem; }
       .economy-hud thead th:first-child, .economy-hud tbody th { width: 3.8rem; }
       .economy-hud th, .economy-hud td { padding-inline: .12rem; }
     }
@@ -144,14 +144,7 @@
       <h2 id="chat-heading">Chat</h2>
       <ol id="chat"></ol>
     </section>
-    <details id="schemas-details" class="panel-details">
-      <summary id="schemas-heading">Schemas</summary>
-      <div id="schemas" class="tree"></div>
-    </details>
-    <details id="data-details" class="panel-details">
-      <summary id="data-heading">Complete parsed data</summary>
-      <div id="data" class="tree"></div>
-    </details>
+
   </main>
   <noscript>This viewer requires JavaScript and a same-origin upload page data payload.</noscript>
   <script>
@@ -174,8 +167,6 @@
     const mapLegendDetails = document.querySelector('#map-legend-details');
     const mapLegend = document.querySelector('#map-legend');
 
-    const schemas = document.querySelector('#schemas');
-    const output = document.querySelector('#data');
     const chat = document.querySelector('#chat');
 
     const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
@@ -1584,10 +1575,24 @@
         const header = document.createElement('header');
         header.className = 'player-header';
         const heading = document.createElement('h3');
-        const identity = document.createElement('p');
-        identity.className = 'player-identity';
-        const age = document.createElement('p');
-        age.className = 'player-age';
+        heading.className = 'player-summary';
+        const playerName = document.createElement('span');
+        playerName.className = 'player-name';
+        playerName.textContent = player.name;
+        const civilization = document.createElement('span');
+        civilization.className = 'player-meta player-civilization';
+        civilization.textContent = player.civilization;
+        const age = document.createElement('span');
+        age.className = 'player-meta player-age';
+        const objects = document.createElement('span');
+        objects.className = 'player-meta player-objects';
+        const separator = () => {
+          const element = document.createElement('span');
+          element.className = 'player-separator';
+          element.setAttribute('aria-hidden', 'true');
+          element.textContent = '·';
+          return element;
+        };
         const economyHud = document.createElement('table');
         economyHud.className = 'economy-hud';
         const caption = document.createElement('caption');
@@ -1710,9 +1715,8 @@
         const disclosures = document.createElement('div');
         disclosures.className = 'player-disclosures';
         disclosures.append(unitsSection, technologiesSection);
-        heading.textContent = player.name;
-        identity.textContent = `${player.color} · ${player.civilization}`;
-        header.append(heading, identity, age);
+        heading.append(playerName, separator(), civilization, separator(), age, separator(), objects);
+        header.append(heading);
         card.append(header, economyHud, disclosures);
         timelinePlayers.append(card);
         const estimateSamples = (estimatePlayers[String(player.number)]?.samples ?? [])
@@ -1729,6 +1733,7 @@
         return {
           player,
           age,
+          objects,
           economyHud,
           spentCells,
           spentTotalCell,
@@ -1791,9 +1796,12 @@
           const objectsTitle = objectsAvailable
             ? `Replay-observed total objects: ${objectsText}.`
             : 'Replay-observed total objects unavailable at this timeline point.';
-          state.age.textContent = `Age: ${ageText}, objs: ${objectsText}`;
-          state.age.title = `${ageTitle} ${objectsTitle}`;
-          state.age.setAttribute('aria-label', `Age: ${ageText}; objects: ${objectsText}. ${ageTitle} ${objectsTitle}`);
+          state.age.textContent = ageText;
+          state.age.title = ageTitle;
+          state.age.setAttribute('aria-label', `Age: ${ageText}. ${ageTitle}`);
+          state.objects.textContent = objectsText;
+          state.objects.title = objectsTitle;
+          state.objects.setAttribute('aria-label', `Objects: ${objectsText}. ${objectsTitle}`);
           if (estimate) {
             resourceOrder.forEach((resource) => {
               const cell = state.stockpileCells[resource];
@@ -5815,7 +5823,6 @@
     function renderPayload(payload) {
       const byName = outputMap(payload);
       const game = parseOutput(byName.get('game.json'));
-      const schemaDocument = parseOutput(byName.get('schemas.json'));
       const lifetimes = parseOutput(byName.get('lifetimes.json'));
       const economy = parseOutput(byName.get('economy.json'));
       const resourceEstimates = parseOutput(byName.get('resource_estimates.json'));
@@ -5830,12 +5837,6 @@
       const mapResources = renderMap(game.match.map, game.match.gaia);
       const updateGameplay = renderGameplay(game, lifetimes, economy, mapResources, estimates, stats);
       renderTimeline(game, lifetimes, economy, estimates, stats, updateGameplay);
-      schemaDocument.schemas.forEach((entry) => {
-        schemas.append(renderSchema(entry));
-      });
-      output.append(renderNode('Recording export', game));
-      if (estimates) output.append(renderNode('Resource reconstruction', estimates));
-      if (stats) output.append(renderNode('Unit stat timeline', stats));
       renderChat(game);
       document.title = `${game.summary.map.name}: ${game.summary.players.map((player) => player.name).join(' vs ')}`;
       setViewerNotice(`${payload.replay.fileName} rendered from generated browser-local data. ${payload.unitStatsNotice}`);
