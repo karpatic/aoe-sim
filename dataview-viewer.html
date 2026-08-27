@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>AoE II single-game data</title>
   <style>
-    :root { --timeline-height: 3.35rem; --mobile-bottom-gap: 0px; --map-zoom: 1; --map-pan-x: 0px; --map-pan-y: 0px; }
+    :root { --map-zoom: 1; --map-pan-x: 0px; --map-pan-y: 0px; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
     main { display: grid; grid-template-columns: min(100dvh, calc(100vw - 24rem)) minmax(24rem, 1fr); width: 100%; height: 100dvh; max-width: 100%; overflow: hidden; }
@@ -16,8 +16,8 @@
     .node, .primitive { margin-left: 1rem; }
     code, .schema-object { white-space: pre-wrap; overflow-wrap: anywhere; }
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
-    #detail-column { min-width: 0; min-height: 0; height: 100dvh; padding: .65rem .75rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + 1rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-    #timeline-players, #map-legend-details { width: 100%; max-width: none; }
+    #detail-column { display: grid; align-content: start; gap: .75rem; min-width: 0; min-height: 0; height: 100dvh; padding: .65rem .75rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+    #timeline-section, #timeline-players, #map-legend-details, #chat-section, #viewer-notice { width: 100%; max-width: none; }
     #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
     #map-stack.is-panning { cursor: grabbing; }
@@ -25,8 +25,10 @@
     #map-canvas { display: block; width: 100%; height: 100%; border: 1px solid; object-fit: contain; image-rendering: pixelated; }
     #resource-canvas, #building-canvas, #gameplay-canvas, #sprite-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
     #sprite-overlay { overflow: visible; }
-    #map-chat-overlay { position: absolute; z-index: 16; left: clamp(.5rem, 2vw, 1.25rem); bottom: calc(var(--timeline-height) + 1rem); display: flex; flex-direction: column; align-items: flex-start; gap: .22rem; width: min(75%, 36rem); pointer-events: none; }
-    .map-chat-message { max-width: 100%; padding: .18rem .38rem; color: #fff; background: rgba(8, 10, 12, .68); border-left: .3rem solid var(--player-color, #888); font: 700 clamp(.72rem, 1.45vw, .95rem)/1.25 system-ui, sans-serif; text-shadow: 0 1px 2px #000, 1px 0 2px #000; overflow-wrap: anywhere; animation: map-chat-lifetime 6s linear forwards; }
+    .chat-panel { min-width: 0; margin: 0; border: 1px solid; }
+    .chat-panel-heading { margin: 0; padding: .5rem; border-bottom: 1px solid; background: #eee; font-size: .92rem; line-height: 1.2; }
+    #map-chat-overlay { display: flex; flex-direction: column; align-items: flex-start; gap: .22rem; min-height: 2.75rem; max-height: 11rem; padding: .5rem; overflow: auto; }
+    .map-chat-message { max-width: 100%; padding: .18rem .38rem; color: #fff; background: rgba(8, 10, 12, .72); border-left: .3rem solid var(--player-color, #888); font: 700 .86rem/1.25 system-ui, sans-serif; text-shadow: 0 1px 2px #000, 1px 0 2px #000; overflow-wrap: anywhere; animation: map-chat-lifetime 6s linear forwards; }
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
     .party-sprite-strip { position: absolute; display: flex; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
@@ -44,13 +46,13 @@
     .command-symbol { display: inline-block; flex: 0 0 auto; width: 1rem; margin-right: .25rem; text-align: center; font-weight: bold; line-height: 1rem; white-space: nowrap; overflow-wrap: normal; vertical-align: text-bottom; }
     .outlined-command-symbol { -webkit-text-stroke: 1.5px var(--command-outline); paint-order: stroke fill; text-shadow: 0 0 1px #111; }
     .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 1px solid #111; border-radius: 50%; vertical-align: -.05rem; }
-    #timeline-section { position: fixed; z-index: 20; right: 0; bottom: 0; left: 0; width: 100vw; min-height: var(--timeline-height); margin: 0; padding: .55rem; border-top: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
+    #timeline-section { min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border: 1px solid #333; background: rgba(255, 255, 255, .97); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
     #timeline-map-size { flex: 0 0 auto; padding-inline: .65rem; white-space: nowrap; }
     #timeline-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); align-items: start; gap: .5rem; margin-bottom: .5rem; }
     .legend-category-icon { display: inline-block; flex: 0 0 auto; width: 1rem; height: 1rem; margin-right: .25rem; image-rendering: pixelated; vertical-align: text-bottom; }
-    .panel-details { width: 100%; margin: .75rem 0; border: 1px solid; }
+    .panel-details { width: 100%; margin: 0; border: 1px solid; }
     .panel-details > summary { padding: .5rem; font-weight: bold; background: #eee; }
     .panel-details[open] > summary { border-bottom: 1px solid; }
     #map-legend-details > #map-legend { padding: 0 .5rem .5rem; }
@@ -102,7 +104,7 @@
     .unit-count-metric-built .unit-count-value { color: #d8edff; }
     .unit-stat-caveat { margin: .35rem 0 0; color: #aaa38f; font-size: .7rem; line-height: 1.25; }
     .sprite-name-label { position: fixed; z-index: 1000; max-width: min(16rem, calc(100vw - 1rem)); padding: .2rem .38rem; border: 1px solid #5c5642; border-radius: 3px; color: #fff8d7; background: rgba(13, 15, 16, .96); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); font: 700 .72rem/1.15 sans-serif; text-align: center; overflow-wrap: anywhere; pointer-events: none; }
-    #viewer-notice { position: fixed; z-index: 30; top: .5rem; right: .5rem; max-width: min(30rem, calc(100vw - 1rem)); margin: 0; padding: .45rem .6rem; border: 1px solid #777; background: #f7f7f7; }
+    #viewer-notice { margin: 0; padding: .45rem .6rem; border: 1px solid #777; background: #f7f7f7; }
     #viewer-notice[hidden] { display: none; }
     #viewer-notice[data-state="error"] { border-color: #7f1d1d; color: #7f1d1d; background: #fff7f7; }
     .hud-sprite-frame { display: grid; place-items: center; width: 1.55rem; height: 1.55rem; }
@@ -114,13 +116,11 @@
     .party-sprite-image.generated-marker { grid-column: 1; justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
     .party-sprite-task-marker.generated-marker { border-radius: 50%; color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .9); font-size: calc(var(--task-marker-size) * .7); }
     @media (max-width: 50rem) {
-      :root { --mobile-bottom-gap: max(.45rem, env(safe-area-inset-bottom)); }
       main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
       #map-column { grid-row: 1; height: 100%; min-height: 0; }
       #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
-      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding-bottom: calc(var(--timeline-height) + var(--mobile-bottom-gap) + .75rem); }
-      #timeline-section { bottom: var(--mobile-bottom-gap); }
-      #map-chat-overlay { bottom: calc(var(--timeline-height) + var(--mobile-bottom-gap) + .75rem); width: calc(100% - 1rem); }
+      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding-bottom: calc(.75rem + env(safe-area-inset-bottom)); }
+      #map-chat-overlay { max-height: 8rem; }
       .node, .primitive { margin-left: .6rem; }
       dd { margin-left: 1rem; }
       .player-header { min-height: 2.25rem; }
@@ -140,26 +140,29 @@
           <canvas id="gameplay-canvas" aria-label="Character and command evidence layer"></canvas>
           <div id="sprite-overlay" aria-hidden="true"></div>
         </div>
-        <div id="map-chat-overlay" role="log" aria-live="polite" aria-label="Replay chat"></div>
       </div>
     </section>
     <aside id="detail-column" aria-label="Replay details">
+      <section id="timeline-section" aria-label="Timeline">
+        <div id="timeline-controls">
+          <button id="timeline-play" type="button">Play</button>
+          <button id="timeline-speed" type="button" aria-label="Playback speed: 30×. Activate for 4×.">30×</button>
+          <button id="timeline-map-size" type="button" aria-label="Map zoom: fit. Activate for 2×.">Zoom</button>
+          <input id="timeline-slider" type="range" min="0" value="0" step="any" aria-label="Match time">
+          <output id="timeline-time" for="timeline-slider"></output>
+        </div>
+      </section>
       <div id="timeline-players" aria-label="Player statistics"></div>
       <details id="map-legend-details" class="panel-details" open>
         <summary>Map legend</summary>
         <div id="map-legend" aria-label="Map legend"></div>
       </details>
+      <section id="chat-section" class="chat-panel" aria-label="Replay chat">
+        <h2 class="chat-panel-heading">Chat</h2>
+        <div id="map-chat-overlay" role="log" aria-live="polite" aria-label="Replay chat"></div>
+      </section>
+      <p id="viewer-notice" role="alert" hidden></p>
     </aside>
-    <p id="viewer-notice" role="alert" hidden></p>
-    <section id="timeline-section" aria-label="Timeline">
-      <div id="timeline-controls">
-        <button id="timeline-play" type="button">Play</button>
-        <button id="timeline-speed" type="button" aria-label="Playback speed: 30×. Activate for 4×.">30×</button>
-        <button id="timeline-map-size" type="button" aria-label="Map zoom: fit. Activate for 2×.">Zoom</button>
-        <input id="timeline-slider" type="range" min="0" value="0" step="any" aria-label="Match time">
-        <output id="timeline-time" for="timeline-slider"></output>
-      </div>
-    </section>
   </main>
   <noscript>This viewer requires JavaScript and a same-origin upload page data payload.</noscript>
   <script>
