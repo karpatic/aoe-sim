@@ -1494,7 +1494,7 @@
         };
       }
 
-      function gameplayUnitRowsForPlayer(player, seconds) {
+      function gameplayUnitRowsForPlayer(player, seconds, playerUnitStats) {
         if (gameplayTimeline?.schema !== 'aoe-sim.dataview-gameplay-timeline/v1') return null;
         const rowMap = new Map();
         (gameplayTimeline.units ?? [])
@@ -1576,7 +1576,7 @@
       }
 
       function unitSummaryForPlayer(player, seconds, statSnapshot, playerUnitStats) {
-        const gameplayRows = gameplayUnitRowsForPlayer(player, seconds);
+        const gameplayRows = gameplayUnitRowsForPlayer(player, seconds, playerUnitStats);
         if (gameplayRows) return gameplayRows;
         const rowMap = new Map();
         economy.unit_completions
