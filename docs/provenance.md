@@ -10,7 +10,12 @@ Milestone 6 commits normalized browser artifacts, DAT-derived factual rules, det
 - `public/rules/glade-120x120.coverage.json` resolves the pinned scenario's starting entity data IDs and command unit/building/technology IDs against the full ruleset.
 - `src/worker/replay-parser-worker.ts` parses selected local `.aoe2record` files with the pinned `aoe2rec-js` WASM
   package and returns derived compatibility rows plus the bounded browser-compiled dataview model to the UI.
+- `dataview.html` is a standalone upload shell for the legacy-style single-game dataview. It preprocesses selected
+  `.aoe2record` files locally in `src/worker/dataview-precompute-worker.ts` with same-origin Pyodide assets, then
+  transfers generated JSON buffers into a fresh `dataview-viewer.html` iframe.
 - `docs/replay-upload.md` records the direct parser identity, license evidence, known fixture reconciliation, and unsupported mappings.
+- `docs/dataview-preprocessing.md` records the standalone dataview Pyodide, aoc-mgz pipeline, reference-data, and icon
+  provenance.
 - No original AoE graphics, audio, raw replay bytes, raw DAT bytes, or raw parser output are committed.
 
 Pinned source hashes:
@@ -27,6 +32,20 @@ Pinned source hashes:
 - local upload parser package `aoe2rec-js@0.1.22`: `sha256:39c94c55f7a35a689ad496d2562d29eaab676d3c2aa42f002823d2c7ff2cdb1d`
 - local upload parser WASM `aoe2rec_js_bg.wasm`: `sha256:cc048829dae76e2e2dbeb90b19271c773b7806345c1192e48adf2663248dd545`
 - local upload parser license file: `sha256:8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90`
+- standalone dataview Pyodide package `pyodide@0.28.3` runtime assets:
+  `pyodide.mjs` `sha256:635a6da3218fe4e5668da595acfe8b5ce77453d597d602f19a423dd250653441`,
+  `pyodide.asm.js` `sha256:b22e5831eade9ff10e6fe2c811c68688cd91f10154377b4f80debcf5bafa1e56`,
+  `pyodide.asm.wasm` `sha256:5effb6a1a6cc4a1a85bec4622701aa797c031e1de923cbbaf2ad47abdc4ab325`,
+  `python_stdlib.zip` `sha256:71fee17f88a6260ec8c9c7c063533ee59c021fdc88a1ce76247378d3c4a35f4c`,
+  `pyodide-lock.json` `sha256:f6e6f42f451f42affbbcddb00e8c9a3278dcbf399f57aab9f3f568839a7ff4a6`
+- standalone dataview Pyodide packages:
+  `libopenssl-1.1.1w.zip` `sha256:48965994b6ace00d3ebbc2dc1b65c11978582620f4ef6c71a50d9ea4c5fc7437`,
+  `hashlib-1.0.0-cp313-cp313-pyodide_2025_0_wasm32.whl`
+  `sha256:b5c736c84ce26cba4e5096c6b9d173a357666af5993cc08395bfb8bac997bb98`
+- standalone dataview pipeline archive `public/dataview-runtime/aoc-mgz-pipeline.zip`:
+  `sha256:bab3345c2f8128350ce64090c73eb1088cc229af94a0add698be046233a26ffc`
+- standalone dataview pinned tech-tree reference `public/dataview-runtime/aoe2techtree-data.json`:
+  `sha256:4e2f85b39e39078cdee71bdbaf2c36a8f0b50202de4032df7ba8e2c36c6049c4`
 
 Scenario parser identity:
 
@@ -42,7 +61,7 @@ Local upload parser identity:
 - version: `0.1.22`
 - immutable package commit: `a6b8125c1206aa3b0646fbe3eae436d368640e49`
 - distribution: npm tarball pinned by exact version and lockfile integrity
-- license: MIT
+- license: Apache-2.0; exact text deployed at `public/licenses/aoe2rec-js-0.1.22-APACHE-2.0.txt`
 - source URL: `https://github.com/aoe2ct/aoe2rec.git`
 
 Replay identity:
@@ -74,7 +93,7 @@ The importers reject machine-local paths in generated scenario, ruleset, and rep
 Known local replay compatibility:
 
 - The browser upload path compares selected files against the committed Glade scenario reference, not against raw replay bytes in the repository.
-- The known local fixture at `/home/carlos/Documents/GitHub/www/aoe/game.aoe2record` has `sha256:67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc` and reconciles with `aoe2rec-js@0.1.22` for identity, versions, duration, players, map tile counts, terrain/elevation counts, total actions, and mapped action-kind counts.
+- The known local fixture outside this repository has `sha256:67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc` and reconciles with `aoe2rec-js@0.1.22` for identity, versions, duration, players, map tile counts, terrain/elevation counts, total actions, and mapped action-kind counts.
 - Starting objects reconcile only as the `next_object_id = 9806` proxy. The selected-upload dataview does not return a
   per-object starting table; the committed `aoc-mgz` scenario remains the source for the built-in Glade simulation
   fixture only.

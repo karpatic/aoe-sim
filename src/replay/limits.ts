@@ -11,7 +11,9 @@ export const LOCAL_REPLAY_LIMITS = {
   maxCommandParameterFields: 16,
   maxCommandParameterStringChars: 120,
   maxReplayIdArrayLength: 512,
-  maxCanonicalJsonBytes: 128 * 1024 * 1024
+  maxCanonicalJsonBytes: 128 * 1024 * 1024,
+  maxDataviewGeneratedJsonBytes: 96 * 1024 * 1024,
+  maxDataviewGeneratedJsonTotalBytes: 192 * 1024 * 1024
 } as const;
 
 export const LOCAL_REPLAY_LIMIT_NOTES = [
@@ -44,6 +46,30 @@ export function assertCanonicalJsonByteLength(sizeBytes: number, label = "Compil
     throw new Error(
       `${label} is ${formatBytes(sizeBytes)}, above the local download limit of ` +
         `${formatBytes(LOCAL_REPLAY_LIMITS.maxCanonicalJsonBytes)}.`
+    );
+  }
+}
+
+export function assertDataviewGeneratedJsonByteLength(sizeBytes: number, label = "Generated dataview JSON"): void {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    throw new Error(`${label} byte length must be a safe nonnegative integer; received ${sizeBytes}.`);
+  }
+  if (sizeBytes > LOCAL_REPLAY_LIMITS.maxDataviewGeneratedJsonBytes) {
+    throw new Error(
+      `${label} is ${formatBytes(sizeBytes)}, above the standalone dataview per-file limit of ` +
+        `${formatBytes(LOCAL_REPLAY_LIMITS.maxDataviewGeneratedJsonBytes)}.`
+    );
+  }
+}
+
+export function assertDataviewGeneratedJsonTotalByteLength(sizeBytes: number): void {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    throw new Error(`Generated dataview JSON total must be a safe nonnegative integer; received ${sizeBytes}.`);
+  }
+  if (sizeBytes > LOCAL_REPLAY_LIMITS.maxDataviewGeneratedJsonTotalBytes) {
+    throw new Error(
+      `Generated dataview JSON total is ${formatBytes(sizeBytes)}, above the standalone dataview limit of ` +
+        `${formatBytes(LOCAL_REPLAY_LIMITS.maxDataviewGeneratedJsonTotalBytes)}.`
     );
   }
 }

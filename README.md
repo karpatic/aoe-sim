@@ -1,7 +1,7 @@
 # AoE Sim
 
 Greenfield browser simulation foundation for replay-constrained Age of Empires II reconstruction. The current build adds
-local browser-side `.aoe2record` compilation through a commit-pinned MIT `aoe2rec-js` WASM parser, while preserving
+local browser-side `.aoe2record` compilation through a commit-pinned Apache-2.0 `aoe2rec-js` WASM parser, while preserving
 deterministic simulation boundaries and the separation between replay observations, simulation state, and rendering.
 
 ## Commands
@@ -50,7 +50,7 @@ Carlos has not opted into automated tests for this repository. This milestone us
 - Observed attack commands create combat intent only; simulated melee contact and projectile impacts apply DAT attack/armor class damage with explicit calculation provenance and represented minimum damage.
 - Simulated combat paths actors into legal range, applies reload cadence, launches deterministic projectiles, uses stable retarget candidate ordering, marks simulated deaths, clears dead occupancy, and reconciles later observed activity after incompatible simulated death.
 - Combat snapshots and diagnostics expose active episodes, in-flight projectiles, damage events, deaths, retargets, reconciliations, unsupported mechanics, and scoped omissions.
-- Direct upload parser pinned to `aoe2rec-js@0.1.22` from `aoe2ct/aoe2rec`, MIT license, immutable package commit
+- Direct upload parser pinned to `aoe2rec-js@0.1.22` from `aoe2ct/aoe2rec`, Apache-2.0 license, immutable package commit
   `a6b8125c1206aa3b0646fbe3eae436d368640e49`, npm tarball SHA-256
   `sha256:39c94c55f7a35a689ad496d2562d29eaab676d3c2aa42f002823d2c7ff2cdb1d`, and WASM SHA-256
   `sha256:cc048829dae76e2e2dbeb90b19271c773b7806345c1192e48adf2663248dd545`. The worker explicitly fetches and

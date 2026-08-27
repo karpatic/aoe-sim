@@ -16,7 +16,7 @@ Pinned parser identity:
 - npm tarball SHA-256: `sha256:39c94c55f7a35a689ad496d2562d29eaab676d3c2aa42f002823d2c7ff2cdb1d`
 - npm integrity: `sha512-sLu4n5YpDq5UgSjl31VdH+iQ/wn1LTERNJBYkVbLC5ntQzr9AQRBCFjEMi/WKOBWwkOQLWlV7O6yRYMyKSvmxQ==`
 - bundled WASM SHA-256: `sha256:cc048829dae76e2e2dbeb90b19271c773b7806345c1192e48adf2663248dd545`
-- license: MIT, license file SHA-256 `sha256:8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90`
+- license: Apache-2.0, deployed as `public/licenses/aoe2rec-js-0.1.22-APACHE-2.0.txt`, SHA-256 `sha256:8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90`
 
 Known fixture differential:
 
