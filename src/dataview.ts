@@ -40,12 +40,13 @@ const progressBar = must<HTMLProgressElement>("#progress");
 const progressList = must<HTMLUListElement>("#progress-list");
 const errorText = must<HTMLElement>("#error");
 const outputSummary = must<HTMLDListElement>("#output-summary");
+const uploadPanel = must<HTMLDetailsElement>("#upload-panel");
 const viewerHost = must<HTMLElement>("#viewer-host");
 const viewerEmpty = must<HTMLElement>("#viewer-empty");
 const runtimeBaseUrl = new URL("./dataview-runtime/", document.baseURI).href;
 const defaultRecordingUrl = new URL("./glade-default.aoe2record", document.baseURI);
-const defaultRecordingSize = 2_101_826;
-const defaultRecordingSha256 = "fd21ae15292f1c7178316fba2ed24ec2d70fcf50a1182a76c818a577af39a1c0";
+const defaultRecordingSize = 2_101_825;
+const defaultRecordingSha256 = "6fa2103c6b632edda3d114d5d1aabb5ed7560b4d70c0a1070d170e7b4c3833d9";
 const stageOrder: readonly DataviewProgressStage[] = [
   "validating",
   "hashing",
@@ -163,7 +164,8 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
 }
 
 async function startPrecompute(file: File): Promise<void> {
-  cancelActiveWork("Starting a new replay selection.");
+  uploadPanel.open = true;
+  cancelActiveWork("Preparing local replay preprocessing.");
   resetViewer();
   resetProgress();
   outputSummary.replaceChildren();
@@ -275,6 +277,7 @@ function finishPrecompute(message: DataviewDoneMessage): void {
   setBusy(false);
   statusText.textContent = "Dataview ready.";
   createViewerIframe(payload, viewerNonce);
+  uploadPanel.open = false;
 }
 
 function validateOutputs(outputs: readonly DataviewGeneratedOutput[]): void {
@@ -471,6 +474,7 @@ function setBusy(isBusy: boolean): void {
 }
 
 function showError(error: unknown): void {
+  uploadPanel.open = true;
   cancelActiveWork("Preprocessing failed.");
   const message = error instanceof Error ? error.message : String(error);
   errorText.textContent = message;
