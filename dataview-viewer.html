@@ -8,6 +8,7 @@
     :root { --map-scale-percent: 100%; --map-scale-width: 45rem; }
     * { box-sizing: border-box; }
     html, body, main { max-width: 100%; }
+    main { padding-bottom: 6rem; }
     body { margin: 0; overflow-wrap: anywhere; }
     details, summary, code { max-width: 100%; overflow-wrap: anywhere; }
     summary { cursor: pointer; }
@@ -34,7 +35,7 @@
     .command-symbol { display: inline-block; flex: 0 0 auto; width: 1rem; margin-right: .25rem; text-align: center; font-weight: bold; line-height: 1rem; white-space: nowrap; overflow-wrap: normal; vertical-align: text-bottom; }
     .outlined-command-symbol { -webkit-text-stroke: 1.5px var(--command-outline); paint-order: stroke fill; text-shadow: 0 0 1px #111; }
     .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 1px solid #111; border-radius: 50%; vertical-align: -.05rem; }
-    #timeline-section { margin: 0 0 .15rem; }
+    #timeline-section { position: fixed; z-index: 20; bottom: 0; left: 0; margin: 0; padding: .55rem; border-top: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
     #timeline-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); align-items: start; gap: .5rem; margin-bottom: .5rem; }
