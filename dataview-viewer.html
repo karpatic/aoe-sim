@@ -25,7 +25,7 @@
     .node, .primitive { margin-left: 1rem; }
     code, .schema-object { white-space: pre-wrap; overflow-wrap: anywhere; }
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
-    #detail-column { display: grid; align-content: start; gap: .5rem; min-width: 0; min-height: 0; height: 100dvh; padding: .55rem .75rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + var(--shell-controls-height) + .75rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+    #detail-column { display: grid; align-content: start; gap: .5rem; min-width: 0; min-height: 0; height: 100dvh; margin: 0; padding: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     #timeline-section, #timeline-players, #map-legend-details, #chat-section, #viewer-notice { width: 100%; max-width: none; }
     #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
@@ -131,7 +131,7 @@
       main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
       #map-column { grid-row: 1; height: 100%; min-height: 0; }
       #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
-      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: .55rem .65rem calc(max(var(--timeline-height), 6rem) + var(--mobile-bottom-gap) + var(--shell-controls-height) + .65rem); }
+      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: 0; }
       #timeline-section { bottom: var(--mobile-bottom-gap); left: 0; width: 100vw; border-right: 0; }
       #map-chat-overlay { max-height: 8rem; }
       .node, .primitive { margin-left: .6rem; }
@@ -166,14 +166,14 @@
         </div>
       </section>
       <div id="timeline-players" aria-label="Player statistics"></div>
-      <details id="map-legend-details" class="panel-details" open>
+      <details id="map-legend-details" class="panel-details">
         <summary>Map legend</summary>
         <div id="map-legend" aria-label="Map legend"></div>
       </details>
-      <section id="chat-section" class="chat-panel" aria-label="Replay chat">
-        <h2 class="chat-panel-heading">Chat</h2>
+      <details id="chat-section" class="panel-details chat-panel" aria-label="Replay chat">
+        <summary>Chat</summary>
         <div id="map-chat-overlay" role="log" aria-live="polite" aria-label="Replay chat"></div>
-      </section>
+      </details>
       <p id="viewer-notice" role="alert" hidden></p>
     </aside>
   </main>
