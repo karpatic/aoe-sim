@@ -54,7 +54,7 @@
     .command-symbol { display: inline-block; flex: 0 0 auto; width: 1rem; margin-right: .25rem; text-align: center; font-weight: bold; line-height: 1rem; white-space: nowrap; overflow-wrap: normal; vertical-align: text-bottom; }
     .outlined-command-symbol { -webkit-text-stroke: 1.5px var(--command-outline); paint-order: stroke fill; text-shadow: 0 0 1px #111; }
     .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 1px solid #111; border-radius: 50%; vertical-align: -.05rem; }
-    #timeline-section { position: fixed; z-index: 20; right: 0; bottom: 0; left: var(--map-column-width); width: var(--detail-column-width); min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border-top: 1px solid #333; border-left: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
+    #timeline-section { position: fixed; z-index: 20; right: auto; bottom: 0; left: 0; width: var(--map-column-width); min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border-top: 1px solid #333; border-right: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
     #timeline-map-size { flex: 0 0 auto; padding-inline: .65rem; white-space: nowrap; }
@@ -132,7 +132,7 @@
       #map-column { grid-row: 1; height: 100%; min-height: 0; }
       #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
       #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: .65rem .65rem calc(max(var(--timeline-height), 6rem) + var(--mobile-bottom-gap) + var(--shell-controls-height) + .75rem); }
-      #timeline-section { bottom: var(--mobile-bottom-gap); left: 0; width: 100vw; border-left: 0; }
+      #timeline-section { bottom: var(--mobile-bottom-gap); left: 0; width: 100vw; border-right: 0; }
       #map-chat-overlay { max-height: 8rem; }
       .node, .primitive { margin-left: .6rem; }
       dd { margin-left: 1rem; }
@@ -154,8 +154,6 @@
           <div id="sprite-overlay" aria-hidden="true"></div>
         </div>
       </div>
-    </section>
-    <aside id="detail-column" aria-label="Replay details">
       <section id="timeline-section" aria-label="Timeline">
         <div id="timeline-controls">
           <button id="timeline-play" type="button">Play</button>
@@ -165,6 +163,8 @@
           <output id="timeline-time" for="timeline-slider"></output>
         </div>
       </section>
+    </section>
+    <aside id="detail-column" aria-label="Replay details">
       <div id="timeline-players" aria-label="Player statistics"></div>
       <details id="map-legend-details" class="panel-details" open>
         <summary>Map legend</summary>
@@ -281,7 +281,7 @@
       const timelineHeight = Math.max(0, Math.ceil(timelineSection.getBoundingClientRect().height));
       document.documentElement.style.setProperty('--timeline-height', `${timelineHeight}px`);
       timelineSection.dataset.timelineHeight = String(timelineHeight);
-      timelineSection.dataset.timelineDock = 'details-column-bottom';
+      timelineSection.dataset.timelineDock = 'map-column-bottom';
       detailColumn.dataset.timelineHeight = String(timelineHeight);
     }
 
