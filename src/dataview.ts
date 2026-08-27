@@ -43,6 +43,7 @@ const progressBar = must<HTMLProgressElement>("#progress");
 const progressList = must<HTMLUListElement>("#progress-list");
 const errorText = must<HTMLElement>("#error");
 const uploadPanel = must<HTMLDetailsElement>("#upload-panel");
+const shell = must<HTMLElement>("main.shell");
 const viewerHost = must<HTMLElement>("#viewer-host");
 const viewerEmpty = must<HTMLElement>("#viewer-empty");
 const runtimeBaseUrl = new URL("./dataview-runtime/", document.baseURI).href;
@@ -292,6 +293,9 @@ function finishPrecompute(message: DataviewDoneMessage): void {
   progressBar.hidden = true;
   progressList.hidden = true;
   createViewerIframe(payload, viewerNonce);
+  shell.dataset.viewerLoaded = "true";
+  uploadPanel.open = false;
+  sendViewerShellScrollState();
 }
 
 function validateOutputs(outputs: readonly DataviewGeneratedOutput[]): void {
@@ -474,6 +478,7 @@ function resetSelection(message: string): void {
 function resetViewer(): void {
   clearPendingViewerTransfer();
   activeViewerIdentity = undefined;
+  delete shell.dataset.viewerLoaded;
   viewerIframe?.remove();
   viewerIframe = undefined;
   viewerEmpty.hidden = false;

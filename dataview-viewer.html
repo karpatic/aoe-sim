@@ -25,7 +25,7 @@
     .node, .primitive { margin-left: 1rem; }
     code, .schema-object { white-space: pre-wrap; overflow-wrap: anywhere; }
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
-    #detail-column { display: grid; align-content: start; gap: .75rem; min-width: 0; min-height: 0; height: 100dvh; padding: calc(.65rem + var(--shell-controls-height)) .75rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + 1rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+    #detail-column { display: grid; align-content: start; gap: .75rem; min-width: 0; min-height: 0; height: 100dvh; padding: .65rem .75rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + var(--shell-controls-height) + 1rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     #timeline-section, #timeline-players, #map-legend-details, #chat-section, #viewer-notice { width: 100%; max-width: none; }
     #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
@@ -41,10 +41,9 @@
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
     .party-sprite-strip { position: absolute; display: flex; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
-    .party-sprite-item { position: relative; display: inline-grid; grid-template-columns: var(--sprite-cell-size) var(--badge-slot-size); align-items: center; width: var(--party-entry-width); height: var(--strip-height); }
-    .party-sprite-image { grid-column: 1; justify-self: center; display: block; width: var(--sprite-size); height: var(--sprite-size); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
-    .party-sprite-count { position: absolute; top: 0; left: var(--sprite-cell-size); display: inline-block; min-width: .9em; padding: .05em .16em; border: 1px solid var(--player-color); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .88); font-size: var(--badge-font-size); font-variant-numeric: tabular-nums; line-height: .95; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translateY(-18%); }
-    .party-sprite-task-marker { position: absolute; left: calc(var(--sprite-cell-size) + var(--task-marker-inset)); bottom: var(--task-marker-inset); display: block; width: var(--task-marker-size); height: var(--task-marker-size); object-fit: contain; image-rendering: pixelated; }
+    .party-sprite-item { position: relative; display: inline-grid; place-items: center; width: var(--party-entry-width); height: var(--strip-height); }
+    .party-sprite-image { justify-self: center; display: block; width: var(--sprite-size); height: var(--sprite-size); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
+    .party-sprite-count { position: absolute; top: 0; right: 0; display: inline-block; min-width: .9em; padding: .05em .16em; border: 1px solid var(--player-color); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .88); font-size: var(--badge-font-size); font-variant-numeric: tabular-nums; line-height: .95; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translate(30%, -18%); }
     #map-legend { margin: .5rem 0; }
     .legend-group { display: flex; flex-wrap: wrap; gap: .55rem .75rem; padding: .25rem 0; }
     .legend-group + .legend-group { margin-top: .35rem; padding-top: .55rem; border-top: 1px solid #bbb; }
@@ -122,8 +121,7 @@
     .hud-sprite-fallback, .generated-marker { display: inline-grid; place-items: center; width: 1.15rem; height: 1.15rem; border: 1px solid currentColor; border-radius: 3px; color: #f4f0dc; background: #101214; font: 800 .62rem/1 sans-serif; text-align: center; }
     .unit-count-tile .hud-sprite-fallback { width: 1.55rem; height: 1.55rem; }
     .legend-category-icon.generated-marker { margin-right: .25rem; color: #111; background: #eee; }
-    .party-sprite-image.generated-marker { grid-column: 1; justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
-    .party-sprite-task-marker.generated-marker { border-radius: 50%; color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .9); font-size: calc(var(--task-marker-size) * .7); }
+    .party-sprite-image.generated-marker { justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
     @media (max-width: 50rem) {
       :root {
         --map-column-width: 0px;
@@ -133,7 +131,7 @@
       main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
       #map-column { grid-row: 1; height: 100%; min-height: 0; }
       #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
-      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: calc(.65rem + var(--shell-controls-height)) .65rem calc(max(var(--timeline-height), 6rem) + var(--mobile-bottom-gap) + .75rem); }
+      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: .65rem .65rem calc(max(var(--timeline-height), 6rem) + var(--mobile-bottom-gap) + var(--shell-controls-height) + .75rem); }
       #timeline-section { bottom: var(--mobile-bottom-gap); left: 0; width: 100vw; border-left: 0; }
       #map-chat-overlay { max-height: 8rem; }
       .node, .primitive { margin-left: .6rem; }
@@ -460,22 +458,22 @@
       ['catapult', 'siege'],
       ['ship', 'naval'],
     ]));
-    const villagerTaskMarkerDefinitions = Object.freeze({
-      food: Object.freeze({ key: 'food', label: 'food gather', symbol: 'F', asset: null }),
-      wood: Object.freeze({ key: 'wood', label: 'wood gather', symbol: 'W', asset: null }),
-      gold: Object.freeze({ key: 'gold', label: 'gold gather', symbol: 'G', asset: null }),
-      stone: Object.freeze({ key: 'stone', label: 'stone gather', symbol: 'S', asset: null }),
-      gather: Object.freeze({ key: 'gather', label: 'unresolved gather', symbol: '?', asset: null }),
-      build: Object.freeze({ key: 'build', label: 'build', symbol: 'B', asset: null }),
-      repair: Object.freeze({ key: 'repair', label: 'repair', symbol: 'R', asset: null }),
+    const villagerTaskDefinitions = Object.freeze({
+      food: Object.freeze({ key: 'food', label: 'food gather' }),
+      wood: Object.freeze({ key: 'wood', label: 'wood gather' }),
+      gold: Object.freeze({ key: 'gold', label: 'gold gather' }),
+      stone: Object.freeze({ key: 'stone', label: 'stone gather' }),
+      gather: Object.freeze({ key: 'gather', label: 'unresolved gather' }),
+      build: Object.freeze({ key: 'build', label: 'build' }),
+      repair: Object.freeze({ key: 'repair', label: 'repair' }),
     });
     const villagerWorkAnimationDefinitions = Object.freeze({
-      food: Object.freeze({ key: 'food', label: 'food gathering marker', asset: generatedMapSpriteAsset('villagers', 'food') }),
-      wood: Object.freeze({ key: 'wood', label: 'wood cutting marker', asset: generatedMapSpriteAsset('villagers', 'wood') }),
-      gold: Object.freeze({ key: 'gold', label: 'gold mining marker', asset: generatedMapSpriteAsset('villagers', 'gold') }),
-      stone: Object.freeze({ key: 'stone', label: 'stone mining marker', asset: generatedMapSpriteAsset('villagers', 'stone') }),
-      build: Object.freeze({ key: 'build', label: 'building marker', asset: generatedMapSpriteAsset('villagers', 'build') }),
-      repair: Object.freeze({ key: 'repair', label: 'repair marker', asset: generatedMapSpriteAsset('villagers', 'repair') }),
+      food: Object.freeze({ key: 'food', label: 'food gathering', asset: generatedMapSpriteAsset('villagers', 'food') }),
+      wood: Object.freeze({ key: 'wood', label: 'wood cutting', asset: generatedMapSpriteAsset('villagers', 'wood') }),
+      gold: Object.freeze({ key: 'gold', label: 'gold mining', asset: generatedMapSpriteAsset('villagers', 'gold') }),
+      stone: Object.freeze({ key: 'stone', label: 'stone mining', asset: generatedMapSpriteAsset('villagers', 'stone') }),
+      build: Object.freeze({ key: 'build', label: 'building', asset: generatedMapSpriteAsset('villagers', 'build') }),
+      repair: Object.freeze({ key: 'repair', label: 'repairing', asset: generatedMapSpriteAsset('villagers', 'repair') }),
     });
     const partySpriteAssets = Object.freeze({
       move: mapSpriteMoveAssets,
@@ -2983,23 +2981,23 @@
           .trim();
       }
       function villagerTaskAssignmentForRow(row) {
-        if (row.kind === 'build') return villagerTaskMarkerDefinitions.build;
-        if (row.kind === 'repair') return villagerTaskMarkerDefinitions.repair;
+        if (row.kind === 'build') return villagerTaskDefinitions.build;
+        if (row.kind === 'repair') return villagerTaskDefinitions.repair;
         if (row.kind !== 'gather') return null;
         const label = commandAssignmentLabel(row);
         const normalized = label.toLowerCase();
-        if (!normalized) return villagerTaskMarkerDefinitions.gather;
-        if (normalized === 'gold' || normalized.includes('gold mine')) return villagerTaskMarkerDefinitions.gold;
-        if (normalized === 'stone' || normalized.includes('stone mine')) return villagerTaskMarkerDefinitions.stone;
+        if (!normalized) return villagerTaskDefinitions.gather;
+        if (normalized === 'gold' || normalized.includes('gold mine')) return villagerTaskDefinitions.gold;
+        if (normalized === 'stone' || normalized.includes('stone mine')) return villagerTaskDefinitions.stone;
         if (normalized === 'wood' || normalized.startsWith('tree')
           || normalized.includes('palm') || normalized.includes('dragon')
           || /\bbush b\b/i.test(label)) {
-          return villagerTaskMarkerDefinitions.wood;
+          return villagerTaskDefinitions.wood;
         }
         if (foodGatherLabels.some((target) => normalized.includes(target))) {
-          return villagerTaskMarkerDefinitions.food;
+          return villagerTaskDefinitions.food;
         }
-        return villagerTaskMarkerDefinitions.gather;
+        return villagerTaskDefinitions.gather;
       }
       function postBuildTargetNameForRow(row) {
         if (row.kind !== 'build') return null;
@@ -3033,8 +3031,8 @@
         const gold = nearestMiningResource('Gold Mine', position);
         const stone = nearestMiningResource('Stone Mine', position);
         const candidates = [
-          gold ? { ...gold, assignment: villagerTaskMarkerDefinitions.gold } : null,
-          stone ? { ...stone, assignment: villagerTaskMarkerDefinitions.stone } : null,
+          gold ? { ...gold, assignment: villagerTaskDefinitions.gold } : null,
+          stone ? { ...stone, assignment: villagerTaskDefinitions.stone } : null,
         ].filter((resource) => resource && resource.distance <= radius)
           .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name));
         const policy = `radius ${formatStatNumber(radius)} tiles, tie margin ${formatStatNumber(tie)} tiles`;
@@ -3066,7 +3064,7 @@
       function postBuildAssignmentForTarget(targetName, position) {
         if (targetName === 'Lumber Camp') {
           return {
-            assignment: villagerTaskMarkerDefinitions.wood,
+            assignment: villagerTaskDefinitions.wood,
             resourceFamily: 'wood',
             status: 'resolved',
             evidence: 'Lumber Camp build target implies post-build wood assignment',
@@ -3074,7 +3072,7 @@
         }
         if (targetName === 'Farm') {
           return {
-            assignment: villagerTaskMarkerDefinitions.food,
+            assignment: villagerTaskDefinitions.food,
             resourceFamily: 'food',
             status: 'resolved',
             evidence: 'Farm build target implies post-build food assignment',
@@ -3378,7 +3376,7 @@
       addTeamCommandLegend('→', 'Inferred command direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior markers. When a command has a recorded source segment and visible/classified members have DAT base speeds, party strips use deterministic replay-time straight command-segment interpolation; otherwise they remain at the destination. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Party strips show nonzero semantic marker families: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Assignment-specific Villager markers use evidence-backed food, wood, gold, stone, build, and repair cues when classified; unresolved gather, mixed, unsupported, or absent assignments stay generic. Farm, Lumber Camp, and Mining Camp build assignments may switch from build to estimated post-build work after replay-source arrival plus AoE2 base build time adjusted by selected Villager count; ambiguous Mining Camps stay on build. A lower badge-slot task marker is a semantic assignment cue: it distinguishes food, wood, gold, and stone targets, plus build vs repair; this marks the latest recorded command assignment, not exact confirmed ongoing labor. Visible count badges use plain numbers; exact counts use actor-name/stat identity, while inferred status for members filled from recent production mix and estimate category composition is retained in evidence metadata and hover details. Unclassified selected actors are omitted from the strip but retained in evidence metadata. Unsupported last-known non-villager positions expire after six minutes; Villager-classified members after ten. This is not a confirmed death.`;
+      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible party state. When a command has a recorded source segment and visible/classified members have DAT base speeds, party strips use deterministic replay-time straight command-segment interpolation; otherwise they remain at the destination. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Party strips show nonzero semantic sprite families: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager sprites swap to evidence-backed food, wood, gold, stone, build, and repair animations when classified; unresolved gather, mixed, unsupported, or absent assignments stay generic. Farm, Lumber Camp, and Mining Camp build assignments may switch from build to estimated post-build work after replay-source arrival plus AoE2 base build time adjusted by selected Villager count; ambiguous Mining Camps stay on build. Visible count badges use plain numbers; exact counts use actor-name/stat identity, while inferred status for members filled from recent production mix and estimate category composition is retained in evidence metadata and hover details. Unclassified selected actors are omitted from the strip but retained in evidence metadata. Unsupported last-known non-villager positions expire after six minutes; Villager-classified members after ten. This is not a confirmed death.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -4901,7 +4899,7 @@
           `Phase: ${state.phase || 'none'}.`,
           `Post-build assignment: ${postAssignment}.`,
           estimate.postBuildResourceEvidence ? `Post-build resource evidence: ${estimate.postBuildResourceEvidence}.` : '',
-          `Active Villager marker cue: ${state.workAnimation?.label ?? 'generic'}.`,
+          `Active Villager animation: ${state.workAnimation?.label ?? 'generic'}.`,
         ].filter(Boolean).join(' ');
       }
 
@@ -4919,7 +4917,7 @@
           `post=${estimate.postBuildAssignment?.key ?? 'unresolved'}`,
           `resource=${estimate.postBuildResourceFamily || 'unresolved'}`,
           `resourceStatus=${estimate.postBuildResourceStatus || 'unresolved'}`,
-          `marker=${state.workAnimation?.key ?? 'generic'}`,
+          `animation=${state.workAnimation?.key ?? 'generic'}`,
         ].join(',');
       }
 
@@ -5186,7 +5184,6 @@
       const partySpriteNodes = new Map();
       let partySpriteNodesCreated = 0;
       let partySpriteSrcAssignments = 0;
-      let partyTaskMarkerSrcAssignments = 0;
 
       function partyStripLayout(anchorX, anchorY, composition, align = 'center') {
         const iconSize = 16;
@@ -5196,15 +5193,12 @@
         const fontSize = 9;
         const badgeFontSize = 8;
         const spriteCellSize = 18;
-        const badgeSlotSize = 10;
-        const taskMarkerSize = 8;
-        const taskMarkerInset = 1;
-        const entryWidth = spriteCellSize + badgeSlotSize;
+        const entryWidth = spriteCellSize;
         const width = paddingX * 2 + composition.entries.length * entryWidth
           + gap * Math.max(0, composition.entries.length - 1);
         const left = align === 'after' ? anchorX : anchorX - width / 2;
         const top = anchorY - height / 2;
-        return { iconSize, gap, paddingX, height, fontSize, badgeFontSize, spriteCellSize, badgeSlotSize, taskMarkerSize, taskMarkerInset, entryWidth, width, left, top };
+        return { iconSize, gap, paddingX, height, fontSize, badgeFontSize, spriteCellSize, entryWidth, width, left, top };
       }
 
       function villagerWorkAnimationForAssignment(villagerTaskAssignment) {
@@ -5279,11 +5273,11 @@
 
       function villagerAnimationTitle(entry, kind) {
         if (entry.key !== 'villagers') return '';
-        if (kind === 'attack') return 'Villager marker: fighting';
+        if (kind === 'attack') return 'Villager animation: fighting';
         const workAnimation = entry.villagerTaskState?.workAnimation
           ?? villagerWorkAnimationForAssignment(entry.villagerTaskAssignment);
-        if (workAnimation) return `Villager marker: ${workAnimation.label}`;
-        return 'Villager marker: generic';
+        if (workAnimation) return `Villager animation: ${workAnimation.label}`;
+        return 'Villager animation: generic';
       }
 
       function partySpriteEntryTitle(entry, kind) {
@@ -5293,7 +5287,7 @@
         return [
           `${entry.label}: ${entry.count}`,
           villagerAnimationTitle(entry, kind),
-          entry.villagerTaskAssignment ? `Task marker: semantic assignment cue (${entry.villagerTaskAssignment.label})` : '',
+          entry.villagerTaskAssignment ? `Villager assignment: ${entry.villagerTaskAssignment.label}` : '',
           entry.villagerTaskState?.phase ? `Task phase: ${entry.villagerTaskState.phase}` : '',
           entry.villagerTaskState ? buildTransitionEvidenceTitle(entry.villagerTaskState) : '',
           `${entry.direct} direct`,
@@ -5340,7 +5334,6 @@
         count.className = 'party-sprite-count';
         item.append(image, count);
         applyPartySpriteImageAsset(item, image, party, entry);
-        applyPartyTaskMarkerAsset(item, entry);
         return item;
       }
 
@@ -5399,42 +5392,6 @@
         return spriteImage;
       }
 
-      function applyPartyTaskMarkerAsset(item, entry) {
-        const taskMarkerSymbol = entry.key === 'villagers' ? entry.villagerTaskAssignment?.symbol : null;
-        let taskMarker = item.querySelector('.party-sprite-task-marker');
-        if (!taskMarkerSymbol) {
-          taskMarker?.remove();
-          ['villagerTaskAssignment', 'villagerTaskLabel', 'villagerTaskPhase'].forEach((key) => {
-            delete item.dataset[key];
-          });
-          return;
-        }
-        if (!taskMarker) {
-          taskMarker = generatedMarker(
-            'party-sprite-task-marker',
-            taskMarkerSymbol,
-            entry.villagerTaskAssignment.label,
-          );
-          item.append(taskMarker);
-        }
-        if (taskMarker.dataset.spriteAsset !== taskMarkerSymbol) {
-          taskMarker.textContent = taskMarkerSymbol;
-          partyTaskMarkerSrcAssignments += 1;
-        }
-        taskMarker.dataset.spriteAsset = taskMarkerSymbol;
-        taskMarker.dataset.villagerTaskAssignment = entry.villagerTaskAssignment.key;
-        taskMarker.dataset.villagerTaskLabel = entry.villagerTaskAssignment.label;
-        taskMarker.dataset.villagerTaskPhase = entry.villagerTaskState?.phase ?? '';
-        taskMarker.title = entry.villagerTaskAssignment.label;
-        applyVillagerTaskStateDatasets(taskMarker, entry.villagerTaskState ?? {
-          indexedAssignment: entry.villagerTaskAssignment,
-          effectiveAssignment: entry.villagerTaskAssignment,
-          phase: '',
-          estimate: null,
-          workAnimation: villagerWorkAnimationForAssignment(entry.villagerTaskAssignment),
-        });
-      }
-
       function movementPartyKey(party) {
         const parts = [
           party.kind,
@@ -5487,9 +5444,6 @@
         strip.style.setProperty('--strip-font-size', `${layout.fontSize * uniformScale}px`);
         strip.style.setProperty('--badge-font-size', `${layout.badgeFontSize * uniformScale}px`);
         strip.style.setProperty('--sprite-cell-size', `${layout.spriteCellSize * uniformScale}px`);
-        strip.style.setProperty('--badge-slot-size', `${layout.badgeSlotSize * uniformScale}px`);
-        strip.style.setProperty('--task-marker-size', `${layout.taskMarkerSize * uniformScale}px`);
-        strip.style.setProperty('--task-marker-inset', `${layout.taskMarkerInset * uniformScale}px`);
         strip.style.setProperty('--party-entry-width', `${layout.entryWidth * uniformScale}px`);
         strip.style.setProperty('--sprite-size', `${layout.iconSize * uniformScale}px`);
         strip.dataset.kind = party.kind;
@@ -5515,7 +5469,7 @@
         applyVillagerTaskStateDatasets(strip, taskState);
         strip.dataset.composition = partyCompositionEvidence(composition);
         const taskTitle = taskState?.effectiveAssignment
-          ? ` Active Villager assignment cue: ${taskState.effectiveAssignment.label}; indexed command assignment: ${taskState.indexedAssignment?.label ?? 'none'}; Villager marker: ${taskState.workAnimation?.label ?? 'generic'}.`
+          ? ` Active Villager assignment: ${taskState.effectiveAssignment.label}; indexed command assignment: ${taskState.indexedAssignment?.label ?? 'none'}; Villager animation: ${taskState.workAnimation?.label ?? 'generic'}.`
           : '';
         const buildTitle = taskState ? buildTransitionEvidenceTitle(taskState) : '';
         strip.title = `Player ${party.player} ${teamColor} ${party.kind} party: ${composition.entries.map((entry) => partySpriteEntryTitle(entry, party.kind)).join('; ')}.${taskTitle} ${buildTitle} Unclassified selected actors: ${composition.unclassified}. ${partyStripInterpolationTitle(interpolation)}`;
@@ -5535,7 +5489,6 @@
           item.setAttribute('aria-label', item.title);
           const image = item.querySelector('.party-sprite-image');
           if (image) applyPartySpriteImageAsset(item, image, party, entry);
-          applyPartyTaskMarkerAsset(item, entry);
           const count = item.querySelector('.party-sprite-count');
           count.textContent = String(entry.count);
           count.dataset.estimated = String(entry.estimated);
@@ -5576,7 +5529,6 @@
         gameplayCanvas.dataset.partySpriteNodesCreated = String(partySpriteNodesCreated);
         gameplayCanvas.dataset.partySpriteNodesReusedThisRender = String(reusedNodes);
         gameplayCanvas.dataset.partySpriteSrcAssignments = String(partySpriteSrcAssignments);
-        gameplayCanvas.dataset.partyTaskMarkerSrcAssignments = String(partyTaskMarkerSrcAssignments);
         return interpolationRows;
       }
 
@@ -6159,9 +6111,13 @@
 
     function relayBoundaryWheel(event) {
       if (event.ctrlKey || !viewerHandshake || event.deltaY === 0) return;
-      const viewerScrollTop = document.scrollingElement?.scrollTop ?? window.scrollY;
-      const scrollingShellDown = event.deltaY > 0 && shellScrollTop < shellScrollMax - 0.5;
-      const scrollingShellUp = event.deltaY < 0 && viewerScrollTop <= 0.5 && shellScrollTop > 0.5;
+      const fromDetailColumn = event.target instanceof Node && detailColumn.contains(event.target);
+      if (!fromDetailColumn) return;
+      const detailScrollTop = detailColumn.scrollTop;
+      const detailScrollMax = Math.max(0, detailColumn.scrollHeight - detailColumn.clientHeight);
+      const detailAtBottom = detailScrollTop >= detailScrollMax - 0.5;
+      const scrollingShellDown = event.deltaY > 0 && detailAtBottom && shellScrollTop < shellScrollMax - 0.5;
+      const scrollingShellUp = event.deltaY < 0 && shellScrollTop > 0.5;
       if (!scrollingShellDown && !scrollingShellUp) return;
       event.preventDefault();
       window.parent.postMessage({
