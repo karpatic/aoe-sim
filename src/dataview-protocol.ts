@@ -14,7 +14,7 @@ export const DATAVIEW_REQUIRED_OUTPUT_NAMES = [
   "resource_estimates.json"
 ] as const;
 
-export const DATAVIEW_OPTIONAL_OUTPUT_NAMES = ["unit_stats.json"] as const;
+export const DATAVIEW_OPTIONAL_OUTPUT_NAMES = ["unit_stats.json", "gameplay_timeline.json"] as const;
 
 export type DataviewOutputName =
   | (typeof DATAVIEW_REQUIRED_OUTPUT_NAMES)[number]
@@ -33,6 +33,7 @@ export type DataviewProgressStage =
   | "generating-economy"
   | "reconstructing-resources"
   | "generating-unit-stats"
+  | "generating-gameplay-timeline"
   | "transferring"
   | "done";
 
@@ -72,7 +73,7 @@ export interface DataviewGeneratedOutput {
   readonly name: DataviewOutputName;
   readonly sizeBytes: number;
   readonly sha256: string;
-  readonly source: "pyodide-pipeline" | "per-replay-unit-stats";
+  readonly source: "pyodide-pipeline" | "per-replay-unit-stats" | "per-replay-gameplay-timeline";
   readonly buffer: ArrayBuffer;
 }
 

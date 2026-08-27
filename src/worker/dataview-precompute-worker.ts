@@ -17,6 +17,7 @@ import {
   assertRecordingByteLength,
   formatBytes
 } from "../replay/limits";
+import { generateDataviewGameplayTimeline } from "../replay/dataview-gameplay";
 import { generateUnitStatsForReplay } from "../replay/unit-stats";
 
 type DataviewWorkerScope = typeof globalThis & {
@@ -53,6 +54,7 @@ const PIPELINE_SHA256 = "bab3345c2f8128350ce64090c73eb1088cc229af94a0add698be046
 const RULESET_SHA256 = "c23b1ffd73f1178baa011f41d7d7faab98f7076eb885dcdd43711a295afb7eab";
 
 const WORK_DIR = "/work";
+const TOTAL_PROGRESS_STAGES = 16;
 const REPLAY_PATH = `${WORK_DIR}/selected.aoe2record`;
 const REFERENCE_PATH = `${WORK_DIR}/aoe2techtree-data.json`;
 const OUTPUT_PATHS: Record<(typeof DATAVIEW_REQUIRED_OUTPUT_NAMES)[number], string> = {
@@ -120,7 +122,7 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
   }
 
   const timings: DataviewStageTiming[] = [];
-  await recordStage(timings, "validating", "Validating selected recording", 1, 15, async () => {
+  await recordStage(timings, "validating", "Validating selected recording", 1, TOTAL_PROGRESS_STAGES, async () => {
     assertSafeFileMetadata(message);
     assertRecordingByteLength(message.sizeBytes, message.fileName || "Selected recording");
     assertRecordingByteLength(message.buffer.byteLength, "Selected recording buffer");
@@ -132,24 +134,24 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
     }
   }, message.requestId);
 
-  const replaySha256 = await recordStage(timings, "hashing", "Hashing selected recording", 2, 15, async () =>
+  const replaySha256 = await recordStage(timings, "hashing", "Hashing selected recording", 2, TOTAL_PROGRESS_STAGES, async () =>
     sha256Hex(message.buffer), message.requestId);
   const runtimeBaseUrl = normalizeRuntimeBaseUrl(message.runtimeBaseUrl);
 
-  await recordStage(timings, "verifying-runtime", "Verifying pinned Pyodide runtime files", 3, 15, async () => {
+  await recordStage(timings, "verifying-runtime", "Verifying pinned Pyodide runtime files", 3, TOTAL_PROGRESS_STAGES, async () => {
     for (const asset of RUNTIME_ASSETS) {
       await fetchVerified(runtimeBaseUrl, asset.path, asset.sha256, asset.maxBytes);
     }
   }, message.requestId);
 
-  const pyodide = await recordStage(timings, "loading-pyodide", "Loading Pyodide 0.28.3", 4, 15, async () =>
+  const pyodide = await recordStage(timings, "loading-pyodide", "Loading Pyodide 0.28.3", 4, TOTAL_PROGRESS_STAGES, async () =>
     loadPyodideFromRuntime(runtimeBaseUrl), message.requestId);
 
-  await recordStage(timings, "loading-python-packages", "Loading hashlib and libopenssl", 5, 15, async () => {
+  await recordStage(timings, "loading-python-packages", "Loading hashlib and libopenssl", 5, TOTAL_PROGRESS_STAGES, async () => {
     await pyodide.loadPackage(["libopenssl", "hashlib"]);
   }, message.requestId);
 
-  const pipelineArchive = await recordStage(timings, "loading-pipeline", "Loading pinned replay pipeline", 6, 15,
+  const pipelineArchive = await recordStage(timings, "loading-pipeline", "Loading pinned replay pipeline", 6, TOTAL_PROGRESS_STAGES,
     async () => fetchVerified(runtimeBaseUrl, "aoc-mgz-pipeline.zip", PIPELINE_SHA256, 512 * 1024),
     message.requestId);
   const referenceBytes = await fetchVerified(
@@ -213,7 +215,7 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
   let completed = 6;
   for (const stage of stages) {
     completed += 1;
-    await recordStage(timings, stage.stage, stage.message, completed, 15, async () => {
+    await recordStage(timings, stage.stage, stage.message, completed, TOTAL_PROGRESS_STAGES, async () => {
       await runPipelineStage(pyodide, stage.script, stage.args);
       if (stage.sanitizer) {
         await pyodide.runPythonAsync(stage.sanitizer);
@@ -227,24 +229,54 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
     outputs.push(await readPyodideOutput(pyodide, name, OUTPUT_PATHS[name]));
   }
 
-  const unitStatsBuffer = await recordStage(timings, "generating-unit-stats", "Calculating this replay's unit stats", 12, 15,
+  let rulesetForDerivedPasses: Record<string, unknown> | null = null;
+  let unitStatsForGameplay: Record<string, unknown> | null = null;
+  const unitStatsBuffer = await recordStage(timings, "generating-unit-stats", "Calculating this replay's unit stats", 12, TOTAL_PROGRESS_STAGES,
     async () => {
       const rulesetBuffer = await fetchVerified(runtimeBaseUrl, "../rules/ruleset-current.json", RULESET_SHA256, 20 * 1024 * 1024);
       const rulesetText = new TextDecoder("utf-8", { fatal: true }).decode(rulesetBuffer);
+      const ruleset = JSON.parse(rulesetText) as Record<string, unknown>;
+      rulesetForDerivedPasses = ruleset;
       const generated = generateUnitStatsForReplay({
         game: parseGeneratedOutput(outputs, "game.json"),
         economy: parseGeneratedOutput(outputs, "economy.json"),
         resourceEstimates: parseGeneratedOutput(outputs, "resource_estimates.json"),
-        ruleset: JSON.parse(rulesetText) as Record<string, unknown>
+        ruleset
       });
+      unitStatsForGameplay = generated;
       return new TextEncoder().encode(`${JSON.stringify(generated)}\n`).buffer;
     }, message.requestId);
   outputs.push(await buildFetchedOutput("unit_stats.json", unitStatsBuffer, "per-replay-unit-stats"));
+  const gameplayTimelineBuffer = await recordStage(
+    timings,
+    "generating-gameplay-timeline",
+    "Reconciling buildings, queues, births, and map actors",
+    13,
+    TOTAL_PROGRESS_STAGES,
+    async () => {
+      if (!rulesetForDerivedPasses || !unitStatsForGameplay) {
+        throw new Error("Gameplay timeline requires the derived ruleset and unit stats pass.");
+      }
+      const generated = generateDataviewGameplayTimeline({
+        game: parseGeneratedOutput(outputs, "game.json"),
+        lifetimes: parseGeneratedOutput(outputs, "lifetimes.json"),
+        economy: parseGeneratedOutput(outputs, "economy.json"),
+        resourceEstimates: parseGeneratedOutput(outputs, "resource_estimates.json"),
+        unitStats: unitStatsForGameplay,
+        ruleset: rulesetForDerivedPasses,
+        replaySha256,
+        rulesetSha256: RULESET_SHA256
+      });
+      return new TextEncoder().encode(`${JSON.stringify(generated)}\n`).buffer;
+    },
+    message.requestId
+  );
+  outputs.push(await buildFetchedOutput("gameplay_timeline.json", gameplayTimelineBuffer, "per-replay-gameplay-timeline"));
   const unitStatsNotice = "Unit attributes calculated from this replay's civilizations, units, and research timeline.";
 
   const totalBytes = outputs.reduce((sum, output) => sum + output.sizeBytes, 0);
   assertDataviewGeneratedJsonTotalByteLength(totalBytes);
-  progress(message.requestId, "transferring", `Transferring ${formatBytes(totalBytes)} of generated JSON`, 14, 15);
+  progress(message.requestId, "transferring", `Transferring ${formatBytes(totalBytes)} of generated JSON`, 15, TOTAL_PROGRESS_STAGES);
 
   const done: DataviewDoneMessage = {
     type: "done",
@@ -258,7 +290,7 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
     timings,
     unitStatsNotice
   };
-  progress(message.requestId, "done", "Standalone dataview data is ready", 15, 15);
+  progress(message.requestId, "done", "Standalone dataview data is ready", TOTAL_PROGRESS_STAGES, TOTAL_PROGRESS_STAGES);
   workerScope.postMessage(done, outputs.map((output) => output.buffer));
   workerScope.close();
 }

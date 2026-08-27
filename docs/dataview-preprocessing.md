@@ -12,6 +12,9 @@ The worker emits generated UTF-8 JSON buffers only:
 - `economy.json`
 - `resource_estimates.json`
 - `unit_stats.json`, calculated for every selected replay from its players, civilizations, produced units, and reconstructed research timeline
+- `gameplay_timeline.json`, calculated in the same worker from `game.json`, `lifetimes.json`, `economy.json`,
+  `resource_estimates.json`, `unit_stats.json`, and the pinned ruleset; it estimates building availability, producer
+  queues, produced-unit birth points, whole-replay backward actor reconciliation, and straight-line motion segments
 
 The viewer iframe does not fetch private/static sidecars. Each selection creates a fresh `allow-scripts`-only sandboxed
 iframe with an opaque origin. A nonce-bound ready/transfer handshake validates the exact iframe window, parent origin,
@@ -71,16 +74,16 @@ The worker sanitizes browser-generated provenance before downstream scripts cons
 later source labels before transfer. It rejects generated payload text containing local home-directory paths, temporary
 directory paths, Pyodide work paths, file URL schemes, Windows absolute paths, or URL credential patterns.
 
-Unit statistics are not bundled as replay-specific sidecars. The worker loads the generic public derived ruleset and calculates a fresh `aoe2-unit-stats/v1` artifact for every replay selection. Civilization and allied team effects are applied at time zero; observed research effects and unit-line upgrades are applied at that replay's reconstructed completion times. Unsupported relevant effect operations remain explicitly unresolved rather than guessed.
+Unit statistics and gameplay timelines are not bundled as replay-specific sidecars. The worker loads the generic public derived ruleset and calculates fresh `aoe2-unit-stats/v1` and `aoe-sim.dataview-gameplay-timeline/v1` artifacts for every replay selection. Civilization and allied team effects are applied at time zero; observed research effects and unit-line upgrades are applied at that replay's reconstructed completion times. Unsupported relevant effect operations remain explicitly unresolved rather than guessed.
 
 ## Icons
 
-No original AoE graphics, audio, or locally extracted game GIFs are copied into this repository. Dataview map party strips
-use project-original low-resolution animated SVG sprite data URIs embedded by the standalone viewer for Villagers,
-Villager work cues, infantry, archers, cavalry, siege, monks, and replay-evidenced ships. Commit
+No original AoE graphics, audio, or locally extracted game GIFs are copied into this repository. Dataview map units render
+as individual project-original static DOM markers for Villagers, infantry, archers, cavalry, siege, monks, and
+replay-evidenced ships. They do not use animated GIF/WebP bytes or animated sprite frames. Commit
 `3e2afe1f2961642ce4b4ee1327a3255b1a82beb8` is the historical reference for the category/marker treatment and behavior,
-not a source of exact sprite asset bytes. Reachable history has no standalone GIF/WebP sprite assets; the embedded SVG
-sprites are generated recreations for this project.
+not a source of exact sprite asset bytes. Reachable history has no standalone GIF/WebP sprite assets; generated SVG icons
+remain static marker recreations for this project.
 
 Where the old dataview uses towncenter/SiegeEngineers-style HUD and building icons, the viewer points to immutable
 upstream URLs from `TimMikeladze/towncenter` commit `8e42a41642b9bdd697037f9ec6a7e975537fb3b0` under `public/img/`.

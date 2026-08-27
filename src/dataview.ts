@@ -65,6 +65,7 @@ const stageOrder: readonly DataviewProgressStage[] = [
   "generating-economy",
   "reconstructing-resources",
   "generating-unit-stats",
+  "generating-gameplay-timeline",
   "transferring",
   "done"
 ];
@@ -81,6 +82,7 @@ const stageLabels: Record<DataviewProgressStage, string> = {
   "generating-economy": "Generate economy",
   "reconstructing-resources": "Reconstruct resources",
   "generating-unit-stats": "Calculate unit stats",
+  "generating-gameplay-timeline": "Build gameplay timeline",
   transferring: "Transfer to viewer",
   done: "Ready"
 };
@@ -332,6 +334,9 @@ function validateOutputs(outputs: readonly DataviewGeneratedOutput[]): void {
   }
   if (!outputNames.has("unit_stats.json")) {
     throw new Error("Preprocessor did not calculate unit_stats.json for this replay.");
+  }
+  if (!outputNames.has("gameplay_timeline.json")) {
+    throw new Error("Preprocessor did not calculate gameplay_timeline.json for this replay.");
   }
   assertDataviewGeneratedJsonTotalByteLength(totalBytes);
 }
