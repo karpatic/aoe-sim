@@ -48,8 +48,8 @@
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
     const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
     const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
-    const requiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json']);
-    const optionalOutputNames = Object.freeze(['unit_stats.json']);
+    const requiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json']);
+    const optionalOutputNames = Object.freeze([]);
     const allowedOutputNames = Object.freeze([...requiredOutputNames, ...optionalOutputNames]);
     const outputLabels = Object.freeze({
       'game.json': 'Recording export',
