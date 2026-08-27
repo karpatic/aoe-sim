@@ -3,6 +3,8 @@ import {
   DATAVIEW_REQUIRED_OUTPUT_NAMES,
   DATAVIEW_VIEWER_PAYLOAD_TYPE,
   DATAVIEW_VIEWER_READY_TYPE,
+  DATAVIEW_VIEWER_SHELL_SCROLL_REQUEST_TYPE,
+  DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE,
   DATAVIEW_WORKER_REQUEST_TYPE,
   type DataviewDoneMessage,
   type DataviewGeneratedOutput,
@@ -10,6 +12,8 @@ import {
   type DataviewProgressMessage,
   type DataviewProgressStage,
   type DataviewViewerReadyMessage,
+  type DataviewViewerShellScrollRequest,
+  type DataviewViewerShellScrollState,
   type DataviewViewerPayload,
   type DataviewWorkerToClient
 } from "./dataview-protocol";
@@ -88,6 +92,7 @@ let requestOrdinal = 0;
 let viewerIframe: HTMLIFrameElement | undefined;
 let pendingViewerTransfer: PendingViewerTransfer | undefined;
 let viewerReadyListener: ((event: MessageEvent<DataviewViewerReadyMessage>) => void) | undefined;
+let activeViewerIdentity: { requestId: string; nonce: string } | undefined;
 const stageStates = new Map<DataviewProgressStage, StageState>();
 
 initialize();
@@ -105,6 +110,8 @@ function initialize(): void {
     }
     startPrecompute(file).catch((error: unknown) => showError(error));
   });
+  window.addEventListener("message", handleViewerShellScrollRequest);
+  window.addEventListener("scroll", sendViewerShellScrollState, { passive: true });
 
   const missingSupport = supportProblem();
   if (missingSupport) {
@@ -327,6 +334,7 @@ function createViewerIframe(payload: DataviewViewerPayload, nonce: string): void
   iframe.referrerPolicy = "no-referrer";
   iframe.sandbox.add("allow-scripts");
   viewerIframe = iframe;
+  activeViewerIdentity = { requestId: payload.requestId, nonce };
   pendingViewerTransfer = { iframe, payload, nonce };
   installViewerReadyListener();
   viewerHost.append(iframe);
@@ -368,6 +376,44 @@ function transferPayloadToViewer(pending: PendingViewerTransfer): void {
   pendingViewerTransfer = undefined;
   removeViewerReadyListener();
   contentWindow.postMessage(pending.payload, "*", pending.payload.outputs.map((output) => output.buffer));
+  sendViewerShellScrollState();
+}
+
+function handleViewerShellScrollRequest(event: MessageEvent<DataviewViewerShellScrollRequest>): void {
+  const identity = activeViewerIdentity;
+  const iframeWindow = viewerIframe?.contentWindow;
+  const message = event.data;
+  if (
+    !identity ||
+    !iframeWindow ||
+    event.source !== iframeWindow ||
+    !message ||
+    message.type !== DATAVIEW_VIEWER_SHELL_SCROLL_REQUEST_TYPE ||
+    message.requestId !== identity.requestId ||
+    message.nonce !== identity.nonce ||
+    !Number.isFinite(message.deltaY)
+  ) {
+    return;
+  }
+  const scrollMax = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  window.scrollTo(0, Math.max(0, Math.min(scrollMax, window.scrollY + message.deltaY)));
+  sendViewerShellScrollState();
+}
+
+function sendViewerShellScrollState(): void {
+  const identity = activeViewerIdentity;
+  const iframeWindow = viewerIframe?.contentWindow;
+  if (!identity || !iframeWindow) {
+    return;
+  }
+  const message: DataviewViewerShellScrollState = {
+    type: DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE,
+    requestId: identity.requestId,
+    nonce: identity.nonce,
+    scrollTop: window.scrollY,
+    scrollMax: Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+  };
+  iframeWindow.postMessage(message, "*");
 }
 
 function renderOutputSummary(message: DataviewDoneMessage): void {
@@ -433,6 +479,7 @@ function resetSelection(message: string): void {
 
 function resetViewer(): void {
   clearPendingViewerTransfer();
+  activeViewerIdentity = undefined;
   viewerIframe?.remove();
   viewerIframe = undefined;
   viewerEmpty.hidden = false;

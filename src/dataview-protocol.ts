@@ -1,6 +1,8 @@
 export const DATAVIEW_WORKER_REQUEST_TYPE = "aoe-sim.dataview.precompute-request.v1";
 export const DATAVIEW_VIEWER_PAYLOAD_TYPE = "aoe-sim.dataview.generated-payload.v1";
 export const DATAVIEW_VIEWER_READY_TYPE = "aoe-sim.dataview.viewer-ready.v1";
+export const DATAVIEW_VIEWER_SHELL_SCROLL_REQUEST_TYPE = "aoe-sim.dataview.shell-scroll-request.v1";
+export const DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE = "aoe-sim.dataview.shell-scroll-state.v1";
 export const KNOWN_REPRESENTATIVE_REPLAY_SHA256 =
   "67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc";
 export const PINNED_TECH_TREE_SHA256 =
@@ -105,4 +107,19 @@ export interface DataviewViewerReadyMessage {
   readonly type: typeof DATAVIEW_VIEWER_READY_TYPE;
   readonly requestId: string;
   readonly nonce: string;
+}
+
+export interface DataviewViewerShellScrollRequest {
+  readonly type: typeof DATAVIEW_VIEWER_SHELL_SCROLL_REQUEST_TYPE;
+  readonly requestId: string;
+  readonly nonce: string;
+  readonly deltaY: number;
+}
+
+export interface DataviewViewerShellScrollState {
+  readonly type: typeof DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE;
+  readonly requestId: string;
+  readonly nonce: string;
+  readonly scrollTop: number;
+  readonly scrollMax: number;
 }
