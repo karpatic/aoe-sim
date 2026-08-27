@@ -43,6 +43,9 @@ const outputSummary = must<HTMLDListElement>("#output-summary");
 const viewerHost = must<HTMLElement>("#viewer-host");
 const viewerEmpty = must<HTMLElement>("#viewer-empty");
 const runtimeBaseUrl = new URL("./dataview-runtime/", document.baseURI).href;
+const defaultRecordingUrl = new URL("./glade-default.aoe2record", document.baseURI);
+const defaultRecordingSize = 2_101_826;
+const defaultRecordingSha256 = "fd21ae15292f1c7178316fba2ed24ec2d70fcf50a1182a76c818a577af39a1c0";
 const stageOrder: readonly DataviewProgressStage[] = [
   "validating",
   "hashing",
@@ -90,11 +93,11 @@ function initialize(): void {
   buildProgressList();
   chooseButton.addEventListener("click", () => fileInput.click());
   cancelButton.addEventListener("click", () => cancelActiveWork("Preprocessing cancelled."));
-  clearButton.addEventListener("click", () => resetSelection("Choose a local .aoe2record to begin."));
+  clearButton.addEventListener("click", () => void loadDefaultRecording());
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     if (!file) {
-      resetSelection("Choose a local .aoe2record to begin.");
+      void loadDefaultRecording();
       return;
     }
     startPrecompute(file).catch((error: unknown) => showError(error));
@@ -111,7 +114,52 @@ function initialize(): void {
     return;
   }
 
-  resetSelection("Choose a local .aoe2record to begin.");
+  void loadDefaultRecording();
+}
+
+async function loadDefaultRecording(): Promise<void> {
+  resetSelection("Loading the sanitized Glade replay.");
+  setBusy(true);
+  const requestId = `dataview-default-${Date.now()}-${++requestOrdinal}`;
+  activeRequestId = requestId;
+
+  try {
+    const url = new URL(defaultRecordingUrl);
+    url.searchParams.set("sha256", defaultRecordingSha256);
+    const response = await fetch(url, { cache: "force-cache", credentials: "same-origin" });
+    if (!response.ok) {
+      throw new Error(`Default Glade replay returned HTTP ${response.status}.`);
+    }
+    const buffer = await response.arrayBuffer();
+    if (activeRequestId !== requestId) {
+      return;
+    }
+    if (buffer.byteLength !== defaultRecordingSize) {
+      throw new Error(
+        `Default Glade replay size mismatch: expected ${defaultRecordingSize}, received ${buffer.byteLength}.`
+      );
+    }
+    const sha256 = await sha256Hex(buffer);
+    if (activeRequestId !== requestId) {
+      return;
+    }
+    if (sha256 !== defaultRecordingSha256) {
+      throw new Error("Default Glade replay failed its SHA-256 integrity check.");
+    }
+    await startPrecompute(new File([buffer], "glade-default.aoe2record", {
+      type: "application/octet-stream",
+      lastModified: 0
+    }));
+  } catch (error: unknown) {
+    if (activeRequestId === requestId) {
+      showError(error);
+    }
+  }
+}
+
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function startPrecompute(file: File): Promise<void> {

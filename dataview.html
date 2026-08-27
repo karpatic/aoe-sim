@@ -48,7 +48,7 @@
         <div class="upload-header">
           <div>
             <h1 id="page-heading">AoE II single-game data</h1>
-            <p class="privacy">Select a local .aoe2record. The replay bytes stay in this browser worker.</p>
+            <p class="privacy">A sanitized Glade replay loads by default. Other replay bytes stay in this browser worker.</p>
           </div>
           <a class="back-link" href="./index.html">Simulator</a>
         </div>
@@ -60,10 +60,10 @@
           </label>
           <button id="choose-recording" type="button">Choose replay</button>
           <button id="cancel-recording" type="button" disabled>Cancel</button>
-          <button id="clear-recording" type="button">Clear</button>
+          <button id="clear-recording" type="button">Default Glade</button>
         </div>
 
-        <p id="status" aria-live="polite">Choose a local .aoe2record to begin.</p>
+        <p id="status" aria-live="polite">Loading the sanitized Glade replay.</p>
         <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress"></progress>
         <ul id="progress-list" aria-label="Preprocessing stages"></ul>
         <p id="error" role="alert" hidden></p>
@@ -71,7 +71,7 @@
       </section>
 
       <section class="viewer-panel" aria-label="Generated dataview">
-        <p id="viewer-empty">Generated data will open here in the original dataview layout.</p>
+        <p id="viewer-empty">The sanitized Glade replay is loading.</p>
         <div id="viewer-host"></div>
       </section>
     </main>
