@@ -1601,6 +1601,7 @@ function classifyUnitCategory({
   if (worker || unitNameMatches(name, /\bvillager\b/)) return "villagers";
   if ([2, 20, 21, 22].includes(classId ?? integer(stats.class_id, integer(stats.classId, -1)) ?? -1)
     || unitNameMatches(name, /\b(ship|galley|galleon|transport|cog|caravel|dromon|longboat|turtle ship)\b/)) return "naval";
+  if (unitNameMatches(name, /\b(monk|priest|missionary)\b/)) return "support";
   if (unitNameMatches(name, /\b(ram|mangonel|onager|scorpion|trebuchet|bombard cannon|siege|ballista|houfnice)\b/)) return "siege";
   if (unitNameMatches(name, /\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|kipchak|mangudai|cavalry archer|camel archer|elephant archer|conquistador|arambai|genitour|ratha)\b/)) return "ranged";
   if (unitNameMatches(name, /\b(cavalry|knight|cavalier|paladin|hussar|camel|elephant|lancer|tarkan|cataphract|keshik|leitis|boyar|konnik|magyar huszar|coustillier|shrivamsha|centurion)\b/)) return "cavalry";
@@ -1640,15 +1641,19 @@ function resolveMapSpriteKey({
   if (has(/\b(scout cavalry|light cavalry|hussar|magyar huszar|steppe scout)\b/)) return "scout";
   if (has(/\b(camel|mameluke)\b/)) return "camel";
   if (has(/\b(knight|cavalier|paladin|cataphract|boyar|keshik|leitis|konnik|coustillier|lancer|shrivamsha|centurion|tarkan)\b/)) return "knight";
-  if (has(/\bscorpion\b/)) return "scorpion";
-  if (has(/\b(mangonel|onager|catapult|trebuchet|bombard cannon|houfnice|ram|siege ram|capped ram)\b/)) return "catapult";
-  if (has(/\b(monk|priest|missionary)\b/)) return "priest";
+  if (has(/\b(monk|priest|missionary)\b/)) return "monk";
+  if (has(/\b(scorpion|ballista)\b/)) return "scorpion";
+  if (has(/\b(capped ram|siege ram|battering ram|ram)\b/)) return "ram";
+  if (has(/\btrebuchet\b/)) return "trebuchet";
+  if (has(/\b(bombard cannon|houfnice)\b/)) return "bombardCannon";
+  if (has(/\b(mangonel|onager|catapult)\b/)) return "catapult";
   if (has(/\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|organ gun)\b/)) return "archer";
   const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId });
   if (resolvedCategory === "villagers") return "villagers";
   if (resolvedCategory === "ranged") return "archer";
   if (resolvedCategory === "infantry") return "swordsman";
   if (resolvedCategory === "cavalry") return "knight";
+  if (resolvedCategory === "support") return "monk";
   if (resolvedCategory === "siege") return "catapult";
   if (resolvedCategory === "naval") return "ship";
   return null;

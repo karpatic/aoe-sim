@@ -40,7 +40,8 @@
     .map-chat-message { max-width: 100%; padding: .18rem .38rem; color: #fff; background: rgba(8, 10, 12, .72); border-left: .3rem solid var(--player-color, #888); font: 700 .86rem/1.25 system-ui, sans-serif; text-shadow: 0 1px 2px #000, 1px 0 2px #000; overflow-wrap: anywhere; animation: map-chat-lifetime 6s linear forwards; }
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
-    .unit-marker { position: absolute; display: grid; place-items: center; width: var(--unit-marker-size, 18px); height: var(--unit-marker-size, 18px); border: 2px solid var(--player-color, #fff); border-radius: 3px; color: #fff; background: rgba(11, 14, 16, .88); box-shadow: 0 0 0 1px #101214, 0 0 4px var(--player-color, #fff); font: 800 var(--unit-marker-font-size, 8px)/1 system-ui, sans-serif; text-align: center; text-shadow: 0 1px 0 #000; image-rendering: pixelated; transform: translate(-50%, -50%); will-change: left, top; }
+    .unit-marker { position: absolute; display: grid; place-items: center; width: var(--unit-marker-size, 18px); height: var(--unit-marker-size, 18px); padding: 0; border: 1px solid var(--player-color, #fff); border-radius: 3px; color: #fff; background: rgba(11, 14, 16, .9); box-shadow: 0 0 0 1px #101214, 0 0 4px var(--player-color, #fff); image-rendering: pixelated; overflow: hidden; transform: translate(-50%, -50%); will-change: left, top; }
+    .unit-marker-image { display: block; width: calc(var(--unit-marker-size, 18px) - 2px); height: calc(var(--unit-marker-size, 18px) - 2px); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #101214); pointer-events: none; }
     .unit-marker[data-evidence-class="observed"] { background: rgba(13, 38, 52, .92); }
     .unit-marker[data-evidence-class="reconciled"] { background: rgba(31, 54, 26, .92); }
     .unit-marker[data-reconciliation-status^="anonymous"] { border-style: dashed; }
@@ -126,6 +127,9 @@
     .hud-sprite-fallback, .generated-marker { display: inline-grid; place-items: center; width: 1.15rem; height: 1.15rem; border: 1px solid currentColor; border-radius: 3px; color: #f4f0dc; background: #101214; font: 800 .62rem/1 sans-serif; text-align: center; }
     .unit-count-tile .hud-sprite-fallback { width: 1.55rem; height: 1.55rem; }
     .legend-category-icon.generated-marker { margin-right: .25rem; color: #111; background: #eee; }
+    .unit-marker .unit-marker-fallback { display: none; width: calc(var(--unit-marker-size, 18px) - 3px); height: calc(var(--unit-marker-size, 18px) - 3px); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); font-size: var(--unit-marker-font-size, 8px); text-shadow: 0 1px 0 #111; }
+    .unit-marker[data-sprite-load-state="error"] .unit-marker-image { display: none; }
+    .unit-marker[data-sprite-load-state="error"] .unit-marker-fallback { display: inline-grid; }
     .party-sprite-image.generated-marker { justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
     @media (max-width: 50rem) {
       :root {
@@ -373,30 +377,38 @@
     const maxViewerJsonBytes = 96 * 1024 * 1024;
     const maxViewerTotalJsonBytes = 192 * 1024 * 1024;
     const mapSpriteAssetSource = Object.freeze({
-      commit: '3e2afe1f2961642ce4b4ee1327a3255b1a82beb8',
+      commit: 'a0b0ec24fc03f3f6dca8813d195d17299a827ad4',
       path: 'dataview-viewer.html',
+      pack: 'aoe-sim-map-unit-silhouettes-v3',
+      generator: 'generatedMapSpriteAsset',
+      format: 'inline 16x16 static SVG data URI',
+      absorbedPatchSha256: 'sha256:0e330edd37dce16f55c458705a0c4fb6451cfdfcd4c3b72584dd7d72f1a43d39',
       note: [
-        'Static generated-marker category behavior reference;',
-        'current map unit markers are project-original static DOM markers, not animated GIF/WebP bytes or animated sprite frames.',
+        'Static generated-marker category behavior reference; current map unit markers are project-original',
+        'low-resolution SVG silhouettes with CSS team tint and outline, not animated GIF/WebP bytes or animated sprite frames.',
       ].join(' '),
     });
     const mapSpriteShapeDefinitions = Object.freeze({
-      villagers: '<rect x="6" y="2" width="4" height="3" fill="#eeeeee"/><rect x="5" y="5" width="6" height="7" fill="#d7d7d7"/><rect x="4" y="7" width="2" height="4" fill="#8f8f8f"/><rect x="10" y="7" width="2" height="4" fill="#8f8f8f"/><rect x="6" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
-      archer: '<rect x="6" y="3" width="4" height="3" fill="#eeeeee"/><rect x="6" y="6" width="4" height="6" fill="#d7d7d7"/><path d="M4 4h1v1H4v6h1v1H4v1H3V3h1z" fill="#111"/><rect x="11" y="5" width="1" height="8" fill="#8f8f8f"/><rect x="7" y="12" width="2" height="3" fill="#111"/>',
-      spear: '<rect x="6" y="3" width="4" height="3" fill="#eeeeee"/><rect x="6" y="6" width="4" height="7" fill="#d7d7d7"/><rect x="12" y="1" width="1" height="13" fill="#111"/><rect x="11" y="1" width="3" height="2" fill="#8f8f8f"/><rect x="5" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
-      swordsman: '<rect x="6" y="3" width="4" height="3" fill="#eeeeee"/><rect x="5" y="6" width="6" height="7" fill="#d7d7d7"/><path d="M11 3h1v1h1v1h-1v1h-1v1h-1V6h1V5h-1V4h1z" fill="#111"/><rect x="4" y="7" width="2" height="3" fill="#8f8f8f"/><rect x="6" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
-      camel: '<rect x="3" y="8" width="10" height="3" fill="#d7d7d7"/><rect x="6" y="6" width="4" height="3" fill="#eeeeee"/><rect x="11" y="6" width="2" height="2" fill="#d7d7d7"/><rect x="2" y="9" width="2" height="2" fill="#8f8f8f"/><rect x="4" y="11" width="1" height="3" fill="#111"/><rect x="10" y="11" width="1" height="3" fill="#111"/><rect x="6" y="4" width="3" height="3" fill="#8f8f8f"/>',
-      knight: '<rect x="3" y="8" width="10" height="3" fill="#d7d7d7"/><rect x="11" y="6" width="3" height="3" fill="#eeeeee"/><rect x="4" y="11" width="1" height="3" fill="#111"/><rect x="10" y="11" width="1" height="3" fill="#111"/><rect x="6" y="4" width="4" height="5" fill="#8f8f8f"/><rect x="13" y="4" width="1" height="6" fill="#111"/>',
-      cavalryArcher: '<rect x="3" y="8" width="10" height="3" fill="#d7d7d7"/><rect x="11" y="6" width="3" height="3" fill="#eeeeee"/><rect x="4" y="11" width="1" height="3" fill="#111"/><rect x="10" y="11" width="1" height="3" fill="#111"/><rect x="6" y="4" width="4" height="5" fill="#8f8f8f"/><path d="M4 3h1v1H4v5h1v1H4v1H3V2h1z" fill="#111"/>',
-      scout: '<rect x="3" y="8" width="10" height="3" fill="#d7d7d7"/><rect x="11" y="6" width="3" height="3" fill="#eeeeee"/><rect x="4" y="11" width="1" height="3" fill="#111"/><rect x="10" y="11" width="1" height="3" fill="#111"/><rect x="6" y="4" width="4" height="5" fill="#8f8f8f"/><rect x="5" y="2" width="1" height="5" fill="#111"/><rect x="6" y="2" width="3" height="2" fill="#eeeeee"/>',
-      elephant: '<rect x="2" y="7" width="11" height="5" fill="#d7d7d7"/><rect x="10" y="5" width="4" height="4" fill="#eeeeee"/><rect x="13" y="9" width="1" height="4" fill="#8f8f8f"/><rect x="3" y="12" width="2" height="3" fill="#111"/><rect x="10" y="12" width="2" height="3" fill="#111"/><rect x="6" y="4" width="3" height="3" fill="#8f8f8f"/>',
-      priest: '<rect x="6" y="2" width="4" height="3" fill="#eeeeee"/><path d="M5 5h6l1 9H4z" fill="#d7d7d7"/><rect x="12" y="3" width="1" height="11" fill="#111"/><rect x="11" y="3" width="3" height="1" fill="#8f8f8f"/><rect x="7" y="8" width="2" height="4" fill="#8f8f8f"/>',
-      scorpion: '<rect x="3" y="9" width="10" height="4" fill="#d7d7d7"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><rect x="2" y="7" width="9" height="1" fill="#111"/><rect x="9" y="6" width="4" height="3" fill="#8f8f8f"/><rect x="13" y="7" width="2" height="1" fill="#eeeeee"/>',
-      catapult: '<rect x="3" y="10" width="10" height="3" fill="#d7d7d7"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><path d="M5 9h2V8h2V7h2V5h1v4h-1v1H5z" fill="#8f8f8f"/><rect x="11" y="3" width="3" height="3" fill="#eeeeee"/>',
-      ship: '<rect x="7" y="2" width="1" height="8" fill="#111"/><path d="M8 3h5v5H8z" fill="#eeeeee"/><path d="M5 5h2v5H3z" fill="#d7d7d7"/><rect x="3" y="10" width="10" height="2" fill="#8f8f8f"/><path d="M4 12h8v2H5v-1H4z" fill="#111"/><rect x="2" y="14" width="12" height="1" fill="#d7d7d7"/>',
+      villagers: '<rect x="7" y="2" width="3" height="3" fill="#f7f7f7"/><rect x="6" y="5" width="5" height="6" fill="#c8c8c8"/><rect x="5" y="6" width="1" height="4" fill="#686868"/><rect x="11" y="6" width="1" height="3" fill="#686868"/><rect x="12" y="7" width="1" height="5" fill="#111"/><rect x="13" y="11" width="1" height="1" fill="#f7f7f7"/><rect x="5" y="11" width="2" height="1" fill="#111"/><rect x="9" y="11" width="2" height="1" fill="#111"/><rect x="6" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
+      archer: '<rect x="7" y="3" width="3" height="3" fill="#f7f7f7"/><rect x="6" y="6" width="4" height="6" fill="#c8c8c8"/><path d="M4 2h1v2H4v1H3v6h1v1h1v2H4v-1H3v-1H2V4h1V3h1z" fill="#111"/><rect x="11" y="4" width="1" height="9" fill="#686868"/><rect x="10" y="8" width="5" height="1" fill="#f7f7f7"/><rect x="13" y="7" width="1" height="3" fill="#111"/><rect x="7" y="12" width="2" height="3" fill="#111"/>',
+      spear: '<rect x="6" y="3" width="4" height="3" fill="#f7f7f7"/><rect x="6" y="6" width="4" height="7" fill="#c8c8c8"/><rect x="12" y="1" width="1" height="14" fill="#111"/><rect x="11" y="1" width="3" height="2" fill="#f7f7f7"/><rect x="10" y="7" width="2" height="1" fill="#686868"/><rect x="5" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
+      swordsman: '<rect x="6" y="3" width="4" height="3" fill="#f7f7f7"/><rect x="5" y="6" width="6" height="7" fill="#c8c8c8"/><path d="M11 3h1v1h1v1h-1v2h-1v1h-1V7h1V6h-1V5h1z" fill="#111"/><rect x="3" y="7" width="3" height="4" fill="#686868"/><rect x="4" y="8" width="1" height="2" fill="#f7f7f7"/><rect x="6" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
+      camel: '<rect x="3" y="8" width="9" height="3" fill="#c8c8c8"/><path d="M5 7h2V5h2v2h2v2H5z" fill="#f7f7f7"/><rect x="11" y="6" width="2" height="3" fill="#c8c8c8"/><rect x="13" y="7" width="1" height="2" fill="#111"/><rect x="2" y="9" width="2" height="2" fill="#686868"/><rect x="4" y="11" width="1" height="3" fill="#111"/><rect x="10" y="11" width="1" height="3" fill="#111"/><rect x="6" y="4" width="3" height="2" fill="#686868"/>',
+      knight: '<rect x="3" y="9" width="10" height="3" fill="#c8c8c8"/><rect x="12" y="7" width="2" height="2" fill="#f7f7f7"/><rect x="3" y="8" width="2" height="1" fill="#111"/><rect x="4" y="12" width="1" height="3" fill="#111"/><rect x="10" y="12" width="1" height="3" fill="#111"/><rect x="6" y="4" width="4" height="5" fill="#686868"/><rect x="7" y="5" width="2" height="2" fill="#f7f7f7"/><rect x="13" y="3" width="1" height="9" fill="#111"/>',
+      cavalryArcher: '<rect x="3" y="9" width="10" height="3" fill="#c8c8c8"/><rect x="12" y="7" width="2" height="2" fill="#f7f7f7"/><rect x="4" y="12" width="1" height="3" fill="#111"/><rect x="10" y="12" width="1" height="3" fill="#111"/><rect x="6" y="5" width="4" height="4" fill="#686868"/><path d="M4 2h1v1H4v1H3v6h1v1h1v1H4v1H3v-1H2V3h1V2z" fill="#111"/><rect x="5" y="7" width="5" height="1" fill="#f7f7f7"/>',
+      scout: '<rect x="3" y="9" width="10" height="3" fill="#c8c8c8"/><rect x="12" y="7" width="2" height="2" fill="#f7f7f7"/><rect x="3" y="8" width="2" height="1" fill="#111"/><rect x="4" y="12" width="1" height="3" fill="#111"/><rect x="10" y="12" width="1" height="3" fill="#111"/><rect x="6" y="5" width="4" height="4" fill="#686868"/><rect x="5" y="2" width="1" height="6" fill="#111"/><rect x="6" y="2" width="3" height="2" fill="#f7f7f7"/>',
+      elephant: '<rect x="2" y="7" width="11" height="5" fill="#c8c8c8"/><rect x="10" y="5" width="4" height="4" fill="#f7f7f7"/><rect x="13" y="9" width="1" height="4" fill="#686868"/><rect x="13" y="13" width="1" height="1" fill="#111"/><rect x="3" y="12" width="2" height="3" fill="#111"/><rect x="10" y="12" width="2" height="3" fill="#111"/><rect x="6" y="4" width="3" height="3" fill="#686868"/><rect x="12" y="10" width="3" height="1" fill="#f7f7f7"/>',
+      monk: '<rect x="6" y="2" width="4" height="3" fill="#f7f7f7"/><path d="M5 5h6l1 9H4z" fill="#c8c8c8"/><rect x="6" y="9" width="4" height="1" fill="#686868"/><rect x="7" y="7" width="2" height="5" fill="#686868"/><rect x="12" y="3" width="1" height="12" fill="#111"/><rect x="11" y="3" width="3" height="1" fill="#f7f7f7"/>',
+      scorpion: '<rect x="3" y="10" width="10" height="3" fill="#c8c8c8"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><rect x="2" y="7" width="10" height="1" fill="#111"/><rect x="9" y="6" width="4" height="4" fill="#686868"/><rect x="12" y="7" width="3" height="1" fill="#f7f7f7"/><rect x="14" y="6" width="1" height="3" fill="#111"/>',
+      catapult: '<rect x="3" y="10" width="10" height="3" fill="#c8c8c8"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><path d="M5 9h2V8h2V7h2V5h1v4h-1v1H5z" fill="#686868"/><rect x="11" y="3" width="3" height="3" fill="#f7f7f7"/><rect x="13" y="2" width="1" height="1" fill="#111"/>',
+      ram: '<rect x="3" y="8" width="10" height="5" fill="#c8c8c8"/><rect x="2" y="9" width="2" height="3" fill="#686868"/><rect x="12" y="7" width="2" height="5" fill="#f7f7f7"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><rect x="5" y="7" width="6" height="1" fill="#111"/><rect x="4" y="9" width="7" height="1" fill="#686868"/>',
+      trebuchet: '<rect x="5" y="10" width="7" height="3" fill="#c8c8c8"/><rect x="5" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><path d="M8 4h1v1h1v1h1v1h1v1H9v2H7V8H5V7h2V5h1z" fill="#686868"/><rect x="11" y="3" width="4" height="1" fill="#111"/><rect x="14" y="2" width="1" height="2" fill="#f7f7f7"/>',
+      bombardCannon: '<rect x="4" y="10" width="8" height="3" fill="#c8c8c8"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><rect x="7" y="7" width="7" height="2" fill="#111"/><rect x="12" y="6" width="3" height="1" fill="#f7f7f7"/><rect x="5" y="8" width="3" height="3" fill="#686868"/><rect x="2" y="9" width="3" height="1" fill="#686868"/>',
+      ship: '<rect x="7" y="2" width="1" height="8" fill="#111"/><path d="M8 3h5v5H8z" fill="#f7f7f7"/><path d="M5 5h2v5H3z" fill="#c8c8c8"/><rect x="3" y="10" width="10" height="2" fill="#686868"/><path d="M4 12h8v2H5v-1H4z" fill="#111"/><rect x="2" y="14" width="12" height="1" fill="#c8c8c8"/>',
+      unknown: '<path d="M5 3h6v2h2v3h-2v2H9V8h2V5H5v2H3V5h2z" fill="#c8c8c8"/><rect x="6" y="4" width="4" height="1" fill="#f7f7f7"/><rect x="7" y="11" width="2" height="2" fill="#111"/><rect x="6" y="14" width="4" height="1" fill="#686868"/>',
     });
     function generatedMapSpriteAsset(spriteKey, motion = 'walk') {
-      const shape = mapSpriteShapeDefinitions[spriteKey] ?? mapSpriteShapeDefinitions.swordsman;
+      const shape = mapSpriteShapeDefinitions[spriteKey] ?? mapSpriteShapeDefinitions.unknown;
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><title>${spriteKey} ${motion} static marker</title><g>${shape}${generatedMapSpriteTool(motion)}</g></svg>`;
       return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     }
@@ -422,6 +434,7 @@
       { key: 'ranged', label: 'Archery / ranged', shortLabel: 'Bow', symbol: 'B', asset: mapSpriteMoveAssets.archer },
       { key: 'infantry', label: 'Barracks / infantry', shortLabel: 'Sword', symbol: 'S', asset: mapSpriteMoveAssets.swordsman },
       { key: 'cavalry', label: 'Cavalry', shortLabel: 'Cav', symbol: 'C', asset: mapSpriteMoveAssets.knight },
+      { key: 'support', label: 'Monks / support', shortLabel: 'Monk', symbol: 'Mo', asset: mapSpriteMoveAssets.monk },
       { key: 'siege', label: 'Siege', shortLabel: 'Gear', symbol: 'G', asset: mapSpriteMoveAssets.catapult },
       { key: 'naval', label: 'Ships / naval', shortLabel: 'Ship', symbol: 'Sh', asset: mapSpriteMoveAssets.ship },
     ]);
@@ -436,13 +449,29 @@
       { key: 'cavalryArcher', label: 'Cavalry archers / mounted ranged', symbol: 'CA', asset: mapSpriteMoveAssets.cavalryArcher },
       { key: 'scout', label: 'Scouts / light cavalry', symbol: 'Sc', asset: mapSpriteMoveAssets.scout },
       { key: 'elephant', label: 'Elephants', symbol: 'El', asset: mapSpriteMoveAssets.elephant },
-      { key: 'priest', label: 'Monks / priests', symbol: 'Mo', asset: mapSpriteMoveAssets.priest },
+      { key: 'monk', label: 'Monks / priests', symbol: 'Mo', asset: mapSpriteMoveAssets.monk },
       { key: 'scorpion', label: 'Scorpions', symbol: 'Scp', asset: mapSpriteMoveAssets.scorpion },
-      { key: 'catapult', label: 'Catapults / siege engines', symbol: 'Ct', asset: mapSpriteMoveAssets.catapult },
+      { key: 'catapult', label: 'Mangonels / onagers', symbol: 'Mg', asset: mapSpriteMoveAssets.catapult },
+      { key: 'ram', label: 'Rams', symbol: 'Ram', asset: mapSpriteMoveAssets.ram },
+      { key: 'trebuchet', label: 'Trebuchets', symbol: 'Tb', asset: mapSpriteMoveAssets.trebuchet },
+      { key: 'bombardCannon', label: 'Bombard cannons', symbol: 'Bc', asset: mapSpriteMoveAssets.bombardCannon },
       { key: 'ship', label: 'Ships / naval actors', symbol: 'Sh', asset: mapSpriteMoveAssets.ship },
+      { key: 'unknown', label: 'Unknown fallback', symbol: '?', asset: mapSpriteMoveAssets.unknown },
     ]);
+    const mapSpriteAliases = Object.freeze(new Map([
+      ['priest', 'monk'],
+    ]));
+    const mapSpriteDefinitionKeys = new Set(mapSpriteDefinitions.map((definition) => definition.key));
     const mapSpriteByKey = new Map(mapSpriteDefinitions.map((definition) => [definition.key, definition]));
+    mapSpriteAliases.forEach((targetKey, aliasKey) => {
+      const definition = mapSpriteByKey.get(targetKey);
+      if (definition) mapSpriteByKey.set(aliasKey, definition);
+    });
     const mapSpriteSymbols = new Map(mapSpriteDefinitions.map((definition) => [definition.key, definition.symbol]));
+    mapSpriteAliases.forEach((targetKey, aliasKey) => {
+      const symbol = mapSpriteSymbols.get(targetKey);
+      if (symbol) mapSpriteSymbols.set(aliasKey, symbol);
+    });
     const mapSpriteUnitCategories = Object.freeze(new Map([
       ['villagers', 'villagers'],
       ['archer', 'ranged'],
@@ -453,8 +482,13 @@
       ['knight', 'cavalry'],
       ['scout', 'cavalry'],
       ['elephant', 'cavalry'],
+      ['monk', 'support'],
+      ['priest', 'support'],
       ['scorpion', 'siege'],
       ['catapult', 'siege'],
+      ['ram', 'siege'],
+      ['trebuchet', 'siege'],
+      ['bombardCannon', 'siege'],
       ['ship', 'naval'],
     ]));
     const villagerTaskDefinitions = Object.freeze({
@@ -724,10 +758,11 @@
       if (unitClassHasNavalEvidence(classId ?? stats?.class_id ?? stats?.classId) || unitNameHasNavalEvidence(name)) {
         return 'naval';
       }
+      if (unitNameMatches(name, /\b(monk|priest|missionary)\b/)) return 'support';
       if (unitNameMatches(name, /\b(ram|mangonel|onager|scorpion|trebuchet|bombard cannon|siege|ballista|houfnice)\b/)) return 'siege';
       if (unitNameMatches(name, /\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|kipchak|mangudai|cavalry archer|camel archer|elephant archer|conquistador|arambai|genitour|ratha)\b/)) return 'ranged';
       if (unitNameMatches(name, /\b(cavalry|knight|cavalier|paladin|hussar|camel|elephant|lancer|tarkan|cataphract|keshik|leitis|boyar|konnik|magyar huszar|coustillier|shrivamsha|centurion)\b/)) return 'cavalry';
-      if (unitNameMatches(name, /\b(militia|man-at-arms|swordsman|champion|spearman|pikeman|halb|eagle|huskarl|samurai|teutonic|woad|berserk|jaguar|condottiero|karambit|kamayuk|gbeto|serjeant|obuch|legionary|throwing axeman)\b/)) return 'infantry';
+      if (unitNameMatches(name, /\b(militia|man at arms|swordsman|champion|spearman|pikeman|halb|eagle|huskarl|samurai|teutonic|woad|berserk|jaguar|condottiero|karambit|kamayuk|gbeto|serjeant|obuch|legionary|throwing axeman)\b/)) return 'infantry';
 
       const attackAmount = Number(stats?.attack?.amount ?? 0);
       const maxRange = Number(stats?.max_range ?? 0);
@@ -757,22 +792,39 @@
       if (has(/\b(scout cavalry|light cavalry|hussar|magyar huszar|steppe scout)\b/)) return 'scout';
       if (has(/\b(camel|mameluke)\b/)) return 'camel';
       if (has(/\b(knight|cavalier|paladin|cataphract|boyar|keshik|leitis|konnik|coustillier|lancer|shrivamsha|centurion|tarkan)\b/)) return 'knight';
-      if (has(/\b(scorpion)\b/)) return 'scorpion';
-      if (has(/\b(mangonel|onager|catapult|trebuchet|bombard cannon|houfnice|ram|siege ram|capped ram)\b/)) return 'catapult';
-      if (has(/\b(monk|priest|missionary)\b/)) return 'priest';
+      if (has(/\b(monk|priest|missionary)\b/)) return 'monk';
+      if (has(/\b(scorpion|ballista)\b/)) return 'scorpion';
+      if (has(/\b(capped ram|siege ram|battering ram|ram)\b/)) return 'ram';
+      if (has(/\b(trebuchet)\b/)) return 'trebuchet';
+      if (has(/\b(bombard cannon|houfnice)\b/)) return 'bombardCannon';
+      if (has(/\b(mangonel|onager|catapult)\b/)) return 'catapult';
       if (has(/\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|organ gun)\b/)) return 'archer';
       const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId, worker });
       if (resolvedCategory === 'villagers') return 'villagers';
       if (resolvedCategory === 'ranged') return 'archer';
       if (resolvedCategory === 'infantry') return 'swordsman';
       if (resolvedCategory === 'cavalry') return 'knight';
+      if (resolvedCategory === 'support') return 'monk';
       if (resolvedCategory === 'siege') return 'catapult';
       if (resolvedCategory === 'naval') return 'ship';
       return null;
     }
 
+    function canonicalMapSpriteKey(spriteKey) {
+      if (!spriteKey) return null;
+      const key = String(spriteKey);
+      if (mapSpriteDefinitionKeys.has(key)) return key;
+      return mapSpriteAliases.get(key) ?? null;
+    }
+
+    function mapSpriteDefinitionForKey(spriteKey) {
+      const key = canonicalMapSpriteKey(spriteKey);
+      return key ? mapSpriteByKey.get(key) ?? null : null;
+    }
+
     function unitCategoryForMapSpriteKey(spriteKey, category = null) {
-      return category ?? mapSpriteUnitCategories.get(spriteKey) ?? null;
+      const key = canonicalMapSpriteKey(spriteKey) ?? spriteKey;
+      return category ?? mapSpriteUnitCategories.get(key) ?? null;
     }
 
     function resolveTechnologyHudSprite(technology) {
@@ -1896,8 +1948,8 @@
             name,
           }, statSnapshot, playerUnitStats);
         }
-        const definition = mapSpriteByKey.get(assignment.spriteKey);
-        const spriteKey = assignment.spriteKey ?? 'unknown';
+        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey) ?? 'unknown';
+        const definition = mapSpriteDefinitionForKey(spriteKey);
         const category = unitCategoryForMapSpriteKey(spriteKey, assignment.category);
         return {
           key: `map-sprite:${spriteKey}:${category ?? 'unknown'}`,
@@ -3481,7 +3533,7 @@
       addTeamCommandLegend('→', 'Inferred command direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static symbols from the worker gameplay timeline; their positions use deterministic replay-time straight-line interpolation from observed or estimated birth positions to later command destinations. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
+      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; their positions use deterministic replay-time straight-line interpolation from observed or estimated birth positions to later command destinations. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -4678,7 +4730,7 @@
       function movementProfileForParty(row, members) {
         const arrow = row.commandArrow ?? null;
         const destination = arrow?.to ?? row.position ?? null;
-        const visibleMembers = members.filter((member) => member.spriteKey && mapSpriteByKey.has(member.spriteKey));
+        const visibleMembers = members.filter((member) => canonicalMapSpriteKey(member.spriteKey));
         const speedMembers = visibleMembers.filter((member) =>
           Number.isFinite(member.referenceSpeed) && member.referenceSpeed > 0);
         const base = {
@@ -4804,7 +4856,7 @@
             const actorKey = `${row.player}:${instanceId}`;
             const directClassification = directlyClassified.get(instanceId);
             const category = directClassification?.category ?? inferredCategory?.category ?? null;
-            const spriteKey = directClassification?.spriteKey
+            const resolvedSpriteKey = directClassification?.spriteKey
               ?? inferredCategory?.spriteKey
               ?? resolveMapSpriteKey({
                 name: object?.name ?? inferredCategory?.name ?? '',
@@ -4813,11 +4865,12 @@
                 category,
                 worker,
               });
+            const spriteKey = canonicalMapSpriteKey(resolvedSpriteKey);
             const directUnitId = numericId(unitRecord?.unit_id ?? object?.object_id);
             const directName = String(unitRecord?.name ?? object?.name ?? directClassification?.name ?? '').trim();
             const inferredUnitId = numericId(inferredCategory?.unitId ?? inferredCategory?.unit_id);
             const inferredName = String(inferredCategory?.name ?? '').trim();
-            const hasRenderedSprite = Boolean(spriteKey && mapSpriteByKey.has(spriteKey));
+            const hasRenderedSprite = Boolean(spriteKey);
             const identityEvidenceQuality = inferredCategory
               ? 'production-inferred'
               : (directName || directUnitId !== null)
@@ -4838,7 +4891,7 @@
               name: inferredCategory ? inferredName : directName,
               evidence: categoryEvidence,
             };
-            const referenceSpeed = spriteKey && mapSpriteByKey.has(spriteKey)
+            const referenceSpeed = spriteKey
               ? positiveUnitRecordSpeed(unitRecord)
               : null;
             const history = actorGlobalCommandHistories.get(instanceId) ?? [];
@@ -5038,10 +5091,10 @@
               evidence: member.unitIdentity?.evidence ?? member.categoryEvidence ?? '',
             });
             const mapRendered = Boolean(
-              member.spriteKey
-                && mapSpriteByKey.has(member.spriteKey)
+              canonicalMapSpriteKey(member.spriteKey)
                 && partyComposition([member], taskState.effectiveAssignment).entries.length,
             );
+            const spriteKey = canonicalMapSpriteKey(member.spriteKey);
             return Object.freeze({
               player: party.player,
               instanceId: member.instanceId,
@@ -5059,11 +5112,11 @@
               resolvedUnitId: unitIdentity.unit_id,
               unitName: unitIdentity.name,
               referenceUnitName: member.referenceUnitName,
-              spriteKey: member.spriteKey ?? null,
-              spriteCategory: member.spriteKey && mapSpriteByKey.has(member.spriteKey)
-                ? mapSpriteByKey.get(member.spriteKey).label
+              spriteKey,
+              spriteCategory: spriteKey
+                ? mapSpriteDefinitionForKey(spriteKey)?.label ?? ''
                 : '',
-              category: member.category ?? unitCategoryForMapSpriteKey(member.spriteKey),
+              category: member.category ?? unitCategoryForMapSpriteKey(spriteKey),
               evidenceQuality: unitIdentity.quality,
               evidence: member.categoryEvidence,
               outcome: member.outcome,
@@ -5143,10 +5196,10 @@
         return Object.freeze(gameplayTimelineUnits.flatMap((unit) => {
           const interpolation = unitTimelineInterpolationState(unit, seconds);
           if (!interpolation) return [];
-          const spriteKey = unit.sprite_key ?? resolveMapSpriteKey({
+          const spriteKey = canonicalMapSpriteKey(unit.sprite_key ?? resolveMapSpriteKey({
             name: unit.name,
             category: unit.category,
-          });
+          })) ?? 'unknown';
           const category = unit.category ?? unitCategoryForMapSpriteKey(spriteKey);
           const evidenceQuality = unitTimelineEvidenceQuality(unit);
           const markerKey = String(unit.id ?? unit.stable_id);
@@ -5183,8 +5236,8 @@
             unitName: unit.name ?? '',
             referenceUnitName: unit.name ?? '',
             spriteKey,
-            spriteCategory: spriteKey && mapSpriteByKey.has(spriteKey)
-              ? mapSpriteByKey.get(spriteKey).label
+            spriteCategory: spriteKey
+              ? mapSpriteDefinitionForKey(spriteKey)?.label ?? ''
               : '',
             category,
             evidenceQuality,
@@ -5214,8 +5267,8 @@
         const categoryCounts = Object.fromEntries(mapSpriteDefinitions.map((definition) => [definition.key, {}]));
         const unclassifiedMembers = [];
         members.forEach((member) => {
-          const spriteKey = member.spriteKey;
-          if (spriteKey && mapSpriteByKey.has(spriteKey) && Object.prototype.hasOwnProperty.call(counts, spriteKey)) {
+          const spriteKey = canonicalMapSpriteKey(member.spriteKey);
+          if (spriteKey && Object.prototype.hasOwnProperty.call(counts, spriteKey)) {
             counts[spriteKey] += 1;
             if (member.categoryEvidence.includes('production evidence')) {
               evidenceCounts[spriteKey].productionInferred += 1;
@@ -5445,7 +5498,9 @@
       }
 
       function partySpriteAssetRecord(kind, spriteKey, villagerTaskAssignment = null) {
-        if (spriteKey === 'villagers') {
+        const key = canonicalMapSpriteKey(spriteKey);
+        if (!key) return null;
+        if (key === 'villagers') {
           if (kind === 'attack') {
             const asset = partySpriteAssets.attack.villagers ?? null;
             return asset ? { key: 'attack:villagers', src: asset } : null;
@@ -5453,8 +5508,8 @@
           const workAnimation = villagerWorkAnimationForAssignment(villagerTaskAssignment);
           if (workAnimation?.asset) return { key: `villagers:${workAnimation.key}`, src: workAnimation.asset };
         }
-        const asset = partySpriteAssets[kind]?.[spriteKey] ?? partySpriteAssets.attack[spriteKey] ?? null;
-        return asset ? { key: `${kind}:${spriteKey}`, src: asset } : null;
+        const asset = partySpriteAssets[kind]?.[key] ?? partySpriteAssets.attack[key] ?? null;
+        return asset ? { key: `${kind}:${key}`, src: asset } : null;
       }
 
       function teamSpriteFilter(teamColor) {
@@ -5552,6 +5607,8 @@
         image.dataset.spriteAsset = record.key;
         image.dataset.spriteAssetSourceCommit = mapSpriteAssetSource.commit;
         image.dataset.spriteAssetSourcePath = mapSpriteAssetSource.path;
+        image.dataset.spriteAssetSourcePack = mapSpriteAssetSource.pack;
+        image.dataset.spriteAssetSourcePatchSha256 = mapSpriteAssetSource.absorbedPatchSha256;
         image.dataset.spriteAssetSourceNote = mapSpriteAssetSource.note;
         image.src = record.src;
         partySpriteSrcAssignments += 1;
@@ -5603,11 +5660,15 @@
         item.dataset.spriteAsset = record?.key ?? '';
         item.dataset.spriteAssetSourceCommit = record ? mapSpriteAssetSource.commit : '';
         item.dataset.spriteAssetSourcePath = record ? mapSpriteAssetSource.path : '';
+        item.dataset.spriteAssetSourcePack = record ? mapSpriteAssetSource.pack : '';
+        item.dataset.spriteAssetSourcePatchSha256 = record ? mapSpriteAssetSource.absorbedPatchSha256 : '';
         item.dataset.spriteAssetSourceNote = record ? mapSpriteAssetSource.note : '';
         spriteImage.dataset.spriteAsset = record?.key ?? '';
         spriteImage.dataset.generatedMapSprite = record ? 'true' : '';
         spriteImage.dataset.spriteAssetSourceCommit = record ? mapSpriteAssetSource.commit : '';
         spriteImage.dataset.spriteAssetSourcePath = record ? mapSpriteAssetSource.path : '';
+        spriteImage.dataset.spriteAssetSourcePack = record ? mapSpriteAssetSource.pack : '';
+        spriteImage.dataset.spriteAssetSourcePatchSha256 = record ? mapSpriteAssetSource.absorbedPatchSha256 : '';
         spriteImage.dataset.spriteAssetSourceNote = record ? mapSpriteAssetSource.note : '';
         if (entry.key === 'villagers') {
           applyVillagerTaskStateDatasets(item, entry.villagerTaskState ?? {
@@ -5668,6 +5729,31 @@
       const individualUnitMarkerNodes = new Map();
       let individualUnitMarkerNodesCreated = 0;
 
+      function individualUnitMarkerAssetRecord(assignment) {
+        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey) ?? 'unknown';
+        if (spriteKey === 'villagers' && assignment.partyKind !== 'attack') {
+          const task = villagerTaskDefinitions[assignment.villagerTaskAssignment] ?? null;
+          const workAnimation = villagerWorkAnimationForAssignment(task);
+          if (workAnimation?.asset) return { key: `villagers:${workAnimation.key}`, src: workAnimation.asset };
+        }
+        const kind = assignment.partyKind === 'attack' ? 'attack' : 'move';
+        const asset = partySpriteAssets[kind]?.[spriteKey]
+          ?? partySpriteAssets.move[spriteKey]
+          ?? partySpriteAssets.attack[spriteKey]
+          ?? null;
+        return asset ? { key: `${kind}:${spriteKey}`, src: asset } : null;
+      }
+
+      function setGeneratedMapSpriteDatasets(element, record) {
+        element.dataset.generatedMapSprite = record ? 'true' : '';
+        element.dataset.spriteAsset = record?.key ?? '';
+        element.dataset.spriteAssetSourceCommit = record ? mapSpriteAssetSource.commit : '';
+        element.dataset.spriteAssetSourcePath = record ? mapSpriteAssetSource.path : '';
+        element.dataset.spriteAssetSourcePack = record ? mapSpriteAssetSource.pack : '';
+        element.dataset.spriteAssetSourcePatchSha256 = record ? mapSpriteAssetSource.absorbedPatchSha256 : '';
+        element.dataset.spriteAssetSourceNote = record ? mapSpriteAssetSource.note : '';
+      }
+
       function unitMarkerTitle(assignment) {
         return [
           `Player ${assignment.player} ${assignment.unitName || 'unit'} ${assignment.instanceId}.`,
@@ -5685,7 +5771,25 @@
         marker.className = 'unit-marker';
         marker.dataset.markerKey = assignment.markerKey;
         marker.setAttribute('aria-hidden', 'true');
-        marker.textContent = (mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?').slice(0, 3);
+        const image = document.createElement('img');
+        image.className = 'unit-marker-image';
+        image.alt = '';
+        image.decoding = 'async';
+        image.loading = 'eager';
+        image.setAttribute('aria-hidden', 'true');
+        image.addEventListener('load', () => {
+          marker.dataset.spriteLoadState = 'loaded';
+        });
+        image.addEventListener('error', () => {
+          marker.dataset.spriteLoadState = 'error';
+        });
+        const fallback = generatedMarker(
+          'unit-marker-fallback',
+          mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?',
+          '',
+        );
+        fallback.setAttribute('aria-hidden', 'true');
+        marker.append(image, fallback);
         spriteOverlay.append(marker);
         individualUnitMarkerNodes.set(assignment.markerKey, marker);
         individualUnitMarkerNodesCreated += 1;
@@ -5698,6 +5802,7 @@
         marker.style.left = `${assignment.position.x * cellSize * scale.x}px`;
         marker.style.top = `${assignment.position.y * cellSize * scale.y}px`;
         marker.style.setProperty('--player-color', teamColor);
+        marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
         marker.style.setProperty('--unit-marker-size', `${Math.max(12, 18 * uniformScale)}px`);
         marker.style.setProperty('--unit-marker-font-size', `${Math.max(6, 8 * uniformScale)}px`);
         marker.dataset.player = String(assignment.player);
@@ -5721,7 +5826,26 @@
         marker.dataset.terrainAvoidance = 'false';
         marker.dataset.staticMapMarker = 'true';
         marker.dataset.animatedSpriteFrames = 'false';
-        marker.textContent = (mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?').slice(0, 3);
+        const record = individualUnitMarkerAssetRecord(assignment);
+        const image = marker.querySelector('.unit-marker-image');
+        const fallback = marker.querySelector('.unit-marker-fallback');
+        if (fallback) fallback.textContent = (mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?').slice(0, 3);
+        setGeneratedMapSpriteDatasets(marker, record);
+        if (image) {
+          const previousAsset = image.dataset.spriteAsset;
+          setGeneratedMapSpriteDatasets(image, record);
+          if (record && previousAsset !== record.key) {
+            marker.dataset.spriteLoadState = 'pending';
+            image.src = record.src;
+          } else if (record && image.complete && image.naturalWidth > 0) {
+            marker.dataset.spriteLoadState = 'loaded';
+          } else if (!record) {
+            marker.dataset.spriteLoadState = 'error';
+            image.removeAttribute('src');
+          }
+        } else {
+          marker.dataset.spriteLoadState = record ? 'loaded' : 'error';
+        }
         marker.title = unitMarkerTitle(assignment);
       }
 
