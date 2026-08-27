@@ -11,7 +11,7 @@ The worker emits generated UTF-8 JSON buffers only:
 - `lifetimes.json`
 - `economy.json`
 - `resource_estimates.json`
-- `unit_stats.json` only for replay SHA-256 `67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc`
+- `unit_stats.json`, calculated for every selected replay from its players, civilizations, produced units, and reconstructed research timeline
 
 The viewer iframe does not fetch private/static sidecars. Each selection creates a fresh `allow-scripts`-only sandboxed
 iframe with an opaque origin. A nonce-bound ready/transfer handshake validates the exact iframe window, parent origin,
@@ -71,11 +71,7 @@ The worker sanitizes browser-generated provenance before downstream scripts cons
 later source labels before transfer. It rejects generated payload text containing local home-directory paths, temporary
 directory paths, Pyodide work paths, file URL schemes, Windows absolute paths, or URL credential patterns.
 
-The known unit-stats sidecar is a sanitized replay-specific artifact:
-
-- `public/dataview-runtime/known/unit_stats-67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc.json`
-- SHA-256 `ee48a140aa1d6012e411268c82922b2ed7e6fb27cb1547e39a22a24f1c3fb9f5`
-- Applies only when the selected replay content hash is exactly the representative hash above.
+Unit statistics are not bundled as replay-specific sidecars. The worker loads the generic public derived ruleset and calculates a fresh `aoe2-unit-stats/v1` artifact for every replay selection. Civilization and allied team effects are applied at time zero; observed research effects and unit-line upgrades are applied at that replay's reconstructed completion times. Unsupported relevant effect operations remain explicitly unresolved rather than guessed.
 
 ## Icons
 

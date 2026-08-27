@@ -56,8 +56,8 @@ const verifiedAssets = [
     sha256: "4e2f85b39e39078cdee71bdbaf2c36a8f0b50202de4032df7ba8e2c36c6049c4"
   },
   {
-    target: "public/dataview-runtime/known/unit_stats-67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc.json",
-    sha256: "ee48a140aa1d6012e411268c82922b2ed7e6fb27cb1547e39a22a24f1c3fb9f5"
+    target: "public/rules/ruleset-current.json",
+    sha256: "c23b1ffd73f1178baa011f41d7d7faab98f7076eb885dcdd43711a295afb7eab"
   }
 ];
 

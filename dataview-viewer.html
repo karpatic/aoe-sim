@@ -5,19 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AoE II single-game data</title>
   <style>
-    :root { --map-scale-percent: 100%; --map-scale-width: 45rem; }
+    :root { --timeline-height: 3.35rem; }
     * { box-sizing: border-box; }
-    html, body, main { max-width: 100%; }
-    main { padding-bottom: 6rem; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    main { display: grid; grid-template-columns: min(100vh, calc(100vw - 24rem)) minmax(24rem, 1fr); width: 100%; height: 100vh; max-width: 100%; overflow: hidden; }
     body { margin: 0; overflow-wrap: anywhere; }
     details, summary, code { max-width: 100%; overflow-wrap: anywhere; }
     summary { cursor: pointer; }
     .tree { width: 100%; overflow: auto; border: 1px solid; padding: .5rem; }
     .node, .primitive { margin-left: 1rem; }
     code, .schema-object { white-space: pre-wrap; overflow-wrap: anywhere; }
-    #timeline-players, #timeline-section, #map-stack, #map-legend-details { width: min(var(--map-scale-percent), var(--map-scale-width)); max-width: none; }
-    #map-stack { position: relative; }
-    #map-canvas { display: block; width: 100%; height: auto; border: 1px solid; image-rendering: pixelated; }
+    #map-column { display: grid; place-items: start center; width: 100%; height: 100vh; min-width: 0; overflow: hidden; background: #101214; }
+    #detail-column { min-width: 0; height: 100vh; padding: .65rem .75rem calc(var(--timeline-height) + 1rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+    #timeline-players, #map-legend-details { width: 100%; max-width: none; }
+    #map-stack { position: relative; width: 100%; height: 100vh; }
+    #map-canvas { display: block; width: 100%; height: 100%; border: 1px solid; object-fit: contain; image-rendering: pixelated; }
     #resource-canvas, #building-canvas, #gameplay-canvas, #sprite-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
     #sprite-overlay { overflow: visible; }
     .party-sprite-strip { position: absolute; display: flex; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
@@ -35,12 +37,13 @@
     .command-symbol { display: inline-block; flex: 0 0 auto; width: 1rem; margin-right: .25rem; text-align: center; font-weight: bold; line-height: 1rem; white-space: nowrap; overflow-wrap: normal; vertical-align: text-bottom; }
     .outlined-command-symbol { -webkit-text-stroke: 1.5px var(--command-outline); paint-order: stroke fill; text-shadow: 0 0 1px #111; }
     .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 1px solid #111; border-radius: 50%; vertical-align: -.05rem; }
-    #timeline-section { position: fixed; z-index: 20; bottom: 0; left: 0; margin: 0; padding: .55rem; border-top: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
+    #timeline-section { position: fixed; z-index: 20; right: 0; bottom: 0; left: 0; width: 100vw; min-height: var(--timeline-height); margin: 0; padding: .55rem; border-top: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
+    #timeline-map-size { display: none; }
     #timeline-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); align-items: start; gap: .5rem; margin-bottom: .5rem; }
     .legend-category-icon { display: inline-block; flex: 0 0 auto; width: 1rem; height: 1rem; margin-right: .25rem; image-rendering: pixelated; vertical-align: text-bottom; }
-    .panel-details { width: min(100%, 45rem); margin: .75rem 0; border: 1px solid; }
+    .panel-details { width: 100%; margin: .75rem 0; border: 1px solid; }
     .panel-details > summary { padding: .5rem; font-weight: bold; background: #eee; }
     .panel-details[open] > summary { border-bottom: 1px solid; }
     #map-legend-details > #map-legend { padding: 0 .5rem .5rem; }
@@ -92,9 +95,9 @@
     .unit-count-metric-built .unit-count-value { color: #d8edff; }
     .unit-stat-caveat { margin: .35rem 0 0; color: #aaa38f; font-size: .7rem; line-height: 1.25; }
     .sprite-name-label { position: fixed; z-index: 1000; max-width: min(16rem, calc(100vw - 1rem)); padding: .2rem .38rem; border: 1px solid #5c5642; border-radius: 3px; color: #fff8d7; background: rgba(13, 15, 16, .96); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); font: 700 .72rem/1.15 sans-serif; text-align: center; overflow-wrap: anywhere; pointer-events: none; }
-    #chat { width: min(100%, 45rem); padding-left: 1.5rem; }
+    #chat { width: 100%; padding-left: 1.5rem; }
     #chat li { margin: .4rem 0; padding-left: .4rem; border-left: .35rem solid var(--player-color); }
-    #viewer-notice { width: min(100%, 45rem); margin: .5rem 0; padding: .45rem .6rem; border: 1px solid #777; background: #f7f7f7; }
+    #viewer-notice { width: 100%; margin: 0 0 .65rem; padding: .45rem .6rem; border: 1px solid #777; background: #f7f7f7; }
     #viewer-notice[data-state="error"] { border-color: #7f1d1d; color: #7f1d1d; background: #fff7f7; }
     .hud-sprite-frame { display: grid; place-items: center; width: 1.55rem; height: 1.55rem; }
     .unit-count-tile .hud-sprite-frame { justify-self: center; width: 1.9rem; height: 1.9rem; }
@@ -104,7 +107,11 @@
     .legend-category-icon.generated-marker { margin-right: .25rem; color: #111; background: #eee; }
     .party-sprite-image.generated-marker { grid-column: 1; justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
     .party-sprite-task-marker.generated-marker { border-radius: 50%; color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .9); font-size: calc(var(--task-marker-size) * .7); }
-    @media (max-width: 40rem) {
+    @media (max-width: 50rem) {
+      main { grid-template: min(48vh, 100vw) minmax(0, 1fr) / 100%; }
+      #map-column { height: 100%; }
+      #map-stack { width: min(100%, 48vh); height: 100%; }
+      #detail-column { height: 100%; padding-bottom: calc(var(--timeline-height) + .75rem); }
       .node, .primitive { margin-left: .6rem; }
       dd { margin-left: 1rem; }
       .player-header { min-height: 2.25rem; }
@@ -115,18 +122,7 @@
 </head>
 <body>
   <main>
-    <p id="viewer-notice" role="status">Waiting for generated replay data from the upload page.</p>
-    <section aria-label="Map">
-      <div id="timeline-players" aria-label="Player statistics"></div>
-      <section id="timeline-section" aria-label="Timeline">
-        <div id="timeline-controls">
-          <button id="timeline-play" type="button">Play</button>
-          <button id="timeline-speed" type="button" aria-label="Playback speed: 30×. Activate for 4×.">30×</button>
-          <button id="timeline-map-size" type="button" aria-label="Map size: 1×. Activate for 2×.">Map 1×</button>
-          <input id="timeline-slider" type="range" min="0" value="0" step="any" aria-label="Match time">
-          <output id="timeline-time" for="timeline-slider"></output>
-        </div>
-      </section>
+    <section id="map-column" aria-label="Map">
       <div id="map-stack">
         <canvas id="map-canvas" aria-label="Terrain and elevation map"></canvas>
         <canvas id="resource-canvas" aria-label="Resource layer"></canvas>
@@ -134,17 +130,29 @@
         <canvas id="gameplay-canvas" aria-label="Character and command evidence layer"></canvas>
         <div id="sprite-overlay" aria-hidden="true"></div>
       </div>
+    </section>
+    <aside id="detail-column" aria-label="Replay details">
+      <p id="viewer-notice" role="status">Waiting for generated replay data from the upload page.</p>
+      <div id="timeline-players" aria-label="Player statistics"></div>
       <details id="map-legend-details" class="panel-details" open>
         <summary>Map legend</summary>
         <div id="map-legend" aria-label="Map legend"></div>
       </details>
 
+      <section aria-labelledby="chat-heading">
+        <h2 id="chat-heading">Chat</h2>
+        <ol id="chat"></ol>
+      </section>
+    </aside>
+    <section id="timeline-section" aria-label="Timeline">
+      <div id="timeline-controls">
+        <button id="timeline-play" type="button">Play</button>
+        <button id="timeline-speed" type="button" aria-label="Playback speed: 30×. Activate for 4×.">30×</button>
+        <button id="timeline-map-size" type="button" aria-label="Map size locked to viewport height">Map 1×</button>
+        <input id="timeline-slider" type="range" min="0" value="0" step="any" aria-label="Match time">
+        <output id="timeline-time" for="timeline-slider"></output>
+      </div>
     </section>
-    <section aria-labelledby="chat-heading">
-      <h2 id="chat-heading">Chat</h2>
-      <ol id="chat"></ol>
-    </section>
-
   </main>
   <noscript>This viewer requires JavaScript and a same-origin upload page data payload.</noscript>
   <script>
@@ -173,8 +181,8 @@
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
     const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
     const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
-    const viewerRequiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json']);
-    const viewerOptionalOutputNames = Object.freeze(['unit_stats.json']);
+    const viewerRequiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json']);
+    const viewerOptionalOutputNames = Object.freeze([]);
     const viewerOutputNames = Object.freeze([...viewerRequiredOutputNames, ...viewerOptionalOutputNames]);
     const viewerHandshake = parseViewerHandshake();
     let shellScrollTop = 0;

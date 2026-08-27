@@ -65,7 +65,7 @@ const stageOrder: readonly DataviewProgressStage[] = [
   "inferring-lifetimes",
   "generating-economy",
   "reconstructing-resources",
-  "loading-known-unit-stats",
+  "generating-unit-stats",
   "transferring",
   "done"
 ];
@@ -81,7 +81,7 @@ const stageLabels: Record<DataviewProgressStage, string> = {
   "inferring-lifetimes": "Infer lifetimes",
   "generating-economy": "Generate economy",
   "reconstructing-resources": "Reconstruct resources",
-  "loading-known-unit-stats": "Known unit stats",
+  "generating-unit-stats": "Calculate unit stats",
   transferring: "Transfer to viewer",
   done: "Ready"
 };
@@ -320,6 +320,9 @@ function validateOutputs(outputs: readonly DataviewGeneratedOutput[]): void {
     if (!outputNames.has(name)) {
       throw new Error(`Preprocessor did not return ${name}.`);
     }
+  }
+  if (!outputNames.has("unit_stats.json")) {
+    throw new Error("Preprocessor did not calculate unit_stats.json for this replay.");
   }
   assertDataviewGeneratedJsonTotalByteLength(totalBytes);
 }

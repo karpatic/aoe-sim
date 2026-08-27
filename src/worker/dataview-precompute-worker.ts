@@ -2,7 +2,6 @@ import type { PyodideInterface } from "pyodide";
 import {
   DATAVIEW_REQUIRED_OUTPUT_NAMES,
   DATAVIEW_WORKER_REQUEST_TYPE,
-  KNOWN_REPRESENTATIVE_REPLAY_SHA256,
   type DataviewDoneMessage,
   type DataviewErrorMessage,
   type DataviewGeneratedOutput,
@@ -18,6 +17,7 @@ import {
   assertRecordingByteLength,
   formatBytes
 } from "../replay/limits";
+import { generateUnitStatsForReplay } from "../replay/unit-stats";
 
 type DataviewWorkerScope = typeof globalThis & {
   postMessage(message: DataviewWorkerToClient, transfer?: readonly Transferable[]): void;
@@ -50,7 +50,8 @@ interface PipelineStage {
 
 const workerScope = self as DataviewWorkerScope;
 const PIPELINE_SHA256 = "bab3345c2f8128350ce64090c73eb1088cc229af94a0add698be046233a26ffc";
-const KNOWN_UNIT_STATS_SHA256 = "ee48a140aa1d6012e411268c82922b2ed7e6fb27cb1547e39a22a24f1c3fb9f5";
+const RULESET_SHA256 = "c23b1ffd73f1178baa011f41d7d7faab98f7076eb885dcdd43711a295afb7eab";
+
 const WORK_DIR = "/work";
 const REPLAY_PATH = `${WORK_DIR}/selected.aoe2record`;
 const REFERENCE_PATH = `${WORK_DIR}/aoe2techtree-data.json`;
@@ -226,19 +227,20 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
     outputs.push(await readPyodideOutput(pyodide, name, OUTPUT_PATHS[name]));
   }
 
-  let unitStatsNotice = "Unit stats are not available for this replay; base/effective unit stat tiles stay in fallback mode.";
-  if (replaySha256 === KNOWN_REPRESENTATIVE_REPLAY_SHA256) {
-    const unitStats = await recordStage(timings, "loading-known-unit-stats", "Loading known replay unit stats", 12, 15,
-      async () => fetchVerified(
-        runtimeBaseUrl,
-        `known/unit_stats-${KNOWN_REPRESENTATIVE_REPLAY_SHA256}.json`,
-        KNOWN_UNIT_STATS_SHA256,
-        2 * 1024 * 1024
-      ),
-      message.requestId);
-    outputs.push(await buildFetchedOutput("unit_stats.json", unitStats, "known-replay-unit-stats"));
-    unitStatsNotice = "Known-replay unit stats loaded for the exact representative replay hash.";
-  }
+  const unitStatsBuffer = await recordStage(timings, "generating-unit-stats", "Calculating this replay's unit stats", 12, 15,
+    async () => {
+      const rulesetBuffer = await fetchVerified(runtimeBaseUrl, "../rules/ruleset-current.json", RULESET_SHA256, 20 * 1024 * 1024);
+      const rulesetText = new TextDecoder("utf-8", { fatal: true }).decode(rulesetBuffer);
+      const generated = generateUnitStatsForReplay({
+        game: parseGeneratedOutput(outputs, "game.json"),
+        economy: parseGeneratedOutput(outputs, "economy.json"),
+        resourceEstimates: parseGeneratedOutput(outputs, "resource_estimates.json"),
+        ruleset: JSON.parse(rulesetText) as Record<string, unknown>
+      });
+      return new TextEncoder().encode(`${JSON.stringify(generated)}\n`).buffer;
+    }, message.requestId);
+  outputs.push(await buildFetchedOutput("unit_stats.json", unitStatsBuffer, "per-replay-unit-stats"));
+  const unitStatsNotice = "Unit attributes calculated from this replay's civilizations, units, and research timeline.";
 
   const totalBytes = outputs.reduce((sum, output) => sum + output.sizeBytes, 0);
   assertDataviewGeneratedJsonTotalByteLength(totalBytes);
@@ -427,6 +429,19 @@ function outputPathForStage(stage: PipelineStage): string {
     default:
       return OUTPUT_PATHS["game.json"];
   }
+}
+
+function parseGeneratedOutput(
+  outputs: readonly DataviewGeneratedOutput[],
+  name: (typeof DATAVIEW_REQUIRED_OUTPUT_NAMES)[number]
+): Record<string, unknown> {
+  const output = outputs.find(candidate => candidate.name === name);
+  if (!output) throw new Error(`Generated replay output is missing ${name}.`);
+  const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(output.buffer));
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Generated replay output ${name} is not a JSON object.`);
+  }
+  return value as Record<string, unknown>;
 }
 
 async function readPyodideOutput(

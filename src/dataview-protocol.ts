@@ -3,8 +3,6 @@ export const DATAVIEW_VIEWER_PAYLOAD_TYPE = "aoe-sim.dataview.generated-payload.
 export const DATAVIEW_VIEWER_READY_TYPE = "aoe-sim.dataview.viewer-ready.v1";
 export const DATAVIEW_VIEWER_SHELL_SCROLL_REQUEST_TYPE = "aoe-sim.dataview.shell-scroll-request.v1";
 export const DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE = "aoe-sim.dataview.shell-scroll-state.v1";
-export const KNOWN_REPRESENTATIVE_REPLAY_SHA256 =
-  "67accb2d81fc58f65bfe9696fb783374731b494ca102d78c7f5221c002d628bc";
 export const PINNED_TECH_TREE_SHA256 =
   "4e2f85b39e39078cdee71bdbaf2c36a8f0b50202de4032df7ba8e2c36c6049c4";
 
@@ -34,7 +32,7 @@ export type DataviewProgressStage =
   | "inferring-lifetimes"
   | "generating-economy"
   | "reconstructing-resources"
-  | "loading-known-unit-stats"
+  | "generating-unit-stats"
   | "transferring"
   | "done";
 
@@ -74,7 +72,7 @@ export interface DataviewGeneratedOutput {
   readonly name: DataviewOutputName;
   readonly sizeBytes: number;
   readonly sha256: string;
-  readonly source: "pyodide-pipeline" | "known-replay-unit-stats";
+  readonly source: "pyodide-pipeline" | "per-replay-unit-stats";
   readonly buffer: ArrayBuffer;
 }
 
