@@ -49,8 +49,9 @@
           --dataview-map-row: 48dvh;
           --dataview-map-column: 0px;
           --dataview-detail-column: 100vw;
+          --dataview-mobile-timeline-reserve: calc(6rem + max(.45rem, env(safe-area-inset-bottom)) + .65rem + .75rem);
         }
-        .upload-panel { top: var(--dataview-map-row); left: 0; right: 0; width: 100%; max-height: min(42dvh, calc(100dvh - var(--dataview-map-row))); border-top: 1px solid #333; border-left: 0; }
+        .upload-panel { top: var(--dataview-map-row); left: 0; right: 0; width: 100%; max-height: min(42dvh, calc(100dvh - var(--dataview-map-row) - var(--dataview-mobile-timeline-reserve))); border-top: 1px solid #333; border-left: 0; }
         .upload-panel > summary { padding-inline: .65rem; }
         .upload-content { padding-inline: .65rem; }
         .panel-hint { display: none; }
