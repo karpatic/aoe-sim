@@ -44,6 +44,8 @@ const uploadPanel = must<HTMLDetailsElement>("#upload-panel");
 const viewerHost = must<HTMLElement>("#viewer-host");
 const viewerEmpty = must<HTMLElement>("#viewer-empty");
 const runtimeBaseUrl = new URL("./dataview-runtime/", document.baseURI).href;
+const viewerPageUrl = new URL(document.body.dataset.viewerPage ?? "./dataview-viewer.html", document.baseURI);
+const viewerFrameTitle = document.body.dataset.viewerTitle ?? "Generated AoE II single-game dataview";
 const defaultRecordingUrl = new URL("./glade-default.aoe2record", document.baseURI);
 const defaultRecordingSize = 2_101_825;
 const defaultRecordingSha256 = "6fa2103c6b632edda3d114d5d1aabb5ed7560b4d70c0a1070d170e7b4c3833d9";
@@ -318,9 +320,9 @@ function validateOutputs(outputs: readonly DataviewGeneratedOutput[]): void {
 function createViewerIframe(payload: DataviewViewerPayload, nonce: string): void {
   resetViewer();
   const iframe = document.createElement("iframe");
-  const viewerUrl = new URL("./dataview-viewer.html", document.baseURI);
+  const viewerUrl = new URL(viewerPageUrl);
   viewerUrl.hash = new URLSearchParams({ requestId: payload.requestId, nonce }).toString();
-  iframe.title = "Generated AoE II single-game dataview";
+  iframe.title = viewerFrameTitle;
   iframe.src = viewerUrl.href;
   iframe.referrerPolicy = "no-referrer";
   iframe.sandbox.add("allow-scripts");

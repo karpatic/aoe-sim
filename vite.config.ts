@@ -9,7 +9,9 @@ export default defineConfig({
       input: {
         index: htmlEntry("index.html"),
         dataview: htmlEntry("dataview.html"),
-        dataviewViewer: htmlEntry("dataview-viewer.html")
+        dataviewViewer: htmlEntry("dataview-viewer.html"),
+        dataviewData: htmlEntry("dataview-data.html"),
+        dataviewDataViewer: htmlEntry("dataview-data-viewer.html")
       }
     }
   },

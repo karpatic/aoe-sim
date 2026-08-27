@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>AoE II schemas and parsed data</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { max-width: 100%; }
+    body { margin: 0; color: #1b1b1b; background: #fff; font: 15px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
+    main { width: min(100%, 84rem); margin: 0 auto; padding: .8rem; }
+    h1, h2 { line-height: 1.15; }
+    h1 { margin: 0; font-size: 1.35rem; }
+    h2 { margin: 0; font-size: 1.05rem; }
+    #viewer-notice { margin: .5rem 0 .8rem; padding: .45rem .6rem; border: 1px solid #777; background: #f7f7f7; }
+    #viewer-notice[data-state="error"] { border-color: #7f1d1d; color: #7f1d1d; background: #fff7f7; }
+    .data-section { margin: 0 0 .75rem; border: 1px solid #555; }
+    .data-section > summary { padding: .6rem .7rem; cursor: pointer; font-weight: 750; background: #eee; }
+    .data-section[open] > summary { border-bottom: 1px solid #777; }
+    .tree { width: 100%; padding: .55rem; overflow: auto; }
+    .node { max-width: 100%; margin-left: 1rem; }
+    .node > summary { cursor: pointer; }
+    .primitive { margin-left: 1rem; }
+    code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    @media (max-width: 40rem) {
+      main { padding: .55rem; }
+      .node, .primitive { margin-left: .55rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Schemas and complete parsed data</h1>
+    <p id="viewer-notice" role="status">Waiting for browser-generated replay data.</p>
+    <details class="data-section" open>
+      <summary>Schemas</summary>
+      <div id="schemas" class="tree"></div>
+    </details>
+    <details class="data-section" open>
+      <summary>Complete parsed data</summary>
+      <div id="data" class="tree"></div>
+    </details>
+  </main>
+  <noscript>This viewer requires JavaScript and a same-origin browser-processing host.</noscript>
+  <script>
+    const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
+    const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
+    const requiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json']);
+    const optionalOutputNames = Object.freeze(['unit_stats.json']);
+    const allowedOutputNames = Object.freeze([...requiredOutputNames, ...optionalOutputNames]);
+    const outputLabels = Object.freeze({
+      'game.json': 'Recording export',
+      'lifetimes.json': 'Object lifetimes and map events',
+      'economy.json': 'Economy events',
+      'resource_estimates.json': 'Resource reconstruction',
+      'unit_stats.json': 'Unit stat timeline',
+    });
+    const maxOutputBytes = 96 * 1024 * 1024;
+    const maxTotalBytes = 192 * 1024 * 1024;
+    const viewerNotice = document.querySelector('#viewer-notice');
+    const schemas = document.querySelector('#schemas');
+    const data = document.querySelector('#data');
+    const handshake = parseHandshake();
+
+    function typeName(value) {
+      if (Array.isArray(value)) return `Array (${value.length} items)`;
+      if (value !== null && typeof value === 'object') return `Object (${Object.keys(value).length} keys)`;
+      if (value === null) return 'null';
+      return typeof value;
+    }
+
+    function renderNode(label, value, open = false) {
+      if (value === null || typeof value !== 'object') {
+        const line = document.createElement('div');
+        line.className = 'primitive';
+        const key = document.createElement('strong');
+        const rendered = document.createElement('code');
+        key.textContent = `${label}: `;
+        rendered.textContent = JSON.stringify(value);
+        line.append(key, rendered);
+        return line;
+      }
+
+      const node = document.createElement('details');
+      node.className = 'node';
+      const heading = document.createElement('summary');
+      heading.textContent = `${label} — ${typeName(value)}`;
+      node.append(heading);
+      let rendered = false;
+      const renderChildren = () => {
+        if (rendered) return;
+        rendered = true;
+        const fragment = document.createDocumentFragment();
+        const entries = Array.isArray(value)
+          ? value.map((item, index) => [`[${index}]`, item])
+          : Object.entries(value);
+        if (!entries.length) {
+          const empty = document.createElement('div');
+          empty.className = 'primitive';
+          empty.textContent = Array.isArray(value) ? '[]' : '{}';
+          fragment.append(empty);
+        } else {
+          entries.forEach(([key, item]) => fragment.append(renderNode(key, item)));
+        }
+        node.append(fragment);
+      };
+      node.addEventListener('toggle', () => {
+        if (node.open) renderChildren();
+      });
+      node.open = open;
+      if (open) renderChildren();
+      return node;
+    }
+
+    function parseHandshake() {
+      const params = new URLSearchParams(location.hash.slice(1));
+      const requestId = params.get('requestId') ?? '';
+      const nonce = params.get('nonce') ?? '';
+      if (!/^[A-Za-z0-9._:-]{1,240}$/.test(requestId) || !/^[A-Za-z0-9._:-]{1,240}$/.test(nonce)) return null;
+      return { requestId, nonce };
+    }
+
+    function setNotice(text, state = 'ready') {
+      viewerNotice.textContent = text;
+      viewerNotice.dataset.state = state;
+      viewerNotice.setAttribute('role', state === 'error' ? 'alert' : 'status');
+    }
+
+    function postReady() {
+      if (!handshake) {
+        setNotice('Viewer handshake is missing or malformed.', 'error');
+        return;
+      }
+      window.parent.postMessage({
+        type: viewerReadyType,
+        requestId: handshake.requestId,
+        nonce: handshake.nonce,
+      }, window.location.origin);
+    }
+
+    function validatePayload(payload, event) {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return null;
+      if (!handshake) throw new Error('Viewer handshake is missing or malformed.');
+      if (!payload || payload.type !== viewerPayloadType) throw new Error('Viewer payload type is invalid.');
+      if (payload.requestId !== handshake.requestId || payload.viewerNonce !== handshake.nonce) {
+        throw new Error('Viewer payload does not match this viewer request.');
+      }
+      if (!Array.isArray(payload.outputs)) throw new Error('Viewer payload outputs must be an array.');
+      const allowed = new Set(allowedOutputNames);
+      const names = new Set();
+      let totalBytes = 0;
+      payload.outputs.forEach((entry) => {
+        if (!entry || !allowed.has(entry.name)) throw new Error('Viewer payload contains an unexpected output name.');
+        if (names.has(entry.name)) throw new Error(`Viewer payload contains duplicate ${entry.name}.`);
+        if (!(entry.buffer instanceof ArrayBuffer)) throw new Error(`${entry.name} is missing its transferred ArrayBuffer.`);
+        if (!Number.isSafeInteger(entry.sizeBytes) || entry.sizeBytes < 0 || entry.sizeBytes > maxOutputBytes) {
+          throw new Error(`${entry.name} has an invalid byte size.`);
+        }
+        if (entry.sizeBytes !== entry.buffer.byteLength) throw new Error(`${entry.name} byte size does not match its buffer.`);
+        if (!/^[a-f0-9]{64}$/.test(String(entry.sha256 ?? ''))) throw new Error(`${entry.name} is missing a SHA-256 digest.`);
+        names.add(entry.name);
+        totalBytes += entry.sizeBytes;
+      });
+      requiredOutputNames.forEach((name) => {
+        if (!names.has(name)) throw new Error(`Viewer payload is missing ${name}.`);
+      });
+      if (totalBytes > maxTotalBytes) throw new Error('Viewer payload is larger than the standalone dataview limit.');
+      return payload;
+    }
+
+    function parseOutput(entry) {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(entry.buffer);
+      const forbidden = [
+        /\/home\/carlos/,
+        /\/tmp(?:\/|\b)/,
+        /\/work(?:\/|\b)/,
+        /file:\/\//,
+        /[A-Za-z]:\\/,
+        /:\/\/[^\s/:@]+:[^\s/@]+@/,
+      ];
+      if (forbidden.some((pattern) => pattern.test(text))) {
+        throw new Error(`${entry.name} contains a forbidden local path or credential pattern.`);
+      }
+      return JSON.parse(text);
+    }
+
+    function renderPayload(payload) {
+      const byName = new Map(payload.outputs.map((entry) => [entry.name, entry]));
+      const schemaDocument = parseOutput(byName.get('schemas.json'));
+      if (!schemaDocument || !Array.isArray(schemaDocument.schemas)) {
+        throw new Error('schemas.json is missing its schemas array.');
+      }
+      schemas.replaceChildren();
+      data.replaceChildren();
+      schemaDocument.schemas.forEach((entry) => {
+        const label = Array.isArray(entry.paths) ? entry.paths.join('; ') : 'Schema';
+        schemas.append(renderNode(label, entry.schema));
+      });
+      allowedOutputNames
+        .filter((name) => name !== 'schemas.json' && byName.has(name))
+        .forEach((name) => data.append(renderNode(outputLabels[name] ?? name, parseOutput(byName.get(name)))));
+      const game = parseOutput(byName.get('game.json'));
+      const mapName = game?.summary?.map?.name ?? 'AoE II replay';
+      document.title = `${mapName}: schemas and parsed data`;
+      setNotice(`${payload.replay.fileName} parsed in this browser. ${payload.outputs.length} generated JSON outputs are available below.`);
+    }
+
+    window.addEventListener('message', (event) => {
+      try {
+        const payload = validatePayload(event.data, event);
+        if (payload) renderPayload(payload);
+      } catch (error) {
+        setNotice(`Could not render parsed data: ${error.message}`, 'error');
+      }
+    });
+    postReady();
+  </script>
+</body>
+</html>
