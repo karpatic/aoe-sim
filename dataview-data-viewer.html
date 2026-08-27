@@ -48,7 +48,7 @@
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
     const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
     const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
-    const requiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json']);
+    const requiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json', 'gameplay_timeline.json']);
     const optionalOutputNames = Object.freeze([]);
     const allowedOutputNames = Object.freeze([...requiredOutputNames, ...optionalOutputNames]);
     const outputLabels = Object.freeze({
@@ -57,6 +57,7 @@
       'economy.json': 'Economy events',
       'resource_estimates.json': 'Resource reconstruction',
       'unit_stats.json': 'Unit stat timeline',
+      'gameplay_timeline.json': 'Gameplay timeline',
     });
     const maxOutputBytes = 96 * 1024 * 1024;
     const maxTotalBytes = 192 * 1024 * 1024;

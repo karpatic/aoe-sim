@@ -40,7 +40,12 @@
     .map-chat-message { max-width: 100%; padding: .18rem .38rem; color: #fff; background: rgba(8, 10, 12, .72); border-left: .3rem solid var(--player-color, #888); font: 700 .86rem/1.25 system-ui, sans-serif; text-shadow: 0 1px 2px #000, 1px 0 2px #000; overflow-wrap: anywhere; animation: map-chat-lifetime 6s linear forwards; }
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
-    .party-sprite-strip { position: absolute; display: flex; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
+    .unit-marker { position: absolute; display: grid; place-items: center; width: var(--unit-marker-size, 18px); height: var(--unit-marker-size, 18px); border: 2px solid var(--player-color, #fff); border-radius: 3px; color: #fff; background: rgba(11, 14, 16, .88); box-shadow: 0 0 0 1px #101214, 0 0 4px var(--player-color, #fff); font: 800 var(--unit-marker-font-size, 8px)/1 system-ui, sans-serif; text-align: center; text-shadow: 0 1px 0 #000; image-rendering: pixelated; transform: translate(-50%, -50%); will-change: left, top; }
+    .unit-marker[data-evidence-class="observed"] { background: rgba(13, 38, 52, .92); }
+    .unit-marker[data-evidence-class="reconciled"] { background: rgba(31, 54, 26, .92); }
+    .unit-marker[data-reconciliation-status^="anonymous"] { border-style: dashed; }
+    .unit-marker[data-reconciliation-status^="ambiguous"] { border-style: dotted; }
+    .party-sprite-strip { position: absolute; display: none; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
     .party-sprite-item { position: relative; display: inline-grid; place-items: center; width: var(--party-entry-width); height: var(--strip-height); }
     .party-sprite-image { justify-self: center; display: block; width: var(--sprite-size); height: var(--sprite-size); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
     .party-sprite-count { position: absolute; top: 0; right: 0; display: inline-block; min-width: .9em; padding: .05em .16em; border: 1px solid var(--player-color); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .88); font-size: var(--badge-font-size); font-variant-numeric: tabular-nums; line-height: .95; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translate(30%, -18%); }
@@ -359,7 +364,7 @@
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
     const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
     const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
-    const viewerRequiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json']);
+    const viewerRequiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json', 'gameplay_timeline.json']);
     const viewerOptionalOutputNames = Object.freeze([]);
     const viewerOutputNames = Object.freeze([...viewerRequiredOutputNames, ...viewerOptionalOutputNames]);
     const viewerHandshake = parseViewerHandshake();
@@ -371,8 +376,8 @@
       commit: '3e2afe1f2961642ce4b4ee1327a3255b1a82beb8',
       path: 'dataview-viewer.html',
       note: [
-        'Historical generated-marker category behavior reference;',
-        'current SVG data sprites are project-original generated recreations, not archival GIF/WebP bytes.',
+        'Static generated-marker category behavior reference;',
+        'current map unit markers are project-original static DOM markers, not animated GIF/WebP bytes or animated sprite frames.',
       ].join(' '),
     });
     const mapSpriteShapeDefinitions = Object.freeze({
@@ -392,13 +397,7 @@
     });
     function generatedMapSpriteAsset(spriteKey, motion = 'walk') {
       const shape = mapSpriteShapeDefinitions[spriteKey] ?? mapSpriteShapeDefinitions.swordsman;
-      const motionValues = motion === 'attack'
-        ? '0 0;1 0;0 0'
-        : motion === 'build' || motion === 'repair'
-          ? '0 0;0 -1;0 0'
-          : '0 0;0 1;0 0';
-      const duration = motion === 'attack' ? '360ms' : motion === 'build' || motion === 'repair' ? '520ms' : '680ms';
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><title>${spriteKey} ${motion}</title><g><animateTransform attributeName="transform" type="translate" values="${motionValues}" dur="${duration}" repeatCount="indefinite"/>${shape}${generatedMapSpriteTool(motion)}</g></svg>`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><title>${spriteKey} ${motion} static marker</title><g>${shape}${generatedMapSpriteTool(motion)}</g></svg>`;
       return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     }
     function generatedMapSpriteTool(motion) {
@@ -1124,7 +1123,7 @@
         `${unit.name}, ${unitIdentityText(unit)}.`,
         `Total built or produced intent estimate ${unit.produced}, excluding starting units.`,
         `Queued estimate ${unit.queued}, active queue intent remaining after estimated completions and observed unqueue commands.`,
-        `Current map-position estimate ${unit.currentMapEstimate}, active classified party-strip actor(s) with unexpired position evidence.`,
+        `Current map-position estimate ${unit.currentMapEstimate}, active classified individual unit marker(s) with unexpired position evidence.`,
         unit.currentMapEvidenceText,
         unit.starting
           ? `${unit.starting} represented starting unit(s) are known for this line but are not automatically counted as current without active map position evidence.`
@@ -1139,7 +1138,7 @@
         `${unit.name} (${unitIdentityText(unit)}).`,
         `Total built/produced estimate: ${unit.produced}; this is economy.unit_completions production intent and excludes starting units.`,
         `Queued estimate: ${unit.queued} active queue intent remaining after estimated completions and observed unqueue commands.`,
-        `Current map-position estimate: ${unit.currentMapEstimate}; counted from active, deduplicated map party-strip actors for this line.`,
+        `Current map-position estimate: ${unit.currentMapEstimate}; counted from active, deduplicated individual map markers for this line.`,
         unit.currentMapEvidenceTitle,
         unit.title,
         unit.mapPositionNote,
@@ -1217,7 +1216,7 @@
     }
 
     function unitSummaryAccessibleDescription(producedTotal, queuedTotal, currentMapTotal) {
-      return `Total built/produced ${producedTotal}, queued ${queuedTotal}, current map-position estimate ${currentMapTotal}. Units show total built/produced intent, queued estimate, and current map-position estimate. Total built/produced excludes starting units. Current map-position counts only classified actors represented by active map party sprite strips; absent or stale positions are position-unknown, not confirmed dead, and this is not a complete army population.`;
+      return `Total built/produced ${producedTotal}, queued ${queuedTotal}, current map-position estimate ${currentMapTotal}. Units show estimated queue births, queued intent, and current individual map markers. Total built/produced excludes starting units. Current map-position counts only classified individual units visible from observed, simulated, or reconciled timeline rows; absent or stale positions are position-unknown, not confirmed dead, and this is not a complete army population.`;
     }
 
     const technologyLinePatterns = Object.freeze([
@@ -1342,7 +1341,7 @@
       return index === -1 ? categoryDefinitions.length : index;
     }
 
-    function createProductionTracker(game, economy) {
+    function createProductionTracker(game, economy, gameplayTimeline = null) {
       function queueIdentity(row) {
         const payload = row.payload ?? {};
         return [
@@ -1495,7 +1494,90 @@
         };
       }
 
+      function gameplayUnitRowsForPlayer(player, seconds) {
+        if (gameplayTimeline?.schema !== 'aoe-sim.dataview-gameplay-timeline/v1') return null;
+        const rowMap = new Map();
+        (gameplayTimeline.units ?? [])
+          .filter((unit) =>
+            unit.player === player
+            && unit.birth_kind === 'queue_estimate'
+            && Number(unit.birth_time) <= seconds)
+          .forEach((unit) => {
+            const item = {
+              key: Number.isInteger(unit.resolved_unit_id)
+                ? `unit:${unit.resolved_unit_id}`
+                : `unit-name:${unit.name}`,
+              unit_id: Number.isInteger(unit.resolved_unit_id) ? unit.resolved_unit_id : null,
+              sourceUnitId: Number.isInteger(unit.unit_id) ? unit.unit_id : null,
+              name: unit.name,
+              category: unit.category,
+            };
+            const note = unit.reconciliation?.status === 'matched'
+              ? 'Produced count is an estimated queue birth reconciled to a later observed actor ID.'
+              : 'Produced count is an estimated queue birth; it is not a confirmed spawn observation.';
+            addUnitRow(rowMap, item, playerUnitStats, 1, 0, note);
+          });
+        (gameplayTimeline.queue_timeline ?? [])
+          .filter((row) =>
+            row.player === player
+            && row.status === 'estimated_birth'
+            && Number(row.queued_time) <= seconds
+            && seconds < Number(row.estimated_completion_time))
+          .forEach((row) => {
+            const item = {
+              key: Number.isInteger(row.resolved_unit_id)
+                ? `unit:${row.resolved_unit_id}`
+                : `unit-name:${row.name}`,
+              unit_id: Number.isInteger(row.resolved_unit_id) ? row.resolved_unit_id : null,
+              sourceUnitId: Number.isInteger(row.unit_id) ? row.unit_id : null,
+              name: row.name,
+              category: row.category,
+            };
+            addUnitRow(
+              rowMap,
+              item,
+              playerUnitStats,
+              0,
+              1,
+              'Queued count is observed queue intent gated by producer completion and sequential train time.',
+            );
+          });
+        const rows = [...rowMap.values()]
+          .filter((row) => row.produced > 0 || row.queued > 0)
+          .map((row) => {
+            const sources = [...row.sourceCounts.entries()]
+              .sort((a, b) => a[0].localeCompare(b[0]))
+              .map(([name, count]) => `${name}: ${count}`)
+              .join(', ');
+            const queueSourceIds = [...row.queueSourceIds].sort((a, b) => a - b).join(', ');
+            return {
+              ...row,
+              title: [
+                sources ? `Estimated production source IDs before current line resolution: ${sources}.` : '',
+                queueSourceIds ? `Active queue source unit IDs before current line resolution: ${queueSourceIds}.` : '',
+                ...row.notes,
+              ].filter(Boolean).join(' '),
+            };
+          })
+          .sort((a, b) =>
+            categorySortValue(a.category) - categorySortValue(b.category)
+              || a.name.localeCompare(b.name)
+              || (a.unit_id ?? 0) - (b.unit_id ?? 0)
+              || a.itemKey.localeCompare(b.itemKey));
+        const cancelled = (gameplayTimeline.queue_timeline ?? [])
+          .filter((row) => row.player === player && row.status === 'cancelled' && Number(row.cancellation_time) <= seconds)
+          .length;
+        return {
+          rows,
+          queueEstimateNote: cancelled
+            ? `${cancelled} observed unqueue cancellation(s) have removed queue estimates.`
+            : 'Queued values are observed intent estimates; produced values are estimated births, not confirmed spawns.',
+        };
+      }
+
       function unitSummaryForPlayer(player, seconds, statSnapshot, playerUnitStats) {
+        const gameplayRows = gameplayUnitRowsForPlayer(player, seconds);
+        if (gameplayRows) return gameplayRows;
         const rowMap = new Map();
         economy.unit_completions
           .filter((event) => event.player === player && event.time <= seconds)
@@ -1554,7 +1636,7 @@
       };
     }
 
-    function renderTimeline(game, lifetimes, economy, resourceEstimates, unitStats, updateGameplay) {
+    function renderTimeline(game, lifetimes, economy, resourceEstimates, unitStats, gameplayTimeline, updateGameplay) {
       const duration = Number(game.summary.duration_seconds);
       const chatPlayers = new Map(game.match.players.map((player) => [player.number, player]));
       const chatRows = game.match.chat
@@ -1583,9 +1665,12 @@
       const uptimeRows = game.match.uptimes.map((row) => ({ ...row, seconds: timestampSeconds(row.timestamp) }));
       const estimatePlayers = resourceEstimates?.players ?? {};
       const unitStatPlayers = unitStats?.schema === 'aoe2-unit-stats/v1' ? (unitStats.players ?? {}) : {};
-      const productionTracker = createProductionTracker(game, economy);
+      const productionTracker = createProductionTracker(game, economy, gameplayTimeline);
       const unitStatsCaveat = unitStats?.caveats?.[0]
         ?? 'Unit stats are unavailable for this replay; counts still show production intent, queue intent, and current map-position estimates.';
+      const gameplayUnits = gameplayTimeline?.schema === 'aoe-sim.dataview-gameplay-timeline/v1'
+        ? (gameplayTimeline.units ?? [])
+        : [];
       const observationNote = resourceEstimates?.methodology?.observation_semantics?.limitation ?? 'Resource composition is inferred.';
       const resourceOrder = ['Food', 'Wood', 'Gold', 'Stone'];
       const workerResourceAssignmentKeys = Object.freeze({
@@ -1653,7 +1738,7 @@
           'Food, Wood, Gold, and Stone count only currently mapped Villagers whose effective assignment is exactly that resource.',
           'Other counts currently mapped Villagers assigned to build, repair, attack, generic gather, move, unresolved, or any non-resource task.',
           `Available Villager upper-bound evidence: ${availableVillagers} (${startingVillagers} starting + ${trainedVillagers} trained); this is not displayed as current field state.`,
-          'Counts come from activeMappedActorAssignments(seconds) with map-rendered filtering, so sparse replay positions can be incomplete and missing positions are position-unknown, not confirmed dead.',
+          'Counts come from activeIndividualUnitAssignments(seconds) with map-rendered filtering, so sparse replay positions can be incomplete and missing positions are position-unknown, not confirmed dead.',
           summary.taskAssignments ? `Effective worker assignments: ${summary.taskAssignments}.` : '',
         ].filter(Boolean).join(' ');
       }
@@ -1720,7 +1805,7 @@
         if (!explicitDeletes && !possibleLosses) {
           return 'No explicit delete or possible-loss rows have elapsed for this player; current map-position counts still require active unexpired position evidence.';
         }
-        return `${explicitDeletes} explicit delete object(s) and ${possibleLosses} possible-loss object(s) have elapsed for this player. The current map-position estimate follows active map party assignments; stale or absent positions are treated as position-unknown, not confirmed dead.`;
+        return `${explicitDeletes} explicit delete object(s) and ${possibleLosses} possible-loss object(s) have elapsed for this player. The current map-position estimate follows active individual timeline markers; stale or absent positions are treated as position-unknown, not confirmed dead.`;
       }
 
       function representedStartingUnits(player, playerUnitStats) {
@@ -1757,9 +1842,14 @@
           direct: 'direct',
           'production-inferred': 'production-inferred',
           'sprite-category': 'sprite/category fallback',
+          observed: 'observed',
+          simulated: 'simulated',
+          reconciled: 'reconciled',
+          anonymous: 'anonymous',
+          ambiguous: 'ambiguous',
           unclassified: 'unclassified',
         };
-        const parts = ['direct', 'production-inferred', 'sprite-category', 'unclassified']
+        const parts = ['observed', 'reconciled', 'simulated', 'anonymous', 'ambiguous', 'direct', 'production-inferred', 'sprite-category', 'unclassified']
           .map((quality) => [quality, counts.get(quality) ?? 0])
           .filter(([, count]) => count > 0)
           .map(([quality, count]) => `${labels[quality]} ${count}`);
@@ -1767,7 +1857,7 @@
       }
 
       function evidenceCountDataText(counts) {
-        return ['direct', 'production-inferred', 'sprite-category', 'unclassified']
+        return ['observed', 'reconciled', 'simulated', 'anonymous', 'ambiguous', 'direct', 'production-inferred', 'sprite-category', 'unclassified']
           .map((quality) => `${quality}:${counts.get(quality) ?? 0}`)
           .join(',');
       }
@@ -1797,7 +1887,7 @@
             name: name || 'Villager',
           }, statSnapshot, playerUnitStats);
         }
-        if ((identity.quality === 'direct' || identity.quality === 'production-inferred')
+        if ((['direct', 'production-inferred', 'observed', 'simulated', 'reconciled', 'anonymous', 'ambiguous'].includes(identity.quality))
           && (unitId !== null || name)) {
           return resolveUnitLineIdentity({
             unit_id: unitId ?? undefined,
@@ -1853,7 +1943,7 @@
             assignment.unitIdentity?.name ?? '',
             `sprite=${assignment.spriteKey}`,
             assignment.worker ? 'worker' : '',
-            `party=${assignment.partyKind}`,
+            `motion=${assignment.partyKind}`,
           ].filter(Boolean).join('/'));
           rows.set(item.key, row);
         });
@@ -1862,10 +1952,10 @@
             .map((row) => ({
               ...row,
               title: [
-                `Current map-position evidence: ${row.currentMapEstimate} active classified party-strip actor(s).`,
+                `Current map-position evidence: ${row.currentMapEstimate} active classified individual marker(s).`,
                 `Evidence split: ${evidenceCountText(row.currentMapEvidenceCounts)}.`,
                 row.currentMapMemberIds.size
-                  ? `Actor assignments: ${[...row.currentMapMemberIds].sort((a, b) => a - b).join(', ')}.`
+                  ? `Unit assignments: ${[...row.currentMapMemberIds].map(String).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ')}.`
                   : '',
               ].filter(Boolean).join(' '),
             }))
@@ -1972,7 +2062,7 @@
         const workersLabel = document.createElement('th');
         workersLabel.scope = 'row';
         workersLabel.textContent = '# workers';
-        workersLabel.title = 'Current map-position worker estimate from map-rendered Villager party-strip evidence.';
+        workersLabel.title = 'Current map-position worker estimate from map-rendered individual Villager markers.';
         workersLabel.setAttribute('aria-label', workersLabel.title);
         workersRow.append(workersLabel);
         const workerCells = {};
@@ -2074,7 +2164,12 @@
           startingVillagers: startingVillagersByPlayer.get(player.number) ?? 0,
           uptimes: uptimeRows.filter((row) => row.player === player.number),
           timeseries: player.timeseries.map((row) => ({ ...row, seconds: timestampSeconds(row.timestamp) })),
-          completions: economy.unit_completions.filter((row) => row.player === player.number),
+          completions: gameplayUnits.length
+            ? gameplayUnits
+                .filter((row) => row.player === player.number && row.birth_kind === 'queue_estimate')
+                .map((row) => ({ ...row, time: Number(row.birth_time), count: 1 }))
+                .sort((a, b) => a.time - b.time || String(a.id).localeCompare(String(b.id)))
+            : economy.unit_completions.filter((row) => row.player === player.number),
           technologyCompletions: (resourceEstimates?.technology_completions ?? [])
             .filter((row) => row.player === player.number)
             .map((row) => ({ ...row, time: Number(row.time) }))
@@ -2093,8 +2188,10 @@
 
       function updateTimeline(seconds) {
         const bounded = Math.max(0, Math.min(duration, seconds));
-        const currentMappedAssignments = typeof updateGameplay.activeMappedActorAssignments === 'function'
-          ? updateGameplay.activeMappedActorAssignments(bounded)
+        const currentMappedAssignments = typeof updateGameplay.activeIndividualUnitAssignments === 'function'
+          ? updateGameplay.activeIndividualUnitAssignments(bounded)
+          : typeof updateGameplay.activeMappedActorAssignments === 'function'
+            ? updateGameplay.activeMappedActorAssignments(bounded)
           : [];
         const currentMappedAssignmentsByPlayer = activeMappedAssignmentsByPlayer(currentMappedAssignments);
         timelineSlider.value = String(bounded);
@@ -2160,7 +2257,7 @@
           const completedUnitEvents = state.completions.slice(0, upperBound(state.completions, bounded));
           const trainedVillagers = completedUnitEvents
             .filter((event) => event.name === 'Villager')
-            .reduce((sum, event) => sum + event.count, 0);
+            .reduce((sum, event) => sum + (Number(event.count) || 1), 0);
           const availableVillagers = state.startingVillagers + trainedVillagers;
           const playerCurrentMappedAssignments = currentMappedAssignmentsByPlayer.get(state.player.number) ?? [];
           const mappedWorkerSummary = currentMappedWorkerSummaryForPlayer(playerCurrentMappedAssignments);
@@ -2254,7 +2351,7 @@
                 .join(', ');
               const currentMapEvidenceText = unit.currentMapEstimate > 0
                 ? `Current map evidence split: ${evidenceCountText(unit.currentMapEvidenceCounts)}.`
-                : 'No active classified map party-strip actor is counted for this line.';
+                : 'No active classified individual map marker is counted for this line.';
               return {
                 ...unit,
                 currentMapEvidenceText,
@@ -2319,7 +2416,7 @@
             visibleUnits,
             state.playerUnitStats,
             statSnapshot,
-            `${unitStatsCaveat} Total built/produced is production intent and excludes starting units; queued is active queue intent remaining after completions/unqueues; current map-position is the classified active party-strip actor estimate from the map model. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
+            `${unitStatsCaveat} Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
             economy.methodology.unit_completions,
             state.unitSpriteImages,
           );
@@ -2499,7 +2596,7 @@
       return low;
     }
 
-    function renderGameplay(game, lifetimes, economy, mapResources, resourceEstimates, unitStats) {
+    function renderGameplay(game, lifetimes, economy, mapResources, resourceEstimates, unitStats, gameplayTimeline) {
       const cellSize = 6;
       const dimension = game.match.map.dimension;
       const resourceContext = resourceCanvas.getContext('2d');
@@ -2510,10 +2607,15 @@
       spriteOverlay.dataset.mapSpriteAssetSourcePath = mapSpriteAssetSource.path;
       spriteOverlay.dataset.mapSpriteAssetSourceNote = mapSpriteAssetSource.note;
       spriteOverlay.dataset.mapSpriteAssetKeys = mapSpriteDefinitions.map((definition) => definition.key).join(',');
+      spriteOverlay.dataset.staticUnitMarkers = 'true';
+      spriteOverlay.dataset.animatedMapAssets = 'false';
       gameplayCanvas.dataset.mapSpriteAssetSourceCommit = mapSpriteAssetSource.commit;
       gameplayCanvas.dataset.mapSpriteAssetSourcePath = mapSpriteAssetSource.path;
       gameplayCanvas.dataset.mapSpriteAssetSourceNote = mapSpriteAssetSource.note;
       gameplayCanvas.dataset.mapSpriteAssetKeys = spriteOverlay.dataset.mapSpriteAssetKeys;
+      gameplayCanvas.dataset.dataviewComputationBoundary = 'browser-worker:gameplay_timeline.json';
+      gameplayCanvas.dataset.staticUnitMarkers = 'true';
+      gameplayCanvas.dataset.animatedMapAssets = 'false';
       const playerColors = new Map(game.match.players.map((player) => [player.number, player.color.toLowerCase()]));
       const viewlockSquareTiles = 14;
       const indexedViewlocks = (game.match.file?.viewlocks ?? [])
@@ -2555,6 +2657,9 @@
             .map((unit) => [unit.unit_id, unit]));
           return [Number(playerNumber), byId];
         }));
+      const gameplayTimelineUnits = gameplayTimeline?.schema === 'aoe-sim.dataview-gameplay-timeline/v1'
+        ? (gameplayTimeline.units ?? [])
+        : [];
 
       const mapEvents = lifetimes.map_events;
       const buildingEvents = economy.building_placements;
@@ -3370,13 +3475,13 @@
       addTeamCommandLegend('B', 'Build command', true);
       if (repairEventKeys.size) addTeamCommandLegend('R', 'Repair command', true);
       if (explicitGarrisonEvents.length) addCommandLegend('⌣◉', 'Un/garrison command', '#8b5a2b');
-      addTeamCommandLegend('×', 'Attack party destination; semantic sprite strip is drawn beside it');
+      addTeamCommandLegend('×', 'Attack command destination; individual unit markers remain static symbols');
       addTeamCommandLegend('○', 'Target / order command');
-      addTeamCommandLegend('▣', 'Movement party semantic sprite strip');
+      addTeamCommandLegend('▣', 'Movement command destination; individual unit markers interpolate straight-line');
       addTeamCommandLegend('→', 'Inferred command direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible party state. When a command has a recorded source segment and visible/classified members have DAT base speeds, party strips use deterministic replay-time straight command-segment interpolation; otherwise they remain at the destination. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Party strips show nonzero semantic sprite families: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager sprites swap to evidence-backed food, wood, gold, stone, build, and repair animations when classified; unresolved gather, mixed, unsupported, or absent assignments stay generic. Farm, Lumber Camp, and Mining Camp build assignments may switch from build to estimated post-build work after replay-source arrival plus AoE2 base build time adjusted by selected Villager count; ambiguous Mining Camps stay on build. Visible count badges use plain numbers; exact counts use actor-name/stat identity, while inferred status for members filled from recent production mix and estimate category composition is retained in evidence metadata and hover details. Unclassified selected actors are omitted from the strip but retained in evidence metadata. Unsupported last-known non-villager positions expire after six minutes; Villager-classified members after ten. This is not a confirmed death.`;
+      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static symbols from the worker gameplay timeline; their positions use deterministic replay-time straight-line interpolation from observed or estimated birth positions to later command destinations. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -4969,6 +5074,137 @@
         }));
       }
 
+      function timelinePoint(value) {
+        const x = Number(value?.x);
+        const y = Number(value?.y);
+        return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+      }
+
+      function unitTimelineEvidenceQuality(unit) {
+        const status = unit.reconciliation?.status ?? '';
+        if (unit.birth_kind === 'starting_actor') return 'observed';
+        if (status === 'matched') return 'reconciled';
+        if (status === 'ambiguous-observed-actor') return 'ambiguous';
+        if (status === 'anonymous-estimate') return 'simulated';
+        return unit.birth_evidence_class ?? 'unclassified';
+      }
+
+      function unitTimelineInterpolationState(unit, seconds) {
+        const birthTime = Number(unit.birth_time);
+        const visibleUntil = Number(unit.visible_until ?? Infinity);
+        const birthPosition = timelinePoint(unit.birth_position);
+        if (!birthPosition || !Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) {
+          return null;
+        }
+        let current = birthPosition;
+        let destination = birthPosition;
+        let status = 'at-birth-position';
+        let progress = 1;
+        let segmentEvidence = unit.birth_evidence_class ?? 'simulated';
+        for (const segment of unit.motion_segments ?? []) {
+          const from = timelinePoint(segment.from);
+          const to = timelinePoint(segment.to);
+          const fromTime = Number(segment.from_time);
+          const toTime = Number(segment.to_time);
+          if (!from || !to || !Number.isFinite(fromTime) || !Number.isFinite(toTime)) continue;
+          if (seconds < fromTime) {
+            destination = to;
+            status = 'waiting-for-next-command';
+            progress = 0;
+            break;
+          }
+          if (seconds <= toTime && toTime > fromTime) {
+            progress = Math.max(0, Math.min(1, (seconds - fromTime) / (toTime - fromTime)));
+            current = {
+              x: from.x + (to.x - from.x) * progress,
+              y: from.y + (to.y - from.y) * progress,
+            };
+            destination = to;
+            status = progress >= 1 ? 'arrived' : progress <= 0 ? 'pending' : 'moving';
+            segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
+            break;
+          }
+          current = to;
+          destination = to;
+          status = 'arrived';
+          segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
+        }
+        return {
+          current,
+          destination,
+          status,
+          progress,
+          segmentEvidence,
+        };
+      }
+
+      function activeIndividualUnitAssignments(seconds) {
+        if (!gameplayTimelineUnits.length) return activeMappedActorAssignments(seconds);
+        return Object.freeze(gameplayTimelineUnits.flatMap((unit) => {
+          const interpolation = unitTimelineInterpolationState(unit, seconds);
+          if (!interpolation) return [];
+          const spriteKey = unit.sprite_key ?? resolveMapSpriteKey({
+            name: unit.name,
+            category: unit.category,
+          });
+          const category = unit.category ?? unitCategoryForMapSpriteKey(spriteKey);
+          const evidenceQuality = unitTimelineEvidenceQuality(unit);
+          const markerKey = String(unit.id ?? unit.stable_id);
+          const mapRendered = true;
+          return [Object.freeze({
+            player: unit.player,
+            instanceId: unit.source_actor_id ?? markerKey,
+            sourceActorId: unit.source_actor_id ?? null,
+            stableId: unit.stable_id ?? markerKey,
+            markerKey,
+            worker: Boolean(unit.worker || category === 'villagers'),
+            villager: Boolean(unit.worker || category === 'villagers'),
+            partyId: unit.stable_id ?? markerKey,
+            partyKind: unit.birth_kind === 'queue_estimate' ? 'queue-estimate' : 'starting-actor',
+            partyTime: Number(unit.birth_time),
+            villagerTaskAssignment: null,
+            indexedVillagerTaskAssignment: null,
+            villagerTaskPhase: '',
+            position: Object.freeze({
+              x: interpolation.current.x,
+              y: interpolation.current.y,
+            }),
+            commandDestination: Object.freeze({
+              x: interpolation.destination.x,
+              y: interpolation.destination.y,
+            }),
+            unitIdentity: Object.freeze({
+              quality: evidenceQuality,
+              unit_id: unit.resolved_unit_id ?? unit.unit_id ?? null,
+              name: unit.name ?? '',
+              evidence: `${unit.birth_evidence_class ?? 'simulated'}:${unit.reconciliation?.status ?? 'unresolved'}`,
+            }),
+            resolvedUnitId: unit.resolved_unit_id ?? unit.unit_id ?? null,
+            unitName: unit.name ?? '',
+            referenceUnitName: unit.name ?? '',
+            spriteKey,
+            spriteCategory: spriteKey && mapSpriteByKey.has(spriteKey)
+              ? mapSpriteByKey.get(spriteKey).label
+              : '',
+            category,
+            evidenceQuality,
+            evidence: unit.reconciliation?.evidence ?? unit.birth_confirmation ?? '',
+            outcome: unit.end_reason ?? unit.reconciliation?.status ?? '',
+            endTime: Number(unit.visible_until ?? Infinity),
+            mapRendered,
+            interpolationStatus: interpolation.status,
+            interpolationProgress: interpolation.progress,
+            interpolationEvidenceClass: interpolation.segmentEvidence,
+            birthTime: Number(unit.birth_time),
+            birthEvidenceClass: unit.birth_evidence_class,
+            birthConfirmation: unit.birth_confirmation,
+            producerId: unit.producer_id ?? null,
+            queueId: unit.queue_id ?? null,
+            reconciliationStatus: unit.reconciliation?.status ?? '',
+          })];
+        }));
+      }
+
       function partyComposition(members, villagerTaskAssignment = null, villagerTaskState = null) {
         const counts = Object.fromEntries(mapSpriteDefinitions.map((definition) => [definition.key, 0]));
         const evidenceCounts = Object.fromEntries(mapSpriteDefinitions.map((definition) => [
@@ -5060,7 +5296,7 @@
       }
 
       function mappedActorEvidenceSplitText(counts) {
-        return ['direct', 'production-inferred', 'sprite-category', 'unclassified']
+        return ['observed', 'reconciled', 'simulated', 'anonymous', 'ambiguous', 'direct', 'production-inferred', 'sprite-category', 'unclassified']
           .map((quality) => `${quality}:${counts.get(quality) ?? 0}`)
           .join(',');
       }
@@ -5429,6 +5665,106 @@
         };
       }
 
+      const individualUnitMarkerNodes = new Map();
+      let individualUnitMarkerNodesCreated = 0;
+
+      function unitMarkerTitle(assignment) {
+        return [
+          `Player ${assignment.player} ${assignment.unitName || 'unit'} ${assignment.instanceId}.`,
+          `Evidence: ${assignment.evidenceQuality}; reconciliation: ${assignment.reconciliationStatus || 'none'}.`,
+          `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
+          assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
+          `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(assignment.commandDestination)}.`,
+          `Interpolation: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; terrain avoidance false.`,
+          'Static DOM marker; no animated GIF/WebP bytes or animated sprite frames.',
+        ].filter(Boolean).join(' ');
+      }
+
+      function createIndividualUnitMarker(assignment) {
+        const marker = document.createElement('span');
+        marker.className = 'unit-marker';
+        marker.dataset.markerKey = assignment.markerKey;
+        marker.setAttribute('aria-hidden', 'true');
+        marker.textContent = (mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?').slice(0, 3);
+        spriteOverlay.append(marker);
+        individualUnitMarkerNodes.set(assignment.markerKey, marker);
+        individualUnitMarkerNodesCreated += 1;
+        return marker;
+      }
+
+      function updateIndividualUnitMarker(marker, assignment, scale) {
+        const uniformScale = Math.min(scale.x, scale.y) || 1;
+        const teamColor = playerColors.get(assignment.player) ?? '#888';
+        marker.style.left = `${assignment.position.x * cellSize * scale.x}px`;
+        marker.style.top = `${assignment.position.y * cellSize * scale.y}px`;
+        marker.style.setProperty('--player-color', teamColor);
+        marker.style.setProperty('--unit-marker-size', `${Math.max(12, 18 * uniformScale)}px`);
+        marker.style.setProperty('--unit-marker-font-size', `${Math.max(6, 8 * uniformScale)}px`);
+        marker.dataset.player = String(assignment.player);
+        marker.dataset.unitName = assignment.unitName ?? '';
+        marker.dataset.instanceId = String(assignment.instanceId);
+        marker.dataset.sourceActorId = assignment.sourceActorId === null ? '' : String(assignment.sourceActorId);
+        marker.dataset.stableId = assignment.stableId;
+        marker.dataset.spriteKey = assignment.spriteKey ?? '';
+        marker.dataset.category = assignment.category ?? '';
+        marker.dataset.evidenceClass = assignment.evidenceQuality ?? 'unclassified';
+        marker.dataset.reconciliationStatus = assignment.reconciliationStatus ?? '';
+        marker.dataset.birthTime = formatStatNumber(assignment.birthTime, 3);
+        marker.dataset.birthEvidenceClass = assignment.birthEvidenceClass ?? '';
+        marker.dataset.producerId = assignment.producerId === null ? '' : String(assignment.producerId);
+        marker.dataset.queueId = assignment.queueId ?? '';
+        marker.dataset.position = formatMapPosition(assignment.position);
+        marker.dataset.commandDestination = formatMapPosition(assignment.commandDestination);
+        marker.dataset.commandInterpolationStatus = assignment.interpolationStatus;
+        marker.dataset.commandInterpolationProgress = formatStatNumber(assignment.interpolationProgress ?? 1, 3);
+        marker.dataset.commandInterpolationEvidenceClass = assignment.interpolationEvidenceClass;
+        marker.dataset.terrainAvoidance = 'false';
+        marker.dataset.staticMapMarker = 'true';
+        marker.dataset.animatedSpriteFrames = 'false';
+        marker.textContent = (mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?').slice(0, 3);
+        marker.title = unitMarkerTitle(assignment);
+      }
+
+      function renderIndividualUnitMarkers(assignments) {
+        const visibleKeys = new Set();
+        const scale = spriteOverlayScale();
+        let reusedNodes = 0;
+        assignments
+          .filter((assignment) => assignment.mapRendered)
+          .forEach((assignment) => {
+            visibleKeys.add(assignment.markerKey);
+            const existing = individualUnitMarkerNodes.get(assignment.markerKey);
+            const marker = existing ?? createIndividualUnitMarker(assignment);
+            if (existing) reusedNodes += 1;
+            updateIndividualUnitMarker(marker, assignment, scale);
+          });
+        individualUnitMarkerNodes.forEach((marker, key) => {
+          if (visibleKeys.has(key)) return;
+          marker.remove();
+          individualUnitMarkerNodes.delete(key);
+        });
+        gameplayCanvas.dataset.individualUnitMarkersActive = String(individualUnitMarkerNodes.size);
+        gameplayCanvas.dataset.individualUnitMarkersCreated = String(individualUnitMarkerNodesCreated);
+        gameplayCanvas.dataset.individualUnitMarkersReusedThisRender = String(reusedNodes);
+        gameplayCanvas.dataset.individualUnitMarkerKeys = [...visibleKeys].sort().join(',');
+        gameplayCanvas.dataset.partySpriteNodesActive = '0';
+        gameplayCanvas.dataset.partySpriteNodesCreated = '0';
+        gameplayCanvas.dataset.partySpriteNodesReusedThisRender = '0';
+        gameplayCanvas.dataset.partySpriteSrcAssignments = '0';
+        return assignments
+          .filter((assignment) => assignment.mapRendered)
+          .map((assignment) => ({
+            assignment,
+            interpolation: {
+              status: assignment.interpolationStatus,
+              progress: assignment.interpolationProgress,
+              evidenceClass: assignment.interpolationEvidenceClass,
+              current: assignment.position,
+              destination: assignment.commandDestination,
+            },
+          }));
+      }
+
       function updatePartySpriteNode(strip, party, composition, teamColor, layout, interpolation, taskState) {
         const scale = spriteOverlayScale();
         const uniformScale = Math.min(scale.x, scale.y) || 1;
@@ -5495,41 +5831,16 @@
         });
       }
 
-      function renderPartySpriteStrips(visibleMovementParties, seconds) {
-        const visibleKeys = new Set();
-        const interpolationRows = [];
-        let reusedNodes = 0;
-        visibleMovementParties.forEach((party) => {
-          const taskState = effectiveVillagerTaskStateForParty(party, seconds);
-          const composition = partyComposition(party.members, taskState.effectiveAssignment, taskState);
-          if (!composition.entries.length) return;
-          const teamColor = playerColors.get(party.player) ?? '#888';
-          const interpolation = partyStripInterpolationState(party, seconds);
-          interpolationRows.push({ party, interpolation, taskState });
-          const x = interpolation.current.x * cellSize;
-          const y = interpolation.current.y * cellSize;
-          const align = party.kind === 'attack' ? 'after' : 'center';
-          const anchorX = party.kind === 'attack' ? x + 8 : x;
-          const taskOffsetY = ['gather', 'build', 'repair'].includes(party.kind) ? -9 : 0;
-          const anchorY = party.kind === 'attack' ? y - 12 : y + taskOffsetY;
-          const layout = partyStripLayout(anchorX, anchorY, composition, align);
-          const key = movementPartyKey(party);
-          visibleKeys.add(key);
-          const existing = partySpriteNodes.get(key);
-          const strip = existing ?? createPartySpriteNode(party, composition, teamColor, layout, key);
-          if (existing) reusedNodes += 1;
-          updatePartySpriteNode(strip, party, composition, teamColor, layout, interpolation, taskState);
-        });
+      function renderPartySpriteStrips() {
         partySpriteNodes.forEach((strip, key) => {
-          if (visibleKeys.has(key)) return;
           strip.remove();
           partySpriteNodes.delete(key);
         });
-        gameplayCanvas.dataset.partySpriteNodesActive = String(partySpriteNodes.size);
+        gameplayCanvas.dataset.partySpriteNodesActive = '0';
         gameplayCanvas.dataset.partySpriteNodesCreated = String(partySpriteNodesCreated);
-        gameplayCanvas.dataset.partySpriteNodesReusedThisRender = String(reusedNodes);
+        gameplayCanvas.dataset.partySpriteNodesReusedThisRender = '0';
         gameplayCanvas.dataset.partySpriteSrcAssignments = String(partySpriteSrcAssignments);
-        return interpolationRows;
+        return [];
       }
 
       function drawMovementParty(party) {
@@ -5710,13 +6021,13 @@
         });
         const visibleGatherRows = [...visibleGatherByDestination.values()];
         const visibleMovementParties = visibleMovementPartyRows(seconds);
-        const currentMappedAssignments = activeMappedActorAssignments(seconds);
+        const currentMappedAssignments = activeIndividualUnitAssignments(seconds);
         const mapRenderedCategorizedAssignments = currentMappedAssignments.filter((assignment) => assignment.mapRendered);
         const mapRenderedVillagerAssignments = mapRenderedCategorizedAssignments
           .filter((assignment) => assignment.worker);
         visibleCommandArrows.forEach((row) => drawCommandArrow(row, seconds));
         visibleMovementParties.forEach(drawMovementParty);
-        const visiblePartyStripInterpolations = renderPartySpriteStrips(visibleMovementParties, seconds);
+        const visibleIndividualMarkerInterpolations = renderIndividualUnitMarkers(currentMappedAssignments, seconds);
         const visibleEffectiveTaskRows = visibleMovementParties
           .map((party) => ({ party, taskState: effectiveVillagerTaskStateForParty(party, seconds) }));
         recentRows.filter((row) => !['move', 'attack'].includes(row.kind)).forEach((row) => drawRecentEvent(row, seconds));
@@ -5799,14 +6110,21 @@
           })
           .join(';');
         gameplayCanvas.dataset.partyStripInterpolationClock = `replay-time:${seconds.toFixed(3)}`;
-        gameplayCanvas.dataset.partyStripInterpolationEvidence = visiblePartyStripInterpolations
-          .map(({ party, interpolation, taskState }) => partyStripInterpolationEvidence(party, interpolation, taskState))
+        gameplayCanvas.dataset.partyStripInterpolationEvidence = visibleIndividualMarkerInterpolations
+          .map(({ assignment, interpolation }) => [
+            `unit:p${assignment.player}:id${assignment.instanceId}`,
+            `status=${interpolation.status}`,
+            `progress=${formatStatNumber(interpolation.progress, 3)}`,
+            `evidence=${interpolation.evidenceClass}`,
+            `cur=${formatMapPosition(interpolation.current)}`,
+            `dst=${formatMapPosition(interpolation.destination)}`,
+          ].join(','))
           .join(';');
         gameplayCanvas.dataset.partyStripInterpolationFallbacks = String(
-          visiblePartyStripInterpolations.filter(({ interpolation }) => interpolation.fallbackReason).length,
+          visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'waiting-for-next-command').length,
         );
         gameplayCanvas.dataset.partyStripInterpolated = String(
-          visiblePartyStripInterpolations.filter(({ interpolation }) => !interpolation.fallbackReason).length,
+          visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'moving').length,
         );
         const elapsedPartyOutcomes = movementParties.flatMap((party) =>
           party.members
@@ -5934,7 +6252,8 @@
         observer.observe(spriteOverlay);
       }
 
-      update.activeMappedActorAssignments = activeMappedActorAssignments;
+      update.activeMappedActorAssignments = activeIndividualUnitAssignments;
+      update.activeIndividualUnitAssignments = activeIndividualUnitAssignments;
       return update;
     }
 
@@ -6212,16 +6531,21 @@
       const economy = parseOutput(byName.get('economy.json'));
       const resourceEstimates = parseOutput(byName.get('resource_estimates.json'));
       const unitStatsOutput = byName.get('unit_stats.json');
+      const gameplayTimelineOutput = byName.get('gameplay_timeline.json');
       const unitStats = unitStatsOutput ? parseOutput(unitStatsOutput) : null;
+      const gameplayTimeline = gameplayTimelineOutput ? parseOutput(gameplayTimelineOutput) : null;
       const estimates = resourceEstimates?.schema === 'aoe2-resource-reconstruction/v1'
         ? resourceEstimates
         : null;
       const stats = unitStats?.schema === 'aoe2-unit-stats/v1'
         ? unitStats
         : null;
+      const gameplay = gameplayTimeline?.schema === 'aoe-sim.dataview-gameplay-timeline/v1'
+        ? gameplayTimeline
+        : null;
       const mapResources = renderMap(game.match.map, game.match.gaia);
-      const updateGameplay = renderGameplay(game, lifetimes, economy, mapResources, estimates, stats);
-      renderTimeline(game, lifetimes, economy, estimates, stats, updateGameplay);
+      const updateGameplay = renderGameplay(game, lifetimes, economy, mapResources, estimates, stats, gameplay);
+      renderTimeline(game, lifetimes, economy, estimates, stats, gameplay, updateGameplay);
       document.title = `${game.summary.map.name}: ${game.summary.players.map((player) => player.name).join(' vs ')}`;
       setViewerNotice('');
     }
