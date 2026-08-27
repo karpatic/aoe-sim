@@ -75,8 +75,10 @@ Unit statistics are not bundled as replay-specific sidecars. The worker loads th
 
 ## Icons
 
-No original AoE graphics, audio, or locally extracted game GIFs are copied into this repository. Timeline party strips
-use generated CSS/text markers.
+No original AoE graphics, audio, or locally extracted game GIFs are copied into this repository. Dataview map party strips
+use project-generated low-resolution SVG sprite data URIs embedded by the standalone viewer. The restored character category
+set comes from `dataview-viewer.html` in commit `3e2afe1f2961642ce4b4ee1327a3255b1a82beb8`, where the original generated
+marker slots and categories were introduced; no standalone sprite image assets were tracked in repo history.
 
 Where the old dataview uses towncenter/SiegeEngineers-style HUD and building icons, the viewer points to immutable
 upstream URLs from `TimMikeladze/towncenter` commit `8e42a41642b9bdd697037f9ec6a7e975537fb3b0` under `public/img/`.

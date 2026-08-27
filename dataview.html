@@ -7,16 +7,15 @@
     <title>AoE II single-game data</title>
     <style>
       * { box-sizing: border-box; }
-      html, body { min-height: 100%; }
+      html, body { width: 100%; height: 100%; overflow: hidden; }
       body { margin: 0; color: #1b1b1b; background: #fff; font: 16px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
-      main { width: 100%; min-height: 100vh; min-height: 100dvh; }
+      main { display: grid; grid-template-columns: min(100dvh, calc(100vw - 24rem)) minmax(24rem, 1fr); width: 100%; height: 100dvh; overflow: hidden; }
       h1 { margin: 0 0 .25rem; font-size: 1.45rem; line-height: 1.15; }
       p { margin: .35rem 0; }
       button, input { min-height: 2.75rem; font: inherit; }
       button { padding: .45rem .8rem; border: 1px solid #333; border-radius: 0; color: #111; background: #eee; cursor: pointer; }
       button:disabled { color: #777; cursor: not-allowed; }
-      .shell { display: block; }
-      .upload-panel { position: relative; border-bottom: 1px solid #333; background: #f7f7f7; }
+      .upload-panel { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; border-left: 1px solid #333; background: #f7f7f7; overscroll-behavior: contain; }
       .upload-panel > summary { display: flex; align-items: baseline; gap: .65rem; padding: .65rem 1rem; cursor: pointer; }
       .upload-panel > summary::marker { color: #555; }
       .panel-title { font-weight: 700; }
@@ -35,19 +34,18 @@
       #progress-list li[data-state="active"] { color: #111; font-weight: 700; }
       #progress-list li[data-state="skipped"] { color: #555; }
       #progress-list li[data-state="failed"] { color: #7f1d1d; font-weight: 700; }
-      .diagnostics { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .15rem .65rem; margin: .65rem 0 0; font-size: .86rem; }
-      .diagnostics dt { font-weight: 700; }
-      .diagnostics dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-      .viewer-panel { min-width: 0; height: 100vh; height: 100dvh; }
+      .viewer-panel { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: #101214; }
       #viewer-empty { margin: 0; padding: .75rem; color: #555; }
       #viewer-host { height: 100%; }
       #viewer-host iframe { display: block; width: 100%; height: 100%; min-height: 100%; border: 0; background: #fff; }
       .back-link { color: #0645ad; }
-      @media (max-width: 40rem) {
+      @media (max-width: 50rem) {
+        main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
+        .viewer-panel { grid-column: 1; grid-row: 1; height: 100%; }
+        .upload-panel { grid-column: 1; grid-row: 2; height: 100%; border-top: 1px solid #333; border-left: 0; }
         .upload-panel > summary { padding-inline: .65rem; }
         .upload-content { padding-inline: .65rem; }
         .panel-hint { display: none; }
-        .diagnostics { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -85,7 +83,6 @@
           <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress"></progress>
           <ul id="progress-list" aria-label="Preprocessing stages"></ul>
           <p id="error" role="alert" hidden></p>
-          <dl id="output-summary" class="diagnostics"></dl>
         </div>
       </details>
 

@@ -20,8 +20,7 @@ import {
 import {
   assertDataviewGeneratedJsonByteLength,
   assertDataviewGeneratedJsonTotalByteLength,
-  assertRecordingByteLength,
-  formatBytes
+  assertRecordingByteLength
 } from "./replay/limits";
 
 interface StageState {
@@ -43,7 +42,6 @@ const statusText = must<HTMLElement>("#status");
 const progressBar = must<HTMLProgressElement>("#progress");
 const progressList = must<HTMLUListElement>("#progress-list");
 const errorText = must<HTMLElement>("#error");
-const outputSummary = must<HTMLDListElement>("#output-summary");
 const uploadPanel = must<HTMLDetailsElement>("#upload-panel");
 const viewerHost = must<HTMLElement>("#viewer-host");
 const viewerEmpty = must<HTMLElement>("#viewer-empty");
@@ -177,7 +175,6 @@ async function startPrecompute(file: File): Promise<void> {
   cancelActiveWork("Preparing local replay preprocessing.");
   resetViewer();
   resetProgress();
-  outputSummary.replaceChildren();
   errorText.hidden = true;
   errorText.textContent = "";
 
@@ -272,7 +269,6 @@ function updateProgress(message: DataviewProgressMessage): void {
 
 function finishPrecompute(message: DataviewDoneMessage): void {
   validateOutputs(message.outputs);
-  renderOutputSummary(message);
   const viewerNonce = createViewerNonce(message.requestId);
   const payload: DataviewViewerPayload = {
     type: DATAVIEW_VIEWER_PAYLOAD_TYPE,
@@ -285,8 +281,9 @@ function finishPrecompute(message: DataviewDoneMessage): void {
   activeWorker = undefined;
   setBusy(false);
   statusText.textContent = "Dataview ready.";
+  progressBar.hidden = true;
+  progressList.hidden = true;
   createViewerIframe(payload, viewerNonce);
-  uploadPanel.open = false;
 }
 
 function validateOutputs(outputs: readonly DataviewGeneratedOutput[]): void {
@@ -419,26 +416,6 @@ function sendViewerShellScrollState(): void {
   iframeWindow.postMessage(message, "*");
 }
 
-function renderOutputSummary(message: DataviewDoneMessage): void {
-  outputSummary.replaceChildren();
-  appendOutputRow("Replay", `${message.replay.fileName} / ${formatBytes(message.replay.sizeBytes)}`);
-  appendOutputRow("Replay SHA-256", message.replay.sha256);
-  appendOutputRow("Unit stats", message.unitStatsNotice);
-  const totalMs = message.timings.reduce((sum, timing) => sum + timing.elapsedMs, 0);
-  appendOutputRow("Preprocess time", `${(totalMs / 1000).toFixed(1)}s measured worker stages`);
-  for (const output of message.outputs) {
-    appendOutputRow(output.name, `${formatBytes(output.sizeBytes)} / ${output.sha256}`);
-  }
-}
-
-function appendOutputRow(label: string, value: string): void {
-  const term = document.createElement("dt");
-  const detail = document.createElement("dd");
-  term.textContent = label;
-  detail.textContent = value;
-  outputSummary.append(term, detail);
-}
-
 function assertSelectedFile(file: File, fileName: string): void {
   if (!fileName.toLowerCase().endsWith(".aoe2record")) {
     throw new Error("Choose a .aoe2record file.");
@@ -475,7 +452,6 @@ function resetSelection(message: string): void {
   fileInput.value = "";
   resetProgress();
   resetViewer();
-  outputSummary.replaceChildren();
   errorText.hidden = true;
   errorText.textContent = "";
 }
@@ -494,6 +470,8 @@ function clearPendingViewerTransfer(): void {
 }
 
 function resetProgress(): void {
+  progressBar.hidden = false;
+  progressList.hidden = false;
   progressBar.value = 0;
   progressBar.max = 1;
   for (const stage of stageOrder) {
