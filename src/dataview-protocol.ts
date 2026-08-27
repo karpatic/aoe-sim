@@ -120,4 +120,5 @@ export interface DataviewViewerShellScrollState {
   readonly nonce: string;
   readonly scrollTop: number;
   readonly scrollMax: number;
+  readonly shellControlsHeight?: number;
 }

@@ -7,15 +7,20 @@
     <title>AoE II single-game data</title>
     <style>
       * { box-sizing: border-box; }
+      :root {
+        --dataview-map-column: min(100dvh, calc(100vw - 24rem));
+        --dataview-detail-column: calc(100vw - var(--dataview-map-column));
+      }
       html, body { width: 100%; height: 100%; overflow: hidden; }
       body { margin: 0; color: #1b1b1b; background: #fff; font: 16px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
-      main { display: grid; grid-template-columns: min(100dvh, calc(100vw - 24rem)) minmax(24rem, 1fr); width: 100%; height: 100dvh; overflow: hidden; }
+      main { position: relative; width: 100%; height: 100dvh; overflow: hidden; background: #101214; }
       h1 { margin: 0 0 .25rem; font-size: 1.45rem; line-height: 1.15; }
       p { margin: .35rem 0; }
       button, input { min-height: 2.75rem; font: inherit; }
       button { padding: .45rem .8rem; border: 1px solid #333; border-radius: 0; color: #111; background: #eee; cursor: pointer; }
       button:disabled { color: #777; cursor: not-allowed; }
-      .upload-panel { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; border-left: 1px solid #333; background: #f7f7f7; overscroll-behavior: contain; }
+      .upload-panel { position: fixed; z-index: 40; top: 0; right: 0; width: var(--dataview-detail-column); max-height: min(42dvh, 24rem); overflow-x: hidden; overflow-y: auto; border-bottom: 1px solid #333; border-left: 1px solid #333; background: #f7f7f7; box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .16); overscroll-behavior: contain; }
+      .upload-panel:not([open]) { overflow: hidden; }
       .upload-panel > summary { display: flex; align-items: baseline; gap: .65rem; padding: .65rem 1rem; cursor: pointer; }
       .upload-panel > summary::marker { color: #555; }
       .panel-title { font-weight: 700; }
@@ -34,15 +39,18 @@
       #progress-list li[data-state="active"] { color: #111; font-weight: 700; }
       #progress-list li[data-state="skipped"] { color: #555; }
       #progress-list li[data-state="failed"] { color: #7f1d1d; font-weight: 700; }
-      .viewer-panel { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: #101214; }
+      .viewer-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
       #viewer-empty { margin: 0; padding: .75rem; color: #555; }
       #viewer-host { height: 100%; }
       #viewer-host iframe { display: block; width: 100%; height: 100%; min-height: 100%; border: 0; background: #fff; }
       .back-link { color: #0645ad; }
       @media (max-width: 50rem) {
-        main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
-        .viewer-panel { grid-column: 1; grid-row: 1; height: 100%; }
-        .upload-panel { grid-column: 1; grid-row: 2; height: 100%; border-top: 1px solid #333; border-left: 0; }
+        :root {
+          --dataview-map-row: 48dvh;
+          --dataview-map-column: 0px;
+          --dataview-detail-column: 100vw;
+        }
+        .upload-panel { top: var(--dataview-map-row); left: 0; right: 0; width: 100%; max-height: min(42dvh, calc(100dvh - var(--dataview-map-row))); border-top: 1px solid #333; border-left: 0; }
         .upload-panel > summary { padding-inline: .65rem; }
         .upload-content { padding-inline: .65rem; }
         .panel-hint { display: none; }

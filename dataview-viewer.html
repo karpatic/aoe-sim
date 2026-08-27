@@ -5,10 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>AoE II single-game data</title>
   <style>
-    :root { --map-zoom: 1; --map-pan-x: 0px; --map-pan-y: 0px; }
+    :root {
+      --map-column-width: min(100dvh, calc(100vw - 24rem));
+      --detail-column-width: calc(100vw - var(--map-column-width));
+      --timeline-height: 3.35rem;
+      --mobile-bottom-gap: 0px;
+      --shell-controls-height: 0px;
+      --map-zoom: 1;
+      --map-pan-x: 0px;
+      --map-pan-y: 0px;
+    }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    main { display: grid; grid-template-columns: min(100dvh, calc(100vw - 24rem)) minmax(24rem, 1fr); width: 100%; height: 100dvh; max-width: 100%; overflow: hidden; }
+    main { display: grid; grid-template-columns: var(--map-column-width) minmax(24rem, 1fr); width: 100%; height: 100dvh; max-width: 100%; overflow: hidden; }
     body { margin: 0; overflow-wrap: anywhere; }
     details, summary, code { max-width: 100%; overflow-wrap: anywhere; }
     summary { cursor: pointer; }
@@ -16,7 +25,7 @@
     .node, .primitive { margin-left: 1rem; }
     code, .schema-object { white-space: pre-wrap; overflow-wrap: anywhere; }
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
-    #detail-column { display: grid; align-content: start; gap: .75rem; min-width: 0; min-height: 0; height: 100dvh; padding: .65rem .75rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+    #detail-column { display: grid; align-content: start; gap: .75rem; min-width: 0; min-height: 0; height: 100dvh; padding: calc(.65rem + var(--shell-controls-height)) .75rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + 1rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     #timeline-section, #timeline-players, #map-legend-details, #chat-section, #viewer-notice { width: 100%; max-width: none; }
     #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
@@ -46,7 +55,7 @@
     .command-symbol { display: inline-block; flex: 0 0 auto; width: 1rem; margin-right: .25rem; text-align: center; font-weight: bold; line-height: 1rem; white-space: nowrap; overflow-wrap: normal; vertical-align: text-bottom; }
     .outlined-command-symbol { -webkit-text-stroke: 1.5px var(--command-outline); paint-order: stroke fill; text-shadow: 0 0 1px #111; }
     .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 1px solid #111; border-radius: 50%; vertical-align: -.05rem; }
-    #timeline-section { min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border: 1px solid #333; background: rgba(255, 255, 255, .97); }
+    #timeline-section { position: fixed; z-index: 20; right: 0; bottom: 0; left: var(--map-column-width); width: var(--detail-column-width); min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border-top: 1px solid #333; border-left: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
     #timeline-map-size { flex: 0 0 auto; padding-inline: .65rem; white-space: nowrap; }
@@ -116,10 +125,16 @@
     .party-sprite-image.generated-marker { grid-column: 1; justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
     .party-sprite-task-marker.generated-marker { border-radius: 50%; color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .9); font-size: calc(var(--task-marker-size) * .7); }
     @media (max-width: 50rem) {
+      :root {
+        --map-column-width: 0px;
+        --detail-column-width: 100vw;
+        --mobile-bottom-gap: max(.45rem, env(safe-area-inset-bottom));
+      }
       main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
       #map-column { grid-row: 1; height: 100%; min-height: 0; }
       #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
-      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding-bottom: calc(.75rem + env(safe-area-inset-bottom)); }
+      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: calc(.65rem + var(--shell-controls-height)) .65rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + .75rem); }
+      #timeline-section { bottom: var(--mobile-bottom-gap); left: 0; width: 100vw; border-left: 0; }
       #map-chat-overlay { max-height: 8rem; }
       .node, .primitive { margin-left: .6rem; }
       dd { margin-left: 1rem; }
@@ -175,6 +190,7 @@
     const timelineSlider = document.querySelector('#timeline-slider');
     const timelineTime = document.querySelector('#timeline-time');
     const timelinePlayers = document.querySelector('#timeline-players');
+    const detailColumn = document.querySelector('#detail-column');
 
     const mapStack = document.querySelector('#map-stack');
     const mapViewport = document.querySelector('#map-viewport');
@@ -194,6 +210,8 @@
       panY: 0,
       pointer: null,
     };
+    let timelineResizeObserver = null;
+    let mapViewResizeObserver = null;
 
     function clampNumber(value, minimum, maximum) {
       return Math.max(minimum, Math.min(maximum, value));
@@ -261,6 +279,30 @@
       mapStack.dataset.mapPanState = state;
     }
 
+    function applyTimelineLayoutInsets() {
+      const timelineHeight = Math.max(0, Math.ceil(timelineSection.getBoundingClientRect().height));
+      document.documentElement.style.setProperty('--timeline-height', `${timelineHeight}px`);
+      timelineSection.dataset.timelineHeight = String(timelineHeight);
+      timelineSection.dataset.timelineDock = 'details-column-bottom';
+      detailColumn.dataset.timelineHeight = String(timelineHeight);
+    }
+
+    function setShellControlsHeight(height) {
+      const bounded = clampNumber(Number(height) || 0, 0, window.innerHeight);
+      const rounded = Math.ceil(bounded);
+      document.documentElement.style.setProperty('--shell-controls-height', `${rounded}px`);
+      detailColumn.dataset.shellControlsHeight = String(rounded);
+    }
+
+    function setupTimelineLayoutInsets() {
+      applyTimelineLayoutInsets();
+      if (typeof ResizeObserver !== 'undefined') {
+        timelineResizeObserver = new ResizeObserver(() => applyTimelineLayoutInsets());
+        timelineResizeObserver.observe(timelineSection);
+      }
+      window.addEventListener('resize', applyTimelineLayoutInsets);
+    }
+
     function setupMapPanInteractions() {
       mapStack.dataset.mapPanState = 'idle';
       mapStack.dataset.mapPanInput = 'pointer-events';
@@ -307,8 +349,9 @@
 
     setupMapPanInteractions();
     applyMapViewState();
+    setupTimelineLayoutInsets();
     if (typeof ResizeObserver !== 'undefined') {
-      const mapViewResizeObserver = new ResizeObserver(() => applyMapViewState());
+      mapViewResizeObserver = new ResizeObserver(() => applyMapViewState());
       mapViewResizeObserver.observe(mapStack);
     } else {
       window.addEventListener('resize', applyMapViewState);
@@ -6108,6 +6151,9 @@
       }
       shellScrollTop = Math.max(0, message.scrollTop);
       shellScrollMax = Math.max(0, message.scrollMax);
+      if (Number.isFinite(message.shellControlsHeight)) {
+        setShellControlsHeight(message.shellControlsHeight);
+      }
       return true;
     }
 

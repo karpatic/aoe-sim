@@ -91,6 +91,7 @@ let viewerIframe: HTMLIFrameElement | undefined;
 let pendingViewerTransfer: PendingViewerTransfer | undefined;
 let viewerReadyListener: ((event: MessageEvent<DataviewViewerReadyMessage>) => void) | undefined;
 let activeViewerIdentity: { requestId: string; nonce: string } | undefined;
+const retainedResizeObservers: ResizeObserver[] = [];
 const stageStates = new Map<DataviewProgressStage, StageState>();
 
 initialize();
@@ -110,6 +111,13 @@ function initialize(): void {
   });
   window.addEventListener("message", handleViewerShellScrollRequest);
   window.addEventListener("scroll", sendViewerShellScrollState, { passive: true });
+  window.addEventListener("resize", sendViewerShellScrollState);
+  uploadPanel.addEventListener("toggle", sendViewerShellScrollState);
+  if (typeof ResizeObserver === "function") {
+    const controlsResizeObserver = new ResizeObserver(() => sendViewerShellScrollState());
+    controlsResizeObserver.observe(uploadPanel);
+    retainedResizeObservers.push(controlsResizeObserver);
+  }
 
   const missingSupport = supportProblem();
   if (missingSupport) {
@@ -411,9 +419,16 @@ function sendViewerShellScrollState(): void {
     requestId: identity.requestId,
     nonce: identity.nonce,
     scrollTop: window.scrollY,
-    scrollMax: Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    scrollMax: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+    shellControlsHeight: shellControlsHeight()
   };
   iframeWindow.postMessage(message, "*");
+}
+
+function shellControlsHeight(): number {
+  const height = Math.max(0, Math.ceil(uploadPanel.getBoundingClientRect().height));
+  uploadPanel.dataset.shellControlsHeight = String(height);
+  return height;
 }
 
 function assertSelectedFile(file: File, fileName: string): void {
