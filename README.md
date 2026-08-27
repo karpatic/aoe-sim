@@ -17,6 +17,13 @@ npm run dev
 
 Carlos has not opted into automated tests for this repository. This milestone uses TypeScript checking, production builds, runtime diagnostics, and browser verification.
 
+## Local Replay Folder
+
+This checkout has a machine-local `local-recordings` symbolic link to the AoE II: Definitive Edition Steam profile's
+`savegame` directory for convenient replay access during development. The link is intentionally listed in `.gitignore`;
+it and the private recordings behind it must never be committed or published. Other checkouts can create their own link
+with `ln -s "/path/to/Age of Empires 2 DE/<steam-profile>/savegame" local-recordings`.
+
 ## Current Scope
 
 - Strict TypeScript, Vite, native HTML/CSS, Canvas 2D, and a Web Worker.
