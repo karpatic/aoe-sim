@@ -8,7 +8,7 @@
     :root { --timeline-height: 3.35rem; --mobile-bottom-gap: 0px; --map-zoom: 1; --map-pan-x: 0px; --map-pan-y: 0px; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    main { display: grid; grid-template-columns: 100%; width: 100%; height: 100dvh; max-width: 100%; overflow: hidden; }
+    main { display: grid; grid-template-columns: min(100dvh, calc(100vw - 24rem)) minmax(24rem, 1fr); width: 100%; height: 100dvh; max-width: 100%; overflow: hidden; }
     body { margin: 0; overflow-wrap: anywhere; }
     details, summary, code { max-width: 100%; overflow-wrap: anywhere; }
     summary { cursor: pointer; }
@@ -16,7 +16,7 @@
     .node, .primitive { margin-left: 1rem; }
     code, .schema-object { white-space: pre-wrap; overflow-wrap: anywhere; }
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
-    #detail-column { display: none; }
+    #detail-column { min-width: 0; min-height: 0; height: 100dvh; padding: .65rem .75rem calc(var(--timeline-height) + var(--mobile-bottom-gap) + 1rem); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     #timeline-players, #map-legend-details { width: 100%; max-width: none; }
     #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
@@ -115,9 +115,10 @@
     .party-sprite-task-marker.generated-marker { border-radius: 50%; color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .9); font-size: calc(var(--task-marker-size) * .7); }
     @media (max-width: 50rem) {
       :root { --mobile-bottom-gap: max(.45rem, env(safe-area-inset-bottom)); }
-      main { grid-template: minmax(0, 1fr) / 100%; }
-      #map-column { height: 100%; min-height: 0; }
+      main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
+      #map-column { grid-row: 1; height: 100%; min-height: 0; }
       #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
+      #detail-column { grid-row: 2; height: 100%; min-height: 0; padding-bottom: calc(var(--timeline-height) + var(--mobile-bottom-gap) + .75rem); }
       #timeline-section { bottom: var(--mobile-bottom-gap); }
       #map-chat-overlay { bottom: calc(var(--timeline-height) + var(--mobile-bottom-gap) + .75rem); width: calc(100% - 1rem); }
       .node, .primitive { margin-left: .6rem; }
@@ -142,7 +143,7 @@
         <div id="map-chat-overlay" role="log" aria-live="polite" aria-label="Replay chat"></div>
       </div>
     </section>
-    <aside id="detail-column" hidden aria-hidden="true">
+    <aside id="detail-column" aria-label="Replay details">
       <div id="timeline-players" aria-label="Player statistics"></div>
       <details id="map-legend-details" class="panel-details" open>
         <summary>Map legend</summary>
