@@ -46,6 +46,8 @@
   <script>
     const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
+    const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
+    const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
     const requiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json']);
     const optionalOutputNames = Object.freeze(['unit_stats.json']);
     const allowedOutputNames = Object.freeze([...requiredOutputNames, ...optionalOutputNames]);
@@ -62,6 +64,8 @@
     const schemas = document.querySelector('#schemas');
     const data = document.querySelector('#data');
     const handshake = parseHandshake();
+    let shellScrollTop = 0;
+    let shellScrollMax = 0;
 
     function typeName(value) {
       if (Array.isArray(value)) return `Array (${value.length} items)`;
@@ -139,6 +143,39 @@
       }, window.location.origin);
     }
 
+    function handleShellScrollState(event) {
+      const message = event.data;
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== window.parent ||
+        !handshake ||
+        !message ||
+        message.type !== viewerShellScrollStateType ||
+        message.requestId !== handshake.requestId ||
+        message.nonce !== handshake.nonce ||
+        !Number.isFinite(message.scrollTop) ||
+        !Number.isFinite(message.scrollMax)
+      ) return false;
+      shellScrollTop = Math.max(0, message.scrollTop);
+      shellScrollMax = Math.max(0, message.scrollMax);
+      return true;
+    }
+
+    function relayBoundaryWheel(event) {
+      if (event.ctrlKey || !handshake || event.deltaY === 0) return;
+      const viewerScrollTop = document.scrollingElement?.scrollTop ?? window.scrollY;
+      const scrollingShellDown = event.deltaY > 0 && shellScrollTop < shellScrollMax - 0.5;
+      const scrollingShellUp = event.deltaY < 0 && viewerScrollTop <= 0.5 && shellScrollTop > 0.5;
+      if (!scrollingShellDown && !scrollingShellUp) return;
+      event.preventDefault();
+      window.parent.postMessage({
+        type: viewerShellScrollRequestType,
+        requestId: handshake.requestId,
+        nonce: handshake.nonce,
+        deltaY: event.deltaY,
+      }, window.location.origin);
+    }
+
     function validatePayload(payload, event) {
       if (event.origin !== window.location.origin || event.source !== window.parent) return null;
       if (!handshake) throw new Error('Viewer handshake is missing or malformed.');
@@ -208,12 +245,14 @@
 
     window.addEventListener('message', (event) => {
       try {
+        if (handleShellScrollState(event)) return;
         const payload = validatePayload(event.data, event);
         if (payload) renderPayload(payload);
       } catch (error) {
         setNotice(`Could not render parsed data: ${error.message}`, 'error');
       }
     });
+    window.addEventListener('wheel', relayBoundaryWheel, { passive: false });
     postReady();
   </script>
 </body>

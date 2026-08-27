@@ -171,10 +171,14 @@
 
     const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
+    const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
+    const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
     const viewerRequiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json']);
     const viewerOptionalOutputNames = Object.freeze(['unit_stats.json']);
     const viewerOutputNames = Object.freeze([...viewerRequiredOutputNames, ...viewerOptionalOutputNames]);
     const viewerHandshake = parseViewerHandshake();
+    let shellScrollTop = 0;
+    let shellScrollMax = 0;
     const maxViewerJsonBytes = 96 * 1024 * 1024;
     const maxViewerTotalJsonBytes = 192 * 1024 * 1024;
     const townCenterAssetBasePath = 'https://raw.githubusercontent.com/TimMikeladze/towncenter/8e42a41642b9bdd697037f9ec6a7e975537fb3b0/public/img/';
@@ -5743,6 +5747,41 @@
       }, window.location.origin);
     }
 
+    function handleShellScrollState(event) {
+      const message = event.data;
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== window.parent ||
+        !viewerHandshake ||
+        !message ||
+        message.type !== viewerShellScrollStateType ||
+        message.requestId !== viewerHandshake.requestId ||
+        message.nonce !== viewerHandshake.nonce ||
+        !Number.isFinite(message.scrollTop) ||
+        !Number.isFinite(message.scrollMax)
+      ) {
+        return false;
+      }
+      shellScrollTop = Math.max(0, message.scrollTop);
+      shellScrollMax = Math.max(0, message.scrollMax);
+      return true;
+    }
+
+    function relayBoundaryWheel(event) {
+      if (event.ctrlKey || !viewerHandshake || event.deltaY === 0) return;
+      const viewerScrollTop = document.scrollingElement?.scrollTop ?? window.scrollY;
+      const scrollingShellDown = event.deltaY > 0 && shellScrollTop < shellScrollMax - 0.5;
+      const scrollingShellUp = event.deltaY < 0 && viewerScrollTop <= 0.5 && shellScrollTop > 0.5;
+      if (!scrollingShellDown && !scrollingShellUp) return;
+      event.preventDefault();
+      window.parent.postMessage({
+        type: viewerShellScrollRequestType,
+        requestId: viewerHandshake.requestId,
+        nonce: viewerHandshake.nonce,
+        deltaY: event.deltaY,
+      }, window.location.origin);
+    }
+
     function validateViewerPayload(payload, event) {
       if (event.origin !== window.location.origin || event.source !== window.parent) {
         return null;
@@ -5844,6 +5883,7 @@
 
     function handleViewerMessage(event) {
       try {
+        if (handleShellScrollState(event)) return;
         const payload = validateViewerPayload(event.data, event);
         if (!payload) return;
         renderPayload(payload);
@@ -5853,6 +5893,7 @@
     }
 
     window.addEventListener('message', handleViewerMessage);
+    window.addEventListener('wheel', relayBoundaryWheel, { passive: false });
     postViewerReady();
   </script>
 </body>
