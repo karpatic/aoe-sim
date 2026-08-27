@@ -325,7 +325,10 @@
     const mapSpriteAssetSource = Object.freeze({
       commit: '3e2afe1f2961642ce4b4ee1327a3255b1a82beb8',
       path: 'dataview-viewer.html',
-      note: 'The standalone viewer introduced these map sprite categories and generated-marker asset slots.',
+      note: [
+        'Historical generated-marker category behavior reference;',
+        'current SVG data sprites are project-original generated recreations, not archival GIF/WebP bytes.',
+      ].join(' '),
     });
     const mapSpriteShapeDefinitions = Object.freeze({
       villagers: '<rect x="6" y="2" width="4" height="3" fill="#eeeeee"/><rect x="5" y="5" width="6" height="7" fill="#d7d7d7"/><rect x="4" y="7" width="2" height="4" fill="#8f8f8f"/><rect x="10" y="7" width="2" height="4" fill="#8f8f8f"/><rect x="6" y="12" width="2" height="3" fill="#111"/><rect x="9" y="12" width="2" height="3" fill="#111"/>',
@@ -340,6 +343,7 @@
       priest: '<rect x="6" y="2" width="4" height="3" fill="#eeeeee"/><path d="M5 5h6l1 9H4z" fill="#d7d7d7"/><rect x="12" y="3" width="1" height="11" fill="#111"/><rect x="11" y="3" width="3" height="1" fill="#8f8f8f"/><rect x="7" y="8" width="2" height="4" fill="#8f8f8f"/>',
       scorpion: '<rect x="3" y="9" width="10" height="4" fill="#d7d7d7"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><rect x="2" y="7" width="9" height="1" fill="#111"/><rect x="9" y="6" width="4" height="3" fill="#8f8f8f"/><rect x="13" y="7" width="2" height="1" fill="#eeeeee"/>',
       catapult: '<rect x="3" y="10" width="10" height="3" fill="#d7d7d7"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><path d="M5 9h2V8h2V7h2V5h1v4h-1v1H5z" fill="#8f8f8f"/><rect x="11" y="3" width="3" height="3" fill="#eeeeee"/>',
+      ship: '<rect x="7" y="2" width="1" height="8" fill="#111"/><path d="M8 3h5v5H8z" fill="#eeeeee"/><path d="M5 5h2v5H3z" fill="#d7d7d7"/><rect x="3" y="10" width="10" height="2" fill="#8f8f8f"/><path d="M4 12h8v2H5v-1H4z" fill="#111"/><rect x="2" y="14" width="12" height="1" fill="#d7d7d7"/>',
     });
     function generatedMapSpriteAsset(spriteKey, motion = 'walk') {
       const shape = mapSpriteShapeDefinitions[spriteKey] ?? mapSpriteShapeDefinitions.swordsman;
@@ -375,6 +379,7 @@
       { key: 'infantry', label: 'Barracks / infantry', shortLabel: 'Sword', symbol: 'S', asset: mapSpriteMoveAssets.swordsman },
       { key: 'cavalry', label: 'Cavalry', shortLabel: 'Cav', symbol: 'C', asset: mapSpriteMoveAssets.knight },
       { key: 'siege', label: 'Siege', shortLabel: 'Gear', symbol: 'G', asset: mapSpriteMoveAssets.catapult },
+      { key: 'naval', label: 'Ships / naval', shortLabel: 'Ship', symbol: 'Sh', asset: mapSpriteMoveAssets.ship },
     ]);
     const categoryByKey = new Map(categoryDefinitions.map((definition) => [definition.key, definition]));
     const mapSpriteDefinitions = Object.freeze([
@@ -390,6 +395,7 @@
       { key: 'priest', label: 'Monks / priests', symbol: 'Mo', asset: mapSpriteMoveAssets.priest },
       { key: 'scorpion', label: 'Scorpions', symbol: 'Scp', asset: mapSpriteMoveAssets.scorpion },
       { key: 'catapult', label: 'Catapults / siege engines', symbol: 'Ct', asset: mapSpriteMoveAssets.catapult },
+      { key: 'ship', label: 'Ships / naval actors', symbol: 'Sh', asset: mapSpriteMoveAssets.ship },
     ]);
     const mapSpriteByKey = new Map(mapSpriteDefinitions.map((definition) => [definition.key, definition]));
     const mapSpriteSymbols = new Map(mapSpriteDefinitions.map((definition) => [definition.key, definition.symbol]));
@@ -405,6 +411,7 @@
       ['elephant', 'cavalry'],
       ['scorpion', 'siege'],
       ['catapult', 'siege'],
+      ['ship', 'naval'],
     ]));
     const villagerTaskMarkerDefinitions = Object.freeze({
       food: Object.freeze({ key: 'food', label: 'food gather', symbol: 'F', asset: null }),
@@ -625,8 +632,54 @@
         .trim();
     }
 
-    function classifyUnitCategory({ name = '', stats = null, worker = false } = {}) {
+    const navalUnitNamePattern = new RegExp(`\\b(${[
+      'fishing ship',
+      'trade cog',
+      'merchant ship',
+      'transport ship',
+      'galley',
+      'galleon',
+      'fire ship',
+      'demolition ship',
+      'longboat',
+      'turtle ship',
+      'caravel',
+      'dromon',
+      'canoe',
+      'warship',
+      'dragon ship',
+      'catapult ship',
+      'onager ship',
+      'incendiary ship',
+      'incendiary raft',
+      'demolition raft',
+      'fire raft',
+      'oystering ship',
+      'whaling ship',
+      'junk',
+      'hulk',
+      'carrack',
+      'lembos',
+      'monoreme',
+      'bireme',
+      'trireme',
+      'lou chuan',
+      'thirisadai',
+    ].join('|')})\\b`);
+
+    function unitNameHasNavalEvidence(name) {
+      return navalUnitNamePattern.test(normalizedLookupName(name));
+    }
+
+    function unitClassHasNavalEvidence(classId) {
+      return [2, 20, 21, 22].includes(numericId(classId));
+    }
+
+    function classifyUnitCategory({ name = '', stats = null, classId = null, worker = false } = {}) {
       if (worker || unitNameMatches(name, /\bvillager\b/)) return 'villagers';
+      if (unitClassHasNavalEvidence(classId ?? stats?.class_id ?? stats?.classId) || unitNameHasNavalEvidence(name)) {
+        return 'naval';
+      }
       if (unitNameMatches(name, /\b(ram|mangonel|onager|scorpion|trebuchet|bombard cannon|siege|ballista|houfnice)\b/)) return 'siege';
       if (unitNameMatches(name, /\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|kipchak|mangudai|cavalry archer|camel archer|elephant archer|conquistador|arambai|genitour|ratha)\b/)) return 'ranged';
       if (unitNameMatches(name, /\b(cavalry|knight|cavalier|paladin|hussar|camel|elephant|lancer|tarkan|cataphract|keshik|leitis|boyar|konnik|magyar huszar|coustillier|shrivamsha|centurion)\b/)) return 'cavalry';
@@ -645,10 +698,13 @@
       return null;
     }
 
-    function resolveMapSpriteKey({ name = '', stats = null, category = null, worker = false } = {}) {
+    function resolveMapSpriteKey({ name = '', stats = null, classId = null, category = null, worker = false } = {}) {
       const normalized = normalizedLookupName(name);
       const has = (pattern) => pattern.test(normalized);
       if (worker || has(/\bvillager\b/)) return 'villagers';
+      if (unitClassHasNavalEvidence(classId ?? stats?.class_id ?? stats?.classId) || unitNameHasNavalEvidence(name)) {
+        return 'ship';
+      }
       if (has(/\belephant archer\b/)) return 'elephant';
       if (has(/\b(war elephant|battle elephant|ballista elephant|armored elephant|siege elephant|elephant)\b/)) return 'elephant';
       if (has(/\b(cavalry archer|camel archer|conquistador|arambai|mangudai|kipchak|genitour|ratha|mounted ranged)\b/)) return 'cavalryArcher';
@@ -661,12 +717,13 @@
       if (has(/\b(mangonel|onager|catapult|trebuchet|bombard cannon|houfnice|ram|siege ram|capped ram)\b/)) return 'catapult';
       if (has(/\b(monk|priest|missionary)\b/)) return 'priest';
       if (has(/\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|organ gun)\b/)) return 'archer';
-      const resolvedCategory = category ?? classifyUnitCategory({ name, stats, worker });
+      const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId, worker });
       if (resolvedCategory === 'villagers') return 'villagers';
       if (resolvedCategory === 'ranged') return 'archer';
       if (resolvedCategory === 'infantry') return 'swordsman';
       if (resolvedCategory === 'cavalry') return 'knight';
       if (resolvedCategory === 'siege') return 'catapult';
+      if (resolvedCategory === 'naval') return 'ship';
       return null;
     }
 
@@ -1224,7 +1281,8 @@
         : null;
       const name = resolvedUnit?.name ?? unitRecord?.name ?? sourceRecord?.name ?? row.name ?? 'Unit';
       const stats = resolvedUnit?.stats ?? unitRecord?.base_stats ?? sourceRecord?.base_stats ?? null;
-      const category = classifyUnitCategory({ name, stats, worker: name === 'Villager' });
+      const classId = unitRecord?.class_id ?? sourceRecord?.class_id ?? null;
+      const category = classifyUnitCategory({ name, stats, classId, worker: name === 'Villager' });
       return {
         key: Number.isInteger(resolvedUnitId) ? `unit:${resolvedUnitId}` : `unit-name:${name}`,
         unit_id: Number.isInteger(resolvedUnitId) ? resolvedUnitId : null,
@@ -2405,9 +2463,11 @@
       spriteOverlay.replaceChildren();
       spriteOverlay.dataset.mapSpriteAssetSourceCommit = mapSpriteAssetSource.commit;
       spriteOverlay.dataset.mapSpriteAssetSourcePath = mapSpriteAssetSource.path;
+      spriteOverlay.dataset.mapSpriteAssetSourceNote = mapSpriteAssetSource.note;
       spriteOverlay.dataset.mapSpriteAssetKeys = mapSpriteDefinitions.map((definition) => definition.key).join(',');
       gameplayCanvas.dataset.mapSpriteAssetSourceCommit = mapSpriteAssetSource.commit;
       gameplayCanvas.dataset.mapSpriteAssetSourcePath = mapSpriteAssetSource.path;
+      gameplayCanvas.dataset.mapSpriteAssetSourceNote = mapSpriteAssetSource.note;
       gameplayCanvas.dataset.mapSpriteAssetKeys = spriteOverlay.dataset.mapSpriteAssetKeys;
       const playerColors = new Map(game.match.players.map((player) => [player.number, player.color.toLowerCase()]));
       const viewlockSquareTiles = 14;
@@ -2506,27 +2566,35 @@
         const category = classifyUnitCategory({
           name: event.name,
           stats: unitRecord?.base_stats ?? null,
+          classId: unitRecord?.class_id ?? null,
           worker: event.name === 'Villager',
         });
         const spriteKey = resolveMapSpriteKey({
           name: event.name,
           stats: unitRecord?.base_stats ?? null,
+          classId: unitRecord?.class_id ?? null,
           category,
           worker: event.name === 'Villager',
         });
-        return { category, spriteKey, unitId: numericId(event.unit_id ?? event.unitId) };
+        return {
+          category,
+          spriteKey,
+          unitId: numericId(event.unit_id ?? event.unitId),
+          classId: unitRecord?.class_id ?? null,
+        };
       }
       function productionCategoriesForSelection(player, seconds, count) {
         if (count <= 0) return [];
         return economy.unit_completions
           .filter((event) => event.player === player && event.time <= seconds)
           .flatMap((event) => {
-            const { category, spriteKey, unitId } = producedUnitClassification(event);
+            const { category, spriteKey, unitId, classId } = producedUnitClassification(event);
             if (!category || category === 'villagers') return [];
             return Array.from({ length: Math.max(1, Number(event.count) || 1) }, () => ({
               time: event.time,
               name: event.name,
               unitId,
+              classId,
               category,
               spriteKey,
             }));
@@ -4532,11 +4600,13 @@
             const category = classifyUnitCategory({
               name: object?.name ?? '',
               stats: unitRecord?.base_stats ?? null,
+              classId: unitRecord?.class_id ?? null,
               worker,
             });
             const spriteKey = resolveMapSpriteKey({
               name: object?.name ?? '',
               stats: unitRecord?.base_stats ?? null,
+              classId: unitRecord?.class_id ?? null,
               category,
               worker,
             });
@@ -4589,6 +4659,7 @@
               ?? resolveMapSpriteKey({
                 name: object?.name ?? inferredCategory?.name ?? '',
                 stats: unitRecord?.base_stats ?? null,
+                classId: unitRecord?.class_id ?? inferredCategory?.classId ?? null,
                 category,
                 worker,
               });
@@ -5204,6 +5275,7 @@
         image.dataset.spriteAsset = record.key;
         image.dataset.spriteAssetSourceCommit = mapSpriteAssetSource.commit;
         image.dataset.spriteAssetSourcePath = mapSpriteAssetSource.path;
+        image.dataset.spriteAssetSourceNote = mapSpriteAssetSource.note;
         image.src = record.src;
         partySpriteSrcAssignments += 1;
         return image;
@@ -5255,10 +5327,12 @@
         item.dataset.spriteAsset = record?.key ?? '';
         item.dataset.spriteAssetSourceCommit = record ? mapSpriteAssetSource.commit : '';
         item.dataset.spriteAssetSourcePath = record ? mapSpriteAssetSource.path : '';
+        item.dataset.spriteAssetSourceNote = record ? mapSpriteAssetSource.note : '';
         spriteImage.dataset.spriteAsset = record?.key ?? '';
         spriteImage.dataset.generatedMapSprite = record ? 'true' : '';
         spriteImage.dataset.spriteAssetSourceCommit = record ? mapSpriteAssetSource.commit : '';
         spriteImage.dataset.spriteAssetSourcePath = record ? mapSpriteAssetSource.path : '';
+        spriteImage.dataset.spriteAssetSourceNote = record ? mapSpriteAssetSource.note : '';
         if (entry.key === 'villagers') {
           applyVillagerTaskStateDatasets(item, entry.villagerTaskState ?? {
             indexedAssignment: entry.villagerTaskAssignment,
