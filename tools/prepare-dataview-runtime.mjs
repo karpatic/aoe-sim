@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 const copiedAssets = [
   {
     source: "node_modules/pyodide/pyodide.mjs",
-    target: "public/dataview-runtime/pyodide/pyodide.mjs",
+    target: "public/dataview-runtime/pyodide/pyodide.js",
     sha256: "635a6da3218fe4e5668da595acfe8b5ce77453d597d602f19a423dd250653441"
   },
   {

@@ -64,7 +64,7 @@ const OUTPUT_PATHS: Record<(typeof DATAVIEW_REQUIRED_OUTPUT_NAMES)[number], stri
 };
 const RUNTIME_ASSETS: readonly RuntimeAsset[] = [
   {
-    path: "pyodide/pyodide.mjs",
+    path: "pyodide/pyodide.js",
     sha256: "635a6da3218fe4e5668da595acfe8b5ce77453d597d602f19a423dd250653441",
     maxBytes: 128 * 1024
   },
@@ -495,7 +495,7 @@ function assertCleanGeneratedBytes(buffer: ArrayBuffer, label: string): void {
 }
 
 async function loadPyodideFromRuntime(runtimeBaseUrl: string): Promise<PyodideInterface> {
-  const moduleUrl = new URL("pyodide/pyodide.mjs", runtimeBaseUrl);
+  const moduleUrl = new URL("pyodide/pyodide.js", runtimeBaseUrl);
   if (moduleUrl.origin !== location.origin) {
     throw new Error("Pyodide loader must be served from this origin.");
   }

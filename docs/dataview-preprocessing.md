@@ -24,7 +24,7 @@ from `node_modules/pyodide` and verifies their hashes:
 
 | File | SHA-256 |
 | --- | --- |
-| `pyodide.mjs` | `635a6da3218fe4e5668da595acfe8b5ce77453d597d602f19a423dd250653441` |
+| `pyodide.js` (identical upstream `pyodide.mjs` bytes, deployment-compatible MIME extension) | `635a6da3218fe4e5668da595acfe8b5ce77453d597d602f19a423dd250653441` |
 | `pyodide.asm.js` | `b22e5831eade9ff10e6fe2c811c68688cd91f10154377b4f80debcf5bafa1e56` |
 | `pyodide.asm.wasm` | `5effb6a1a6cc4a1a85bec4622701aa797c031e1de923cbbaf2ad47abdc4ab325` |
 | `python_stdlib.zip` | `71fee17f88a6260ec8c9c7c063533ee59c021fdc88a1ce76247378d3c4a35f4c` |
