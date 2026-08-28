@@ -155,17 +155,20 @@ export class CanvasRenderer {
     const originY = Math.floor((canvas.height - map.heightTiles * tileSize) / 2);
     const drawMode: EntityDrawMode = this.entityCache.size > 1200 || tileSize <= 2 ? "dense" : "tokens";
 
-    this.drawTerrain(map, originX, originY, tileSize);
-    this.drawTasks(originX, originY, tileSize);
-    this.drawProjectiles(originX, originY, tileSize);
-
     if (drawMode === "dense") {
+      this.drawTerrain(map, originX, originY, tileSize);
       this.drawTreeLayer(map, originX, originY, tileSize, drawMode);
+      this.drawTasks(originX, originY, tileSize);
+      this.drawProjectiles(originX, originY, tileSize);
       this.drawDenseEntities(originX, originY, tileSize);
       return;
     }
 
-    for (const entity of [...this.entityCache.values()].sort(compareEntityDepth)) {
+    this.drawTerrain(map, originX, originY, tileSize);
+    this.drawTreeLayer(map, originX, originY, tileSize, drawMode);
+    this.drawTasks(originX, originY, tileSize);
+    this.drawProjectiles(originX, originY, tileSize);
+    for (const entity of [...this.nonTreeEntities.values()].sort(compareEntityDepth)) {
       const screen = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
       drawPixelToken(context, entity, this.players, screen.x, screen.y, tileSize);
     }

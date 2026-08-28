@@ -115,7 +115,7 @@ interface MotionSegment {
   readonly to: Point;
   readonly destination_evidence_class: "observed";
   readonly interpolation_evidence_class: "simulated" | "reconciled";
-  readonly interpolation: "straight-line";
+  readonly interpolation: "command-boundary";
   readonly terrain_avoidance: false;
   readonly source_observation_kind: string;
 }
@@ -337,8 +337,8 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       builder_count_effect: "When selected builder IDs are available near a placement, duration uses baseBuildSeconds * 3 / (builderCount + 2), matching the project viewer's prior conservative multi-builder policy. Missing builder evidence falls back to one builder.",
       production_queue: "Queue and unqueue commands are replay-observed intent. Birth rows are simulated only after sequential per-producer availability and effective train time gates; queue intent is never promoted to a confirmed birth.",
       spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position stays position-unknown and produces no map marker.",
-      reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward only when one compatible unmatched estimate wins by owner, unit name/category, timing, and straight-line spatial plausibility. Ambiguous and unmatched actor IDs are exposed instead of forced.",
-      motion: "Continuous unit motion is simulated straight-line interpolation from an observed or estimated birth position to later replay command destinations only when a birth position is known. No terrain avoidance, collision, obstruction, or pathfinding is claimed.",
+      reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward only when one compatible unmatched estimate wins by owner, unit name/category, timing, and coarse spatial plausibility. Ambiguous and unmatched actor IDs are exposed instead of forced.",
+      motion: "Unit marker positions update at observed replay command boundaries when a birth position is known. Destination commands are not promoted into observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed.",
       computation_boundary: "All rows in this artifact are produced in the browser worker after a local replay is loaded.",
     },
     policies: {
@@ -411,7 +411,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       "Estimated units are born only at estimated_completion_time, never at queue time.",
       "Queue births without producer-position evidence keep their production count but have birth_position null and no map marker.",
       "Static map markers consume these rows; animated GIF/WebP or animated SVG frame behavior is not part of this artifact.",
-      "Motion segments are deterministic straight-line rows with terrain_avoidance=false.",
+      "Motion segments are deterministic command-boundary position update rows with terrain_avoidance=false.",
     ],
   };
 }
@@ -1269,57 +1269,32 @@ function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSeg
   const destinationRows = unit.observations
     .filter((row) => row.position && row.time >= unit.birth_time)
     .sort((a, b) => a.time - b.time || a.index - b.index);
-  destinationRows.forEach((row, index) => {
+  destinationRows.forEach((row) => {
     if (!row.position) return;
     if (row.kind === "parser-initial-position" && row.time <= unit.birth_time + VISIBILITY_EPSILON) {
       anchorTime = row.time;
       anchorPosition = row.position;
       return;
     }
-    const fromTime = unit.birth_kind === "queue_estimate" && index === 0
-      ? unit.birth_time
-      : Math.max(unit.birth_time, row.time);
-    const fromPosition = index === 0 && unit.birth_kind === "queue_estimate"
-      ? birthPosition
-      : positionAtSegments(anchorPosition, segments, fromTime);
-    const travelTime = travelSeconds(fromPosition, row.position, unit.speed);
-    const toTime = cleanTime(unit.birth_kind === "queue_estimate" && index === 0
-      ? Math.min(duration, Math.max(row.time, fromTime + travelTime))
-      : Math.min(duration, fromTime + travelTime));
+    const updateTime = cleanTime(Math.min(duration, Math.max(unit.birth_time, row.time)));
     segments.push({
-      from_time: cleanTime(fromTime),
-      to_time: Math.max(cleanTime(fromTime), toTime),
-      from: cleanPoint(fromPosition),
+      from_time: updateTime,
+      to_time: updateTime,
+      from: cleanPoint(anchorPosition),
       to: cleanPoint(row.position),
       destination_evidence_class: "observed",
       interpolation_evidence_class: unit.reconciliation.status === "matched" ? "reconciled" : "simulated",
-      interpolation: "straight-line",
+      interpolation: "command-boundary",
       terrain_avoidance: false,
       source_observation_kind: row.kind,
     });
-    anchorTime = toTime;
+    anchorTime = updateTime;
     anchorPosition = row.position;
   });
   if (segments.length && anchorTime > unit.visible_until) {
     unit.visible_until = anchorTime;
   }
   return segments;
-}
-
-function positionAtSegments(initial: Point, segments: readonly MotionSegment[], seconds: number): Point {
-  let position = initial;
-  for (const segment of segments) {
-    if (seconds < segment.from_time) break;
-    if (seconds <= segment.to_time && segment.to_time > segment.from_time) {
-      const progress = (seconds - segment.from_time) / (segment.to_time - segment.from_time);
-      return {
-        x: segment.from.x + (segment.to.x - segment.from.x) * progress,
-        y: segment.from.y + (segment.to.y - segment.from.y) * progress,
-      };
-    }
-    position = segment.to;
-  }
-  return position;
 }
 
 function terminalStateIndex(lifetimes: JsonObject, duration: number): ReadonlyMap<string, TerminalState> {
@@ -1647,11 +1622,6 @@ function cleanPoint(value: Point): Point {
 
 function distance(first: Point, second: Point): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
-}
-
-function travelSeconds(first: Point, second: Point, speed: number): number {
-  const boundedSpeed = Math.max(0.05, Number.isFinite(speed) ? speed : DEFAULT_UNIT_SPEED);
-  return cleanNumber(distance(first, second) / boundedSpeed);
 }
 
 function firstNonNegative(values: readonly number[], fallback: number): number {
