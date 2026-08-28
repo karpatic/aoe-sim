@@ -44,16 +44,15 @@
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
     .unit-marker { position: absolute; z-index: 5; display: grid; place-items: center; width: var(--unit-marker-size, 24px); height: var(--unit-marker-size, 24px); padding: 0; border: 0; color: #fff; background: transparent; image-rendering: pixelated; isolation: isolate; overflow: visible; transform: translate(-50%, -50%); will-change: left, top; }
-    .unit-marker::before { content: ""; position: absolute; inset: 1px; z-index: 0; border: 2px solid rgba(255, 255, 255, .92); border-radius: 50%; background: rgba(8, 10, 12, .72); box-shadow: 0 0 0 2px var(--player-color, #fff), 0 0 8px 2px rgba(0, 0, 0, .86); }
-    .unit-marker-image { position: relative; z-index: 1; display: block; width: calc(var(--unit-marker-size, 24px) - 2px); height: calc(var(--unit-marker-size, 24px) - 2px); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #020304) drop-shadow(0 0 3px #020304) drop-shadow(0 0 3px var(--player-color, #fff)); pointer-events: none; }
+    .unit-marker-image { position: relative; z-index: 1; display: block; width: calc(var(--unit-marker-size, 24px) - 2px); height: calc(var(--unit-marker-size, 24px) - 2px); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)); pointer-events: none; }
     .unit-marker[data-reconciliation-status^="anonymous"] { border-style: dashed; }
     .unit-marker[data-reconciliation-status^="ambiguous"] { border-style: dotted; }
-    .unit-marker-count { position: absolute; z-index: 2; top: 50%; left: calc(100% + 1px); display: none; min-width: max(1.1em, calc(var(--unit-marker-count-digits, 1) * .66em + .42em)); padding: .06em .2em; border: 1px solid var(--player-color, #fff); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .9); font: 850 var(--unit-marker-count-font-size, 9px)/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translateY(-50%); white-space: nowrap; overflow-wrap: normal; }
+    .unit-marker-count { position: absolute; z-index: 2; top: 50%; left: calc(100% + 2px); display: none; min-width: 0; padding: 0; border: 0; border-radius: 0; color: #fff; background: transparent; font: 850 var(--unit-marker-count-font-size, 9px)/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; text-align: left; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translateY(-50%); white-space: nowrap; overflow-wrap: normal; }
     .unit-marker[data-stack-count]:not([data-stack-count="1"]) .unit-marker-count { display: inline-block; }
     .party-sprite-strip { position: absolute; display: none; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
-    .party-sprite-item { position: relative; display: inline-grid; place-items: center; width: var(--party-entry-width); height: var(--strip-height); }
-    .party-sprite-image { justify-self: center; display: block; width: var(--sprite-size); height: var(--sprite-size); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
-    .party-sprite-count { position: absolute; top: 0; right: 0; display: inline-block; min-width: .9em; padding: .05em .16em; border: 1px solid var(--player-color); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .88); font-size: var(--badge-font-size); font-variant-numeric: tabular-nums; line-height: .95; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translate(30%, -18%); }
+    .party-sprite-item { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 1px; width: auto; min-width: var(--party-entry-width); height: var(--strip-height); }
+    .party-sprite-image { justify-self: center; display: block; width: var(--sprite-size); height: var(--sprite-size); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)); }
+    .party-sprite-count { position: static; display: inline-block; min-width: 0; padding: 0; border: 0; border-radius: 0; color: #fff; background: transparent; font-size: var(--badge-font-size); font-variant-numeric: tabular-nums; line-height: .95; text-align: left; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: none; }
     #map-legend { margin: .5rem 0; }
     .legend-group { display: flex; flex-wrap: wrap; gap: .55rem .75rem; padding: .25rem 0; }
     .legend-group + .legend-group { margin-top: .35rem; padding-top: .55rem; border-top: 1px solid #bbb; }
@@ -111,9 +110,10 @@
     .sprite-tile:focus { outline: 2px solid #f2d46f; outline-offset: 2px; }
     .sprite-tile:focus:not(:focus-visible) { outline: 0; }
     .sprite-tile img { display: block; max-width: 1.55rem; max-height: 1.55rem; object-fit: contain; image-rendering: pixelated; }
-    .sprite-count { position: absolute; top: -.3rem; right: -.25rem; min-width: .95rem; padding: .02rem .13rem; border: 1px solid var(--player-color, #505456); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .92); font-size: .58rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: .95; text-align: center; text-shadow: 0 1px 0 #111; }
+    .sprite-count { position: absolute; top: -.3rem; right: -.25rem; min-width: 0; padding: 0; border: 0; border-radius: 0; color: #fff; background: transparent; font-size: .58rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: .95; text-align: center; text-shadow: 0 1px 0 #111; }
     .unit-stat-list { gap: .16rem; align-items: flex-start; overflow: visible; }
-    .unit-count-tile { grid-template-columns: 2rem minmax(1.25rem, auto); align-items: center; justify-content: start; flex: 0 1 auto; width: auto; min-width: 3.65rem; max-width: 100%; height: 2.55rem; min-height: 0; padding: .12rem .2rem .12rem .12rem; gap: .14rem; overflow: hidden; }
+    .unit-count-tile { grid-template-columns: 2rem minmax(1.25rem, auto); align-items: center; justify-content: start; flex: 0 1 auto; width: auto; min-width: 3.65rem; max-width: 100%; height: 2.55rem; min-height: 0; padding: .12rem .2rem .12rem .12rem; border: 0; border-radius: 0; gap: .14rem; overflow: hidden; background: transparent; }
+    .unit-count-tile:hover { border-color: transparent; background: transparent; }
     .unit-count-tile img { justify-self: center; width: 1.9rem; height: 1.9rem; max-width: 1.9rem; max-height: 1.9rem; }
     .unit-count-metrics { display: grid; grid-template-rows: repeat(3, minmax(.62rem, auto)); align-content: center; gap: .03rem; min-width: 0; }
     .unit-count-metric { display: block; min-width: 0; padding: 0; font-variant-numeric: tabular-nums; line-height: 1; }
@@ -125,16 +125,17 @@
     #viewer-notice { margin: 0; padding: .45rem .6rem; border: 1px solid #777; background: #f7f7f7; }
     #viewer-notice[hidden] { display: none; }
     #viewer-notice[data-state="error"] { border-color: #7f1d1d; color: #7f1d1d; background: #fff7f7; }
-    .hud-sprite-frame { display: grid; place-items: center; width: 1.55rem; height: 1.55rem; }
+    .hud-sprite-frame { display: grid; place-items: center; width: 1.55rem; height: 1.55rem; border: 0; background: transparent; }
     .unit-count-tile .hud-sprite-frame { justify-self: center; width: 1.9rem; height: 1.9rem; }
     .hud-sprite-frame img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
     .hud-sprite-fallback, .generated-marker { display: inline-grid; place-items: center; width: 1.15rem; height: 1.15rem; border: 1px solid currentColor; border-radius: 3px; color: #f4f0dc; background: #101214; font: 800 .62rem/1 sans-serif; text-align: center; }
-    .unit-count-tile .hud-sprite-fallback { width: 1.55rem; height: 1.55rem; }
-    .legend-category-icon.generated-marker { margin-right: .25rem; color: #111; background: #eee; }
-    .unit-marker .unit-marker-fallback { position: relative; z-index: 1; display: none; width: calc(var(--unit-marker-size, 24px) - 5px); height: calc(var(--unit-marker-size, 24px) - 5px); color: #fff; border-color: var(--player-color); border-radius: 50%; background: rgba(255, 255, 255, .14); font-size: var(--unit-marker-font-size, 8px); text-shadow: 0 1px 0 #111; }
+    .unit-count-tile .hud-sprite-fallback { width: 1.55rem; height: 1.55rem; border: 0; border-radius: 0; background: transparent; }
+    .unit-count-tile .generated-marker { border: 0; border-radius: 0; background: transparent; }
+    .legend-category-icon.generated-marker { margin-right: .25rem; border: 0; border-radius: 0; color: #111; background: transparent; }
+    .unit-marker .unit-marker-fallback { position: relative; z-index: 1; display: none; width: calc(var(--unit-marker-size, 24px) - 5px); height: calc(var(--unit-marker-size, 24px) - 5px); border: 0; border-radius: 0; color: #fff; background: transparent; font-size: var(--unit-marker-font-size, 8px); text-shadow: 0 1px 0 #111; }
     .unit-marker[data-sprite-load-state="error"] .unit-marker-image { display: none; }
     .unit-marker[data-sprite-load-state="error"] .unit-marker-fallback { display: inline-grid; }
-    .party-sprite-image.generated-marker { justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
+    .party-sprite-image.generated-marker { justify-self: center; width: var(--sprite-size); height: var(--sprite-size); border: 0; border-radius: 0; color: #fff; background: transparent; text-shadow: 0 1px 0 #111; filter: none; }
     @media (max-width: 50rem) {
       :root {
         --map-column-width: 0px;
@@ -5633,8 +5634,57 @@
         };
       }
 
-      function activeIndividualUnitAssignments(seconds) {
-        if (!gameplayTimelineUnits.length) return activeMappedActorAssignments(seconds);
+      const commandMappedSupplementalCategoryKeys = new Set(categoryDefinitions.map((definition) => definition.key));
+
+      function assignmentSourceActorKey(assignment) {
+        const sourceActorId = numericId(assignment.sourceActorId ?? assignment.instanceId);
+        return sourceActorId === null ? '' : `${assignment.player}:${sourceActorId}`;
+      }
+
+      function shouldSupplementCommandMappedAssignment(assignment, representedActorKeys) {
+        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey);
+        const category = assignment.category ?? unitCategoryForMapSpriteKey(spriteKey);
+        return Boolean(
+          assignment.mapRendered
+            && assignment.positionCredible
+            && spriteKey
+            && spriteKey !== 'unknown'
+            && category
+            && category !== 'villagers'
+            && commandMappedSupplementalCategoryKeys.has(category)
+            && assignmentSourceActorKey(assignment)
+            && !representedActorKeys.has(assignmentSourceActorKey(assignment)),
+        );
+      }
+
+      function supplementCommandMappedAssignment(assignment) {
+        const sourceActorKey = assignmentSourceActorKey(assignment);
+        const stableId = assignment.stableId ?? sourceActorKey ?? `${assignment.player}:${assignment.instanceId}`;
+        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey);
+        return Object.freeze({
+          ...assignment,
+          stableId,
+          markerKey: `command:${stableId}`,
+          spriteKey,
+          category: assignment.category ?? unitCategoryForMapSpriteKey(spriteKey),
+          supplementalSource: 'command-mapped-actor',
+          birthTime: Number.isFinite(assignment.partyTime) ? assignment.partyTime : 0,
+          birthEvidenceClass: 'simulated',
+          birthConfirmation: 'command-position-estimate',
+          producerId: null,
+          queueId: null,
+          reconciliationStatus: 'command-mapped-actor',
+          interpolationEvidenceClass: assignment.interpolationEvidenceClass ?? 'simulated',
+          interpolationKind: assignment.interpolationKind ?? 'legacy-command-segment',
+          interpolationTimeBound: assignment.interpolationTimeBound ?? 'command-bounded',
+          interpolationFromTime: assignment.interpolationFromTime ?? assignment.partyTime ?? null,
+          interpolationToTime: assignment.interpolationToTime ?? assignment.partyTime ?? null,
+          interpolationDistanceTiles: assignment.interpolationDistanceTiles ?? null,
+          interpolationTravelTimeSeconds: assignment.interpolationTravelTimeSeconds ?? null,
+        });
+      }
+
+      function timelineIndividualUnitAssignments(seconds) {
         return Object.freeze(gameplayTimelineUnits.flatMap((unit) => {
           const interpolation = unitTimelineInterpolationState(unit, seconds);
           if (!interpolation) return [];
@@ -5714,6 +5764,18 @@
             reconciliationStatus: unit.reconciliation?.status ?? '',
           })];
         }));
+      }
+
+      function activeIndividualUnitAssignments(seconds) {
+        if (!gameplayTimelineUnits.length) return activeMappedActorAssignments(seconds);
+        const timelineAssignments = timelineIndividualUnitAssignments(seconds);
+        const representedActorKeys = new Set(
+          timelineAssignments.map(assignmentSourceActorKey).filter(Boolean),
+        );
+        const supplementalAssignments = activeMappedActorAssignments(seconds)
+          .filter((assignment) => shouldSupplementCommandMappedAssignment(assignment, representedActorKeys))
+          .map(supplementCommandMappedAssignment);
+        return Object.freeze([...timelineAssignments, ...supplementalAssignments]);
       }
 
       function partyComposition(members, villagerTaskAssignment = null, villagerTaskState = null) {
@@ -6842,6 +6904,8 @@
         const mapRenderedCategorizedAssignments = currentMappedAssignments.filter((assignment) => assignment.mapRendered);
         const mapRenderedVillagerAssignments = mapRenderedCategorizedAssignments
           .filter((assignment) => assignment.worker);
+        const commandMappedSupplementalAssignments = currentMappedAssignments
+          .filter((assignment) => assignment.supplementalSource === 'command-mapped-actor');
         visibleCommandArrows.forEach((row) => drawCommandArrow(row, seconds));
         visibleMovementParties.forEach(drawMovementParty);
         const visibleIndividualMarkerInterpolations = renderIndividualUnitMarkers(currentMappedAssignments, seconds);
@@ -6920,6 +6984,16 @@
         gameplayCanvas.dataset.currentMappedEvidenceSplits = mappedActorEvidenceSplits(currentMappedAssignments);
         gameplayCanvas.dataset.currentMappedEvidenceSplitsByPlayer = mappedActorEvidenceSplitsByPlayer(currentMappedAssignments);
         gameplayCanvas.dataset.currentMappedActorEvidence = mappedActorLineEvidence(currentMappedAssignments);
+        gameplayCanvas.dataset.commandMappedSupplementalAssignments = String(commandMappedSupplementalAssignments.length);
+        gameplayCanvas.dataset.commandMappedSupplementalCategories = countSummary(
+          commandMappedSupplementalAssignments.map((assignment) => assignment.category),
+        );
+        gameplayCanvas.dataset.commandMappedSupplementalNames = countSummary(
+          commandMappedSupplementalAssignments.map((assignment) => assignment.unitName || assignment.referenceUnitName),
+        );
+        gameplayCanvas.dataset.commandMappedSupplementalSprites = countSummary(
+          commandMappedSupplementalAssignments.map((assignment) => assignment.spriteKey),
+        );
         gameplayCanvas.dataset.visiblePartyEvidence = visibleEffectiveTaskRows
           .map(({ party, taskState }) => `${party.kind}${taskState.effectiveAssignment ? `/${taskState.effectiveAssignment.key}` : ''}${taskState.indexedAssignment && taskState.indexedAssignment !== taskState.effectiveAssignment ? `/indexed:${taskState.indexedAssignment.key}` : ''}${taskState.phase ? `/phase:${taskState.phase}` : ''}:${party.player}:${party.members.length}:${party.latestTime.toFixed(3)}@${party.position.x.toFixed(1)},${party.position.y.toFixed(1)}[${party.members.map((member) => member.instanceId).join(',')}]`)
           .join(';');
