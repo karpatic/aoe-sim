@@ -113,9 +113,14 @@ interface MotionSegment {
   readonly to_time: number;
   readonly from: Point;
   readonly to: Point;
+  readonly from_evidence_class: "observed" | "simulated" | "reconciled";
   readonly destination_evidence_class: "observed";
   readonly interpolation_evidence_class: "simulated" | "reconciled";
-  readonly interpolation: "command-boundary";
+  readonly interpolation: "bounded-straight-line-visual" | "instant-evidence-update";
+  readonly time_bound: "unit-speed" | "replay-timestamp" | "instant";
+  readonly distance_tiles: number;
+  readonly max_speed_tiles_per_second: number;
+  readonly travel_time_seconds: number;
   readonly terrain_avoidance: false;
   readonly source_observation_kind: string;
 }
@@ -338,7 +343,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       production_queue: "Queue and unqueue commands are replay-observed intent. Birth rows are simulated only after sequential per-producer availability and effective train time gates; queue intent is never promoted to a confirmed birth.",
       spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position stays position-unknown and produces no map marker.",
       reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward only when one compatible unmatched estimate wins by owner, unit name/category, timing, and coarse spatial plausibility. Ambiguous and unmatched actor IDs are exposed instead of forced.",
-      motion: "Unit marker positions update at observed replay command boundaries when a birth position is known. Destination commands are not promoted into observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed.",
+      motion: "Unit marker positions use deterministic bounded straight-line visual interpolation between known evidence endpoints when a birth position is known. Destination commands are replay evidence endpoints, not observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed.",
       computation_boundary: "All rows in this artifact are produced in the browser worker after a local replay is loaded.",
     },
     policies: {
@@ -367,6 +372,14 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       ambiguous_observed_actors: reconciliation.ambiguous_observed_actors.length,
       unmatched_observed_actors: reconciliation.unmatched_observed_actors.length,
       motion_segments: outputUnits.reduce((sum, row) => sum + row.motion_segments.length, 0),
+      bounded_interpolated_motion_segments: outputUnits.reduce((sum, row) =>
+        sum + row.motion_segments.filter((segment) =>
+          segment.interpolation === "bounded-straight-line-visual").length, 0),
+      instant_motion_segments: outputUnits.reduce((sum, row) =>
+        sum + row.motion_segments.filter((segment) =>
+          segment.interpolation === "instant-evidence-update").length, 0),
+      unit_speed_bound_motion_segments: outputUnits.reduce((sum, row) =>
+        sum + row.motion_segments.filter((segment) => segment.time_bound === "unit-speed").length, 0),
     },
     sample_times: visibleSampleTimes,
     building_timeline: buildingTimeline.map((row) => ({
@@ -411,7 +424,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       "Estimated units are born only at estimated_completion_time, never at queue time.",
       "Queue births without producer-position evidence keep their production count but have birth_position null and no map marker.",
       "Static map markers consume these rows; animated GIF/WebP or animated SVG frame behavior is not part of this artifact.",
-      "Motion segments are deterministic command-boundary position update rows with terrain_avoidance=false.",
+      "Motion segments are deterministic bounded straight-line visual interpolation rows with terrain_avoidance=false; replay command destinations remain evidence endpoints, not observed continuous paths.",
     ],
   };
 }
@@ -1266,6 +1279,7 @@ function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSeg
   const segments: MotionSegment[] = [];
   let anchorTime = unit.birth_time;
   let anchorPosition = birthPosition;
+  let anchorEvidenceClass: "observed" | "simulated" | "reconciled" = unit.birth_evidence_class;
   const destinationRows = unit.observations
     .filter((row) => row.position && row.time >= unit.birth_time)
     .sort((a, b) => a.time - b.time || a.index - b.index);
@@ -1274,22 +1288,42 @@ function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSeg
     if (row.kind === "parser-initial-position" && row.time <= unit.birth_time + VISIBILITY_EPSILON) {
       anchorTime = row.time;
       anchorPosition = row.position;
+      anchorEvidenceClass = "observed";
       return;
     }
-    const updateTime = cleanTime(Math.min(duration, Math.max(unit.birth_time, row.time)));
+    const evidenceTime = cleanTime(Math.min(duration, Math.max(unit.birth_time, row.time)));
+    const distanceTiles = distance(anchorPosition, row.position);
+    const maxSpeedTilesPerSecond = Math.max(DEFAULT_UNIT_SPEED, unit.speed);
+    const intervalSeconds = Math.max(0, evidenceTime - anchorTime);
+    const speedTravelSeconds = maxSpeedTilesPerSecond > 0
+      ? distanceTiles / maxSpeedTilesPerSecond
+      : intervalSeconds;
+    const speedBounded = (
+      distanceTiles > VISIBILITY_EPSILON
+      && speedTravelSeconds > VISIBILITY_EPSILON
+      && speedTravelSeconds < intervalSeconds
+    );
+    const fromTime = cleanTime(speedBounded ? evidenceTime - speedTravelSeconds : anchorTime);
+    const instant = distanceTiles <= VISIBILITY_EPSILON || evidenceTime <= fromTime + VISIBILITY_EPSILON;
     segments.push({
-      from_time: updateTime,
-      to_time: updateTime,
+      from_time: instant ? evidenceTime : fromTime,
+      to_time: evidenceTime,
       from: cleanPoint(anchorPosition),
       to: cleanPoint(row.position),
+      from_evidence_class: anchorEvidenceClass,
       destination_evidence_class: "observed",
       interpolation_evidence_class: unit.reconciliation.status === "matched" ? "reconciled" : "simulated",
-      interpolation: "command-boundary",
+      interpolation: instant ? "instant-evidence-update" : "bounded-straight-line-visual",
+      time_bound: instant ? "instant" : speedBounded ? "unit-speed" : "replay-timestamp",
+      distance_tiles: cleanNumber(distanceTiles),
+      max_speed_tiles_per_second: cleanNumber(maxSpeedTilesPerSecond),
+      travel_time_seconds: cleanNumber(instant ? 0 : evidenceTime - fromTime),
       terrain_avoidance: false,
       source_observation_kind: row.kind,
     });
-    anchorTime = updateTime;
+    anchorTime = evidenceTime;
     anchorPosition = row.position;
+    anchorEvidenceClass = "observed";
   });
   if (segments.length && anchorTime > unit.visible_until) {
     unit.visible_until = anchorTime;

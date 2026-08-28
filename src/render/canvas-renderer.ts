@@ -433,6 +433,10 @@ function drawDenseEntity(
     drawDenseBuilding(context, entity, colors, players, screen.x, screen.y, tileSize);
     return;
   }
+  if (entity.playerId !== "gaia" && !entity.resourceNode) {
+    drawDenseUnitMarker(context, entity, colors, players, screen.x, screen.y, tileSize);
+    return;
+  }
 
   const size = entity.resourceNode
     ? Math.max(3, Math.round(tileSize * 0.65))
@@ -441,6 +445,114 @@ function drawDenseEntity(
       : Math.max(2, tileSize);
   context.fillStyle = denseEntityColor(entity, colors, players);
   context.fillRect(screen.x - Math.floor(size / 2), screen.y - Math.floor(size / 2), size, size);
+}
+
+function drawDenseUnitMarker(
+  context: CanvasRenderingContext2D,
+  entity: RenderEntitySnapshot,
+  colors: ReadonlyMap<string, string>,
+  players: readonly PlayerDefinition[],
+  x: number,
+  y: number,
+  tileSize: number
+): void {
+  const family = denseUnitFamily(entity);
+  const color = denseEntityColor(entity, colors, players);
+  const half = Math.max(3, Math.round(tileSize * 0.85));
+  const rim = Math.max(1, Math.round(tileSize * 0.18));
+
+  context.save();
+  context.translate(x, y);
+  context.fillStyle = "rgba(5, 8, 10, 0.82)";
+  context.beginPath();
+  context.arc(0, 0, half + 2, 0, Math.PI * 2);
+  context.fill();
+  context.strokeStyle = "#f9f0d0";
+  context.lineWidth = rim;
+  context.beginPath();
+  context.arc(0, 0, half + 1, 0, Math.PI * 2);
+  context.stroke();
+  context.fillStyle = entity.lifecycle.state === "dead" ? "#6a645b" : color;
+
+  if (family === "cavalry") {
+    context.fillRect(
+      -half,
+      -Math.max(1, Math.floor(half / 3)),
+      half * 2,
+      Math.max(3, Math.floor(half * 0.75))
+    );
+    context.fillStyle = "#f9f0d0";
+    context.fillRect(Math.max(0, half - 2), -half + 1, 2, 3);
+  } else if (family === "ranged") {
+    context.beginPath();
+    context.moveTo(0, -half);
+    context.lineTo(half, half);
+    context.lineTo(-half, half);
+    context.closePath();
+    context.fill();
+    context.strokeStyle = "#101214";
+    context.lineWidth = 1;
+    context.stroke();
+  } else if (family === "support") {
+    context.beginPath();
+    context.arc(0, 0, half, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = "#f9f0d0";
+    context.fillRect(half - 1, -half - 1, 2, half * 2 + 2);
+  } else if (family === "siege") {
+    context.fillRect(-half, -Math.max(2, Math.floor(half / 2)), half * 2, half + 2);
+    context.fillStyle = "#101214";
+    context.fillRect(-half + 1, half - 1, 2, 2);
+    context.fillRect(half - 3, half - 1, 2, 2);
+    context.fillStyle = "#f9f0d0";
+    context.fillRect(0, -half - 1, half + 2, 2);
+  } else {
+    context.beginPath();
+    context.moveTo(0, -half);
+    context.lineTo(half, 0);
+    context.lineTo(0, half);
+    context.lineTo(-half, 0);
+    context.closePath();
+    context.fill();
+    context.fillStyle = "#f9f0d0";
+    context.fillRect(-1, -half, 2, half * 2);
+    context.fillRect(-half, -1, half * 2, 2);
+  }
+
+  context.restore();
+}
+
+function denseUnitFamily(entity: RenderEntitySnapshot): "infantry" | "cavalry" | "ranged" | "support" | "siege" {
+  const kind = entity.kind.toLowerCase();
+  const classId = entity.classId;
+  if (
+    classId === 13
+    || classId === 54
+    || classId === 55
+    || /\b(ram|mangonel|onager|scorpion|trebuchet|bombard|siege|ballista|catapult)\b/.test(kind)
+  ) {
+    return "siege";
+  }
+  if (classId === 18 || classId === 43 || /\b(monk|priest|missionary)\b/.test(kind)) {
+    return "support";
+  }
+  if (
+    classId === 0
+    || classId === 23
+    || classId === 36
+    || classId === 44
+    || /\b(archer|skirmisher|crossbow|bowman|cannoneer|janissary|slinger)\b/.test(kind)
+  ) {
+    return "ranged";
+  }
+  if (
+    classId === 12
+    || classId === 47
+    || /\b(cavalry|knight|cavalier|paladin|hussar|camel|elephant|lancer|scout)\b/.test(kind)
+  ) {
+    return "cavalry";
+  }
+  return "infantry";
 }
 
 function denseEntityLayer(entity: RenderEntitySnapshot): "gaia" | "building" | "unit" {
