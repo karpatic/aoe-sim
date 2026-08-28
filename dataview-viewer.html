@@ -31,20 +31,24 @@
     #map-stack[data-map-zoom="1"] { cursor: default; }
     #map-stack.is-panning { cursor: grabbing; }
     #map-viewport { position: absolute; inset: 0; transform: translate(var(--map-pan-x), var(--map-pan-y)) scale(var(--map-zoom)); transform-origin: 0 0; will-change: transform; }
-    #map-canvas { display: block; width: 100%; height: 100%; border: 1px solid; object-fit: contain; image-rendering: pixelated; }
+    #map-canvas { position: relative; z-index: 0; display: block; width: 100%; height: 100%; border: 1px solid; object-fit: contain; image-rendering: pixelated; }
     #resource-canvas, #building-canvas, #gameplay-canvas, #sprite-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
-    #sprite-overlay { overflow: visible; }
+    #resource-canvas { z-index: 1; }
+    #building-canvas { z-index: 2; }
+    #gameplay-canvas { z-index: 3; }
+    #sprite-overlay { z-index: 4; overflow: visible; }
     .chat-panel { min-width: 0; margin: 0; border: 1px solid; }
     .chat-panel-heading { margin: 0; padding: .5rem; border-bottom: 1px solid; background: #eee; font-size: .92rem; line-height: 1.2; }
     #map-chat-overlay { display: flex; flex-direction: column; align-items: flex-start; gap: .22rem; min-height: 2.75rem; max-height: 11rem; padding: .5rem; overflow: auto; }
     .map-chat-message { max-width: 100%; padding: .18rem .38rem; color: #fff; background: rgba(8, 10, 12, .72); border-left: .3rem solid var(--player-color, #888); font: 700 .86rem/1.25 system-ui, sans-serif; text-shadow: 0 1px 2px #000, 1px 0 2px #000; overflow-wrap: anywhere; animation: map-chat-lifetime 6s linear forwards; }
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
-    .unit-marker { position: absolute; display: grid; place-items: center; width: var(--unit-marker-size, 18px); height: var(--unit-marker-size, 18px); padding: 0; border: 0; color: #fff; background: transparent; image-rendering: pixelated; overflow: visible; transform: translate(-50%, -50%); will-change: left, top; }
-    .unit-marker-image { display: block; width: var(--unit-marker-size, 18px); height: var(--unit-marker-size, 18px); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #101214) drop-shadow(0 0 2px var(--player-color, #fff)); pointer-events: none; }
+    .unit-marker { position: absolute; z-index: 5; display: grid; place-items: center; width: var(--unit-marker-size, 24px); height: var(--unit-marker-size, 24px); padding: 0; border: 0; color: #fff; background: transparent; image-rendering: pixelated; isolation: isolate; overflow: visible; transform: translate(-50%, -50%); will-change: left, top; }
+    .unit-marker::before { content: ""; position: absolute; inset: 1px; z-index: 0; border: 2px solid rgba(255, 255, 255, .92); border-radius: 50%; background: rgba(8, 10, 12, .72); box-shadow: 0 0 0 2px var(--player-color, #fff), 0 0 8px 2px rgba(0, 0, 0, .86); }
+    .unit-marker-image { position: relative; z-index: 1; display: block; width: calc(var(--unit-marker-size, 24px) - 2px); height: calc(var(--unit-marker-size, 24px) - 2px); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)) drop-shadow(0 0 1px #020304) drop-shadow(0 0 3px #020304) drop-shadow(0 0 3px var(--player-color, #fff)); pointer-events: none; }
     .unit-marker[data-reconciliation-status^="anonymous"] { border-style: dashed; }
     .unit-marker[data-reconciliation-status^="ambiguous"] { border-style: dotted; }
-    .unit-marker-count { position: absolute; top: 50%; left: calc(100% + 1px); display: none; min-width: max(1.1em, calc(var(--unit-marker-count-digits, 1) * .66em + .42em)); padding: .06em .2em; border: 1px solid var(--player-color, #fff); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .9); font: 850 var(--unit-marker-count-font-size, 9px)/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translateY(-50%); white-space: nowrap; overflow-wrap: normal; }
+    .unit-marker-count { position: absolute; z-index: 2; top: 50%; left: calc(100% + 1px); display: none; min-width: max(1.1em, calc(var(--unit-marker-count-digits, 1) * .66em + .42em)); padding: .06em .2em; border: 1px solid var(--player-color, #fff); border-radius: 999px; color: #fff; background: rgba(12, 14, 15, .9); font: 850 var(--unit-marker-count-font-size, 9px)/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; text-align: center; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translateY(-50%); white-space: nowrap; overflow-wrap: normal; }
     .unit-marker[data-stack-count]:not([data-stack-count="1"]) .unit-marker-count { display: inline-block; }
     .party-sprite-strip { position: absolute; display: none; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
     .party-sprite-item { position: relative; display: inline-grid; place-items: center; width: var(--party-entry-width); height: var(--strip-height); }
@@ -127,7 +131,7 @@
     .hud-sprite-fallback, .generated-marker { display: inline-grid; place-items: center; width: 1.15rem; height: 1.15rem; border: 1px solid currentColor; border-radius: 3px; color: #f4f0dc; background: #101214; font: 800 .62rem/1 sans-serif; text-align: center; }
     .unit-count-tile .hud-sprite-fallback { width: 1.55rem; height: 1.55rem; }
     .legend-category-icon.generated-marker { margin-right: .25rem; color: #111; background: #eee; }
-    .unit-marker .unit-marker-fallback { display: none; width: calc(var(--unit-marker-size, 18px) - 3px); height: calc(var(--unit-marker-size, 18px) - 3px); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); font-size: var(--unit-marker-font-size, 8px); text-shadow: 0 1px 0 #111; }
+    .unit-marker .unit-marker-fallback { position: relative; z-index: 1; display: none; width: calc(var(--unit-marker-size, 24px) - 5px); height: calc(var(--unit-marker-size, 24px) - 5px); color: #fff; border-color: var(--player-color); border-radius: 50%; background: rgba(255, 255, 255, .14); font-size: var(--unit-marker-font-size, 8px); text-shadow: 0 1px 0 #111; }
     .unit-marker[data-sprite-load-state="error"] .unit-marker-image { display: none; }
     .unit-marker[data-sprite-load-state="error"] .unit-marker-fallback { display: inline-grid; }
     .party-sprite-image.generated-marker { justify-self: center; width: var(--sprite-size); height: var(--sprite-size); color: #fff; border-color: var(--player-color); background: rgba(12, 14, 15, .88); text-shadow: 0 1px 0 #111; filter: drop-shadow(0 0 1px #111) drop-shadow(0 0 2px var(--player-color)); }
@@ -1322,7 +1326,7 @@
 
     function unitSummaryAccessibleDescription(producedTotal, queuedTotal, currentMapTotal, inventory = null) {
       const classification = unitRemainderClassificationText(inventory);
-      return `Total built/produced ${producedTotal}, queued ${queuedTotal}, current map-position estimate ${currentMapTotal}. Units show estimated queue births, queued intent, and current individual map markers. Total built/produced excludes starting units. Current map-position counts only classified individual units visible from observed, simulated, or reconciled timeline rows; absent or stale positions are position-unknown, not confirmed dead, and this is not a complete army population.${classification ? ` Current side/map classification: ${classification}.` : ''}`;
+      return `Total built/produced ${producedTotal}, queued ${queuedTotal}, current map-position estimate ${currentMapTotal}. Units show estimated queue births, queued intent, and current individual map markers. Total built/produced excludes starting units. Current map-position counts only classified individual units with credible in-bounds positions from observed, simulated, or reconciled timeline rows; absent or stale positions are position-unknown, not confirmed dead, and this is not a complete army population.${classification ? ` Current side/map classification: ${classification}.` : ''}`;
     }
 
     const technologyLinePatterns = Object.freeze([
@@ -2085,6 +2089,7 @@
         const rows = new Map();
         const diagnostics = {
           activeAssignments: assignments.length,
+          crediblePositionAssignments: 0,
           mapRenderedCategorized: 0,
           mapRenderedWorkers: 0,
           evidenceCounts: new Map(),
@@ -2092,6 +2097,9 @@
         assignments.forEach((assignment) => {
           const quality = assignment.evidenceQuality ?? 'unclassified';
           incrementCount(diagnostics.evidenceCounts, quality);
+          if (assignment.positionCredible ?? mapPositionIsCredible(assignment.position)) {
+            diagnostics.crediblePositionAssignments += 1;
+          }
           if (!assignment.mapRendered) return;
           diagnostics.mapRenderedCategorized += 1;
           if (assignment.worker) diagnostics.mapRenderedWorkers += 1;
@@ -2115,6 +2123,8 @@
               : '',
             assignment.unitIdentity?.name ?? '',
             `sprite=${assignment.spriteKey}`,
+            `pos=${formatMapPosition(assignment.position)}`,
+            `interp=${assignment.interpolationStatus ?? 'untracked'}`,
             assignment.worker ? 'worker' : '',
             `motion=${assignment.partyKind}`,
           ].filter(Boolean).join('/'));
@@ -2125,7 +2135,7 @@
             .map((row) => ({
               ...row,
               title: [
-                `Current map-position evidence: ${row.currentMapEstimate} active classified individual marker(s).`,
+                `Current map-position evidence: ${row.currentMapEstimate} active classified individual marker(s) with credible in-bounds positions.`,
                 `Evidence split: ${evidenceCountText(row.currentMapEvidenceCounts)}.`,
                 row.currentMapMemberIds.size
                   ? `Unit assignments: ${[...row.currentMapMemberIds].map(String).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ')}.`
@@ -2588,6 +2598,7 @@
           state.unitsSummary.dataset.hudCurrentMapTotal = String(currentMapTotal);
           applyUnitPositionInventoryDatasets(state.unitsSummary, unitPositionInventory);
           state.unitsSummary.dataset.currentMapActiveAssignments = String(currentMapSummary.diagnostics.activeAssignments);
+          state.unitsSummary.dataset.currentMapCrediblePositionAssignments = String(currentMapSummary.diagnostics.crediblePositionAssignments);
           state.unitsSummary.dataset.mapRenderedCategorizedTotal = String(currentMapSummary.diagnostics.mapRenderedCategorized);
           state.unitsSummary.dataset.currentMappedWorkerTotal = String(currentMappedWorkerTotal);
           state.unitsSummary.dataset.currentMappedVillagerUnitTotal = String(currentMappedVillagerUnitTotal);
@@ -2603,7 +2614,7 @@
             visibleUnits,
             state.playerUnitStats,
             statSnapshot,
-            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
+            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count with credible in-bounds positions from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
             economy.methodology.unit_completions,
             state.unitSpriteImages,
           );
@@ -2612,6 +2623,7 @@
           state.unitsValue.dataset.hudQueuedTotal = String(queuedTotal);
           applyUnitPositionInventoryDatasets(state.unitsValue, unitPositionInventory);
           state.unitsValue.dataset.currentMapActiveAssignments = String(currentMapSummary.diagnostics.activeAssignments);
+          state.unitsValue.dataset.currentMapCrediblePositionAssignments = String(currentMapSummary.diagnostics.crediblePositionAssignments);
           state.unitsValue.dataset.mapRenderedCategorizedTotal = String(currentMapSummary.diagnostics.mapRenderedCategorized);
           state.unitsValue.dataset.currentMappedWorkerTotal = String(currentMappedWorkerTotal);
           state.unitsValue.dataset.currentMappedVillagerUnitTotal = String(currentMappedVillagerUnitTotal);
@@ -3525,6 +3537,7 @@
       resourceCanvas.dataset.layer = 'resources';
       buildingCanvas.dataset.layer = 'buildings';
       gameplayCanvas.dataset.layer = 'characters';
+      spriteOverlay.dataset.layer = 'unit-sprites-above-resource-building-gameplay-canvases';
       resourceCanvas.dataset.goldMines = mapResources.resources.filter((resource) => resource.name === 'Gold Mine').length;
       resourceCanvas.dataset.stoneMines = mapResources.resources.filter((resource) => resource.name === 'Stone Mine').length;
       gameplayCanvas.dataset.indexedObjects = lifetimes.counts.indexed_objects;
@@ -3671,11 +3684,11 @@
       if (explicitGarrisonEvents.length) addCommandLegend('⌣◉', 'Un/garrison command', '#8b5a2b');
       addTeamCommandLegend('×', 'Attack command destination; individual unit markers remain static symbols');
       addTeamCommandLegend('○', 'Target / order command');
-      addTeamCommandLegend('▣', 'Movement command destination; individual unit markers jump at observed command time');
-      addTeamCommandLegend('→', 'Inferred command direction');
+      addTeamCommandLegend('▣', 'Movement command destination; visual interpolation keeps exact replay endpoints');
+      addTeamCommandLegend('→', 'Inferred straight-line visual direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; their positions update at replay command timestamps from observed or estimated birth positions to later command destinations. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
+      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; when two evidence-backed positions exist, their displayed position uses clearly labeled bounded straight-line visual interpolation and keeps exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -5235,14 +5248,21 @@
               name: member.unitIdentity?.name ?? '',
               evidence: member.unitIdentity?.evidence ?? member.categoryEvidence ?? '',
             });
+            const position = Object.freeze({ x: interpolation.current.x, y: interpolation.current.y });
+            const interpolationFrom = Object.freeze(interpolation.source ?? position);
+            const interpolationTo = Object.freeze(interpolation.destination ?? position);
+            const spriteKey = canonicalMapSpriteKey(member.spriteKey);
+            const positionCredible = mapPositionIsCredible(position);
             const mapRendered = Boolean(
-              canonicalMapSpriteKey(member.spriteKey)
+              positionCredible
+                && spriteKey
                 && partyComposition([member], taskState.effectiveAssignment).entries.length,
             );
-            const spriteKey = canonicalMapSpriteKey(member.spriteKey);
             return Object.freeze({
               player: party.player,
               instanceId: member.instanceId,
+              sourceActorId: member.instanceId,
+              stableId: `${party.player}:${member.instanceId}`,
               worker: Boolean(member.worker),
               villager: Boolean(member.worker),
               partyId: party.id,
@@ -5251,8 +5271,10 @@
               villagerTaskAssignment: taskState.effectiveAssignment?.key ?? null,
               indexedVillagerTaskAssignment: taskState.indexedAssignment?.key ?? null,
               villagerTaskPhase: taskState.phase,
-              position: Object.freeze({ x: interpolation.current.x, y: interpolation.current.y }),
-              commandDestination: Object.freeze({ x: interpolation.destination.x, y: interpolation.destination.y }),
+              position,
+              commandDestination: interpolationTo,
+              interpolationFrom,
+              interpolationTo,
               unitIdentity,
               resolvedUnitId: unitIdentity.unit_id,
               unitName: unitIdentity.name,
@@ -5266,7 +5288,21 @@
               evidence: member.categoryEvidence,
               outcome: member.outcome,
               endTime: member.endTime,
+              positionCredible,
               mapRendered,
+              interpolationStatus: interpolation.status,
+              interpolationProgress: interpolation.progress,
+              interpolationEvidenceClass: unitIdentity.quality === 'reconciled' ? 'reconciled' : 'simulated',
+              interpolationKind: interpolation.status === 'moving'
+                ? 'bounded-straight-line-visual'
+                : 'legacy-command-segment',
+              interpolationTimeBound: interpolation.slowestSpeed === null ? 'replay-timestamp' : 'unit-speed',
+              interpolationFromTime: party.latestTime,
+              interpolationToTime: interpolation.travelTime === null
+                ? party.latestTime
+                : party.latestTime + interpolation.travelTime,
+              interpolationDistanceTiles: interpolation.distance,
+              interpolationTravelTimeSeconds: interpolation.travelTime ?? 0,
             });
           });
         }));
@@ -5276,6 +5312,25 @@
         const x = Number(value?.x);
         const y = Number(value?.y);
         return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+      }
+
+      function mapPositionIsCredible(position) {
+        return Boolean(
+          position
+            && Number.isFinite(Number(position.x))
+            && Number.isFinite(Number(position.y))
+            && position.x >= 0
+            && position.y >= 0
+            && position.x <= dimension
+            && position.y <= dimension,
+        );
+      }
+
+      function timelineInterpolatedPoint(from, to, progress) {
+        return {
+          x: from.x + (to.x - from.x) * progress,
+          y: from.y + (to.y - from.y) * progress,
+        };
       }
 
       function unitTimelineEvidenceQuality(unit) {
@@ -5299,30 +5354,95 @@
         let status = 'at-birth-position';
         let progress = 1;
         let segmentEvidence = unit.birth_evidence_class ?? 'simulated';
+        let fromPosition = birthPosition;
+        let toPosition = birthPosition;
+        let fromTime = birthTime;
+        let toTime = birthTime;
+        let interpolationKind = 'at-birth-position';
+        let timeBound = 'birth';
+        let distanceTiles = 0;
+        let travelTimeSeconds = 0;
         for (const segment of unit.motion_segments ?? []) {
           const from = timelinePoint(segment.from);
           const to = timelinePoint(segment.to);
-          const fromTime = Number(segment.from_time);
-          const toTime = Number(segment.to_time);
-          if (!from || !to || !Number.isFinite(fromTime) || !Number.isFinite(toTime)) continue;
-          if (seconds < fromTime) {
+          const rawFromTime = Number(segment.from_time);
+          const rawToTime = Number(segment.to_time);
+          if (!from || !to || !Number.isFinite(rawFromTime) || !Number.isFinite(rawToTime)) continue;
+          const segmentFromTime = Math.min(rawFromTime, rawToTime);
+          const segmentToTime = Math.max(rawFromTime, rawToTime);
+          const segmentDuration = Math.max(0, segmentToTime - segmentFromTime);
+          const segmentKind = segment.interpolation ?? (
+            segmentDuration > .001 ? 'bounded-straight-line-visual' : 'instant-evidence-update'
+          );
+          const segmentTimeBound = segment.time_bound ?? (segmentDuration > .001 ? 'replay-timestamp' : 'instant');
+          const segmentDistanceTiles = Number(segment.distance_tiles ?? Math.hypot(to.x - from.x, to.y - from.y));
+          const segmentTravelTimeSeconds = Number(segment.travel_time_seconds ?? segmentDuration);
+          if (seconds < segmentFromTime) {
+            current = from;
             destination = to;
-            status = 'waiting-for-next-command';
+            status = 'waiting-for-interpolation';
             progress = 0;
+            segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
+            fromPosition = from;
+            toPosition = to;
+            fromTime = segmentFromTime;
+            toTime = segmentToTime;
+            interpolationKind = segmentKind;
+            timeBound = segmentTimeBound;
+            distanceTiles = Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
+            travelTimeSeconds = Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
             break;
+          }
+          if (segmentDuration > .001 && seconds < segmentToTime) {
+            const segmentProgress = Math.max(0, Math.min(1, (seconds - segmentFromTime) / segmentDuration));
+            return {
+              current: timelineInterpolatedPoint(from, to, segmentProgress),
+              from,
+              destination: to,
+              to,
+              status: segmentProgress <= 0 ? 'pending' : 'moving',
+              progress: segmentProgress,
+              segmentEvidence: segment.interpolation_evidence_class ?? segmentEvidence,
+              fromTime: segmentFromTime,
+              toTime: segmentToTime,
+              interpolationKind: segmentKind,
+              timeBound: segmentTimeBound,
+              distanceTiles: Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0,
+              travelTimeSeconds: Number.isFinite(segmentTravelTimeSeconds)
+                ? segmentTravelTimeSeconds
+                : segmentDuration,
+            };
           }
           current = to;
           destination = to;
-          status = 'updated-at-command';
+          status = segmentKind === 'instant-evidence-update'
+            ? 'instant-evidence-update'
+            : 'arrived-at-evidence-time';
           progress = 1;
           segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
+          fromPosition = from;
+          toPosition = to;
+          fromTime = segmentFromTime;
+          toTime = segmentToTime;
+          interpolationKind = segmentKind;
+          timeBound = segmentTimeBound;
+          distanceTiles = Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
+          travelTimeSeconds = Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
         }
         return {
           current,
+          from: fromPosition,
           destination,
+          to: toPosition,
           status,
           progress,
           segmentEvidence,
+          fromTime,
+          toTime,
+          interpolationKind,
+          timeBound,
+          distanceTiles,
+          travelTimeSeconds,
         };
       }
 
@@ -5338,7 +5458,8 @@
           const category = unit.category ?? unitCategoryForMapSpriteKey(spriteKey);
           const evidenceQuality = unitTimelineEvidenceQuality(unit);
           const markerKey = String(unit.id ?? unit.stable_id);
-          const mapRendered = true;
+          const positionCredible = mapPositionIsCredible(interpolation.current);
+          const mapRendered = Boolean(positionCredible && canonicalMapSpriteKey(spriteKey));
           return [Object.freeze({
             player: unit.player,
             instanceId: unit.source_actor_id ?? markerKey,
@@ -5361,6 +5482,14 @@
               x: interpolation.destination.x,
               y: interpolation.destination.y,
             }),
+            interpolationFrom: Object.freeze({
+              x: interpolation.from.x,
+              y: interpolation.from.y,
+            }),
+            interpolationTo: Object.freeze({
+              x: interpolation.to.x,
+              y: interpolation.to.y,
+            }),
             unitIdentity: Object.freeze({
               quality: evidenceQuality,
               unit_id: unit.resolved_unit_id ?? unit.unit_id ?? null,
@@ -5379,10 +5508,17 @@
             evidence: unit.reconciliation?.evidence ?? unit.birth_confirmation ?? '',
             outcome: unit.end_reason ?? unit.reconciliation?.status ?? '',
             endTime: Number(unit.visible_until ?? Infinity),
+            positionCredible,
             mapRendered,
             interpolationStatus: interpolation.status,
             interpolationProgress: interpolation.progress,
             interpolationEvidenceClass: interpolation.segmentEvidence,
+            interpolationKind: interpolation.interpolationKind,
+            interpolationTimeBound: interpolation.timeBound,
+            interpolationFromTime: interpolation.fromTime,
+            interpolationToTime: interpolation.toTime,
+            interpolationDistanceTiles: interpolation.distanceTiles,
+            interpolationTravelTimeSeconds: interpolation.travelTimeSeconds,
             birthTime: Number(unit.birth_time),
             birthEvidenceClass: unit.birth_evidence_class,
             birthConfirmation: unit.birth_confirmation,
@@ -5894,14 +6030,16 @@
         const stackTitle = stackCount > 1
           ? `Stack: ${stackCount} same-category ${assignment.spriteCategory || assignment.category || 'unit'} markers at this position; members ${assignment.stackMemberIds.join(', ')}; evidence ${assignment.stackEvidenceSplit}.`
           : '';
+        const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
+        const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
         return [
           `Player ${assignment.player} ${assignment.unitName || 'unit'} ${assignment.instanceId}.`,
           stackTitle,
           `Evidence: ${assignment.evidenceQuality}; reconciliation: ${assignment.reconciliationStatus || 'none'}.`,
           `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
           assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
-          `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(assignment.commandDestination)}.`,
-          `Position update: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; terrain avoidance false.`,
+          `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(interpolationTo)}.`,
+          `Visual interpolation: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; from ${formatMapPosition(interpolationFrom)} to ${formatMapPosition(interpolationTo)}; ${assignment.interpolationKind ?? 'legacy'}; ${assignment.interpolationTimeBound ?? 'unbounded'}; terrain avoidance false.`,
           'Static DOM marker; no animated GIF/WebP bytes or animated sprite frames.',
         ].filter(Boolean).join(' ');
       }
@@ -5942,12 +6080,15 @@
       function updateIndividualUnitMarker(marker, assignment, scale) {
         const uniformScale = Math.min(scale.x, scale.y) || 1;
         const teamColor = playerColors.get(assignment.player) ?? '#888';
+        const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
+        const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
+        const interpolationProgress = assignment.interpolationProgress ?? 1;
         marker.style.left = `${assignment.position.x * cellSize * scale.x}px`;
         marker.style.top = `${assignment.position.y * cellSize * scale.y}px`;
         marker.style.setProperty('--player-color', teamColor);
         marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
-        marker.style.setProperty('--unit-marker-size', `${Math.max(12, 18 * uniformScale)}px`);
-        marker.style.setProperty('--unit-marker-font-size', `${Math.max(6, 8 * uniformScale)}px`);
+        marker.style.setProperty('--unit-marker-size', `${Math.max(22, 26 * uniformScale)}px`);
+        marker.style.setProperty('--unit-marker-font-size', `${Math.max(7, 9 * uniformScale)}px`);
         marker.dataset.player = String(assignment.player);
         marker.dataset.unitName = assignment.unitName ?? '';
         marker.dataset.instanceId = String(assignment.instanceId);
@@ -5962,12 +6103,26 @@
         marker.dataset.producerId = assignment.producerId === null ? '' : String(assignment.producerId);
         marker.dataset.queueId = assignment.queueId ?? '';
         marker.dataset.position = formatMapPosition(assignment.position);
+        marker.dataset.positionCredible = String(Boolean(assignment.positionCredible ?? mapPositionIsCredible(assignment.position)));
         marker.dataset.commandDestination = formatMapPosition(assignment.commandDestination);
+        marker.dataset.interpolationCurrent = formatMapPosition(assignment.position);
+        marker.dataset.interpolationFrom = formatMapPosition(interpolationFrom);
+        marker.dataset.interpolationTo = formatMapPosition(interpolationTo);
+        marker.dataset.interpolationProgress = formatStatNumber(interpolationProgress, 3);
+        marker.dataset.interpolationEvidenceClass = assignment.interpolationEvidenceClass;
+        marker.dataset.interpolationStatus = assignment.interpolationStatus;
+        marker.dataset.interpolationKind = assignment.interpolationKind ?? '';
+        marker.dataset.interpolationTimeBound = assignment.interpolationTimeBound ?? '';
+        marker.dataset.interpolationFromTime = formatStatNumber(assignment.interpolationFromTime ?? assignment.partyTime ?? 0, 3);
+        marker.dataset.interpolationToTime = formatStatNumber(assignment.interpolationToTime ?? assignment.partyTime ?? 0, 3);
+        marker.dataset.interpolationDistanceTiles = formatStatNumber(assignment.interpolationDistanceTiles ?? 0, 3);
+        marker.dataset.interpolationTravelTimeSeconds = formatStatNumber(assignment.interpolationTravelTimeSeconds ?? 0, 3);
+        marker.dataset.unitMarkerMoving = String(assignment.interpolationStatus === 'moving');
         marker.dataset.commandInterpolationStatus = assignment.interpolationStatus;
-        marker.dataset.commandInterpolationProgress = formatStatNumber(assignment.interpolationProgress ?? 1, 3);
+        marker.dataset.commandInterpolationProgress = formatStatNumber(interpolationProgress, 3);
         marker.dataset.commandInterpolationEvidenceClass = assignment.interpolationEvidenceClass;
         marker.dataset.commandPositionUpdateStatus = assignment.interpolationStatus;
-        marker.dataset.commandPositionUpdateProgress = formatStatNumber(assignment.interpolationProgress ?? 1, 3);
+        marker.dataset.commandPositionUpdateProgress = formatStatNumber(interpolationProgress, 3);
         marker.dataset.commandPositionUpdateEvidenceClass = assignment.interpolationEvidenceClass;
         marker.dataset.terrainAvoidance = 'false';
         marker.dataset.staticMapMarker = 'true';
@@ -5992,6 +6147,9 @@
           if (record && previousAsset !== record.key) {
             marker.dataset.spriteLoadState = 'pending';
             image.src = record.src;
+            if (record.src.startsWith('data:image/svg+xml')) marker.dataset.spriteLoadState = 'loaded';
+          } else if (record && record.src.startsWith('data:image/svg+xml')) {
+            marker.dataset.spriteLoadState = 'loaded';
           } else if (record && image.complete && image.naturalWidth > 0) {
             marker.dataset.spriteLoadState = 'loaded';
           } else if (!record) {
@@ -6002,6 +6160,54 @@
           marker.dataset.spriteLoadState = record ? 'loaded' : 'error';
         }
         marker.title = unitMarkerTitle(assignment);
+      }
+
+      function markerPixelVisibilityState(marker) {
+        const bounds = marker.getBoundingClientRect();
+        const style = getComputedStyle(marker);
+        const image = marker.querySelector('.unit-marker-image');
+        const fallback = marker.querySelector('.unit-marker-fallback');
+        const imageStyle = image ? getComputedStyle(image) : null;
+        const fallbackStyle = fallback ? getComputedStyle(fallback) : null;
+        const cssVisible = (
+          bounds.width > 0
+          && bounds.height > 0
+          && style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && Number(style.opacity || 1) > 0
+        );
+        const imageVisible = Boolean(
+          image
+            && imageStyle
+            && imageStyle.display !== 'none'
+            && imageStyle.visibility !== 'hidden'
+            && Number(imageStyle.opacity || 1) > 0,
+        );
+        const fallbackVisible = Boolean(
+          fallback
+            && fallbackStyle
+            && fallbackStyle.display !== 'none'
+            && fallbackStyle.visibility !== 'hidden'
+            && Number(fallbackStyle.opacity || 1) > 0,
+        );
+        const spriteLoaded = marker.dataset.spriteLoadState === 'loaded';
+        const pixelVisible = Boolean(cssVisible && ((spriteLoaded && imageVisible) || fallbackVisible));
+        const stackBounds = mapStack.getBoundingClientRect();
+        const clipped = (
+          bounds.right < stackBounds.left
+          || bounds.left > stackBounds.right
+          || bounds.bottom < stackBounds.top
+          || bounds.top > stackBounds.bottom
+        );
+        return {
+          pixelVisible: pixelVisible && !clipped,
+          cssVisible,
+          imageVisible,
+          fallbackVisible,
+          clipped,
+          width: bounds.width,
+          height: bounds.height,
+        };
       }
 
       function individualUnitStackPositionKey(position) {
@@ -6080,11 +6286,63 @@
           marker.remove();
           individualUnitMarkerNodes.delete(key);
         });
+        const markerVisibilityRows = markerAssignments.map((assignment) => {
+          const marker = individualUnitMarkerNodes.get(assignment.markerKey);
+          const visibility = marker ? markerPixelVisibilityState(marker) : {
+            pixelVisible: false,
+            cssVisible: false,
+            imageVisible: false,
+            fallbackVisible: false,
+            clipped: false,
+            width: 0,
+            height: 0,
+          };
+          if (marker) {
+            marker.dataset.pixelVisible = String(visibility.pixelVisible);
+            marker.dataset.cssVisible = String(visibility.cssVisible);
+            marker.dataset.imageVisible = String(visibility.imageVisible);
+            marker.dataset.fallbackVisible = String(visibility.fallbackVisible);
+            marker.dataset.clippedByMapStack = String(visibility.clipped);
+            marker.dataset.renderedPixelSize = `${Math.round(visibility.width)}x${Math.round(visibility.height)}`;
+            marker.dataset.layerOrder = 'sprite-overlay-above-resource-building-gameplay-canvases';
+          }
+          return { assignment, visibility };
+        });
+        const pixelVisibleMarkers = markerVisibilityRows.filter((row) => row.visibility.pixelVisible).length;
+        const pixelVisibleUnits = markerVisibilityRows.reduce((sum, row) =>
+          sum + (row.visibility.pixelVisible ? (row.assignment.stackCount ?? 1) : 0), 0);
         gameplayCanvas.dataset.individualUnitMarkersActive = String(individualUnitMarkerNodes.size);
         gameplayCanvas.dataset.individualUnitMarkersCreated = String(individualUnitMarkerNodesCreated);
         gameplayCanvas.dataset.individualUnitMarkersReusedThisRender = String(reusedNodes);
         gameplayCanvas.dataset.individualUnitMarkerKeys = [...visibleKeys].sort().join(',');
         gameplayCanvas.dataset.individualUnitMarkerUnitsRepresented = String(renderedAssignments.length);
+        gameplayCanvas.dataset.individualUnitMarkerCrediblePositionUnits = String(renderedAssignments.length);
+        gameplayCanvas.dataset.individualUnitMarkerCrediblePositionUnitsByPlayer = mappedActorTotalsByPlayer(renderedAssignments);
+        gameplayCanvas.dataset.individualUnitMarkersPixelVisible = String(pixelVisibleMarkers);
+        gameplayCanvas.dataset.individualUnitMarkerPixelVisibleUnits = String(pixelVisibleUnits);
+        gameplayCanvas.dataset.individualUnitMarkerPixelVisibleUnitsByPlayer = mappedActorTotalsByPlayer(
+          markerVisibilityRows.flatMap((row) =>
+            row.visibility.pixelVisible
+              ? Array.from({ length: row.assignment.stackCount ?? 1 }, () => row.assignment)
+              : []),
+        );
+        gameplayCanvas.dataset.individualUnitMarkerPixelVisibleBySprite = countSummary(
+          markerVisibilityRows.flatMap((row) =>
+            row.visibility.pixelVisible
+              ? Array.from({ length: row.assignment.stackCount ?? 1 }, () => row.assignment.spriteKey)
+              : []),
+        );
+        gameplayCanvas.dataset.individualUnitMarkerPixelVisibilityEvidence = markerVisibilityRows
+          .map(({ assignment, visibility }) => [
+            assignment.markerKey,
+            `visible=${visibility.pixelVisible}`,
+            `sprite=${assignment.spriteKey}`,
+            `load=${individualUnitMarkerNodes.get(assignment.markerKey)?.dataset.spriteLoadState ?? 'missing'}`,
+            `size=${Math.round(visibility.width)}x${Math.round(visibility.height)}`,
+            `stack=${assignment.stackCount ?? 1}`,
+            `pos=${formatMapPosition(assignment.position)}`,
+          ].join(','))
+          .join(';');
         gameplayCanvas.dataset.individualUnitMarkerStacks = String(
           markerAssignments.filter((assignment) => (assignment.stackCount ?? 1) > 1).length,
         );
@@ -6107,7 +6365,11 @@
               progress: assignment.interpolationProgress,
               evidenceClass: assignment.interpolationEvidenceClass,
               current: assignment.position,
+              from: assignment.interpolationFrom ?? assignment.position,
+              to: assignment.interpolationTo ?? assignment.commandDestination,
               destination: assignment.commandDestination,
+              kind: assignment.interpolationKind ?? '',
+              timeBound: assignment.interpolationTimeBound ?? '',
             },
           }));
       }
@@ -6469,6 +6731,10 @@
         gameplayCanvas.dataset.visibleMovementPartyMembers = visibleMovementParties
           .reduce((sum, party) => sum + party.members.length, 0);
         gameplayCanvas.dataset.currentMappedActorAssignments = String(currentMappedAssignments.length);
+        gameplayCanvas.dataset.currentMappedCrediblePositionAssignments = String(
+          currentMappedAssignments.filter((assignment) =>
+            assignment.positionCredible ?? mapPositionIsCredible(assignment.position)).length,
+        );
         gameplayCanvas.dataset.mapRenderedCategorizedMembers = String(mapRenderedCategorizedAssignments.length);
         gameplayCanvas.dataset.mapRenderedCategorizedMembersByPlayer = mappedActorTotalsByPlayer(mapRenderedCategorizedAssignments);
         gameplayCanvas.dataset.renderedCategorizedPartyMembersByPlayer = mappedActorTotalsByPlayer(mapRenderedCategorizedAssignments);
@@ -6496,19 +6762,32 @@
             `status=${interpolation.status}`,
             `progress=${formatStatNumber(interpolation.progress, 3)}`,
             `evidence=${interpolation.evidenceClass}`,
+            `kind=${interpolation.kind}`,
+            `bound=${interpolation.timeBound}`,
+            `from=${formatMapPosition(interpolation.from)}`,
             `cur=${formatMapPosition(interpolation.current)}`,
+            `to=${formatMapPosition(interpolation.to)}`,
             `dst=${formatMapPosition(interpolation.destination)}`,
           ].join(','))
           .join(';');
         gameplayCanvas.dataset.unitMarkerPositionEvidence = gameplayCanvas.dataset.partyStripInterpolationEvidence;
         gameplayCanvas.dataset.partyStripInterpolationFallbacks = String(
-          visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'waiting-for-next-command').length,
+          visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'waiting-for-interpolation').length,
         );
         gameplayCanvas.dataset.unitMarkerWaitingForCommand = gameplayCanvas.dataset.partyStripInterpolationFallbacks;
         gameplayCanvas.dataset.partyStripInterpolated = String(
           visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'moving').length,
         );
         gameplayCanvas.dataset.unitMarkerInterpolatedMoving = gameplayCanvas.dataset.partyStripInterpolated;
+        gameplayCanvas.dataset.unitMarkerInterpolatedMovingMarkers = String(
+          [...individualUnitMarkerNodes.values()].filter((marker) => marker.dataset.unitMarkerMoving === 'true').length,
+        );
+        gameplayCanvas.dataset.unitMarkerInterpolationEvidenceClasses = countSummary(
+          visibleIndividualMarkerInterpolations.map(({ interpolation }) => interpolation.evidenceClass),
+        );
+        gameplayCanvas.dataset.unitMarkerInterpolationKinds = countSummary(
+          visibleIndividualMarkerInterpolations.map(({ interpolation }) => interpolation.kind),
+        );
         const elapsedPartyOutcomes = movementParties.flatMap((party) =>
           party.members
             .filter((member) => member.endTime <= seconds)
