@@ -205,6 +205,14 @@ const BUILDING_FOOTPRINT_FALLBACKS: readonly [RegExp, { readonly width: number; 
   [/\bhouse\b/, { width: 2, height: 2 }],
   [/\b(outpost|tower)\b/, { width: 1, height: 1 }],
 ];
+// DAT-derived unit class buckets from the pinned ruleset. Class 51 is mixed, so packed siege stays name-gated.
+const NAVAL_UNIT_CLASS_IDS = [2, 20, 21, 22];
+const RANGED_UNIT_CLASS_IDS = [0, 23, 36, 44];
+const INFANTRY_UNIT_CLASS_IDS = [6];
+const CAVALRY_UNIT_CLASS_IDS = [12, 47];
+const SUPPORT_UNIT_CLASS_IDS = [18, 43];
+const SIEGE_UNIT_CLASS_IDS = [13, 54, 55];
+const PACKED_SIEGE_UNIT_CLASS_IDS = [51];
 
 export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelineInputs): JsonObject {
   const { game, lifetimes, economy, unitStats, ruleset, replaySha256, rulesetSha256 } = inputs;
@@ -1587,6 +1595,19 @@ function unitNameMatches(name: string, pattern: RegExp): boolean {
   return pattern.test(normalizedLookupName(name));
 }
 
+function unitClassId(classId: number | null, stats: JsonObject): number {
+  return classId ?? integer(stats.class_id, integer(stats.classId, -1)) ?? -1;
+}
+
+function unitClassIdMatches(classId: number, ids: readonly number[]): boolean {
+  return ids.includes(classId);
+}
+
+function packedSiegeClassMatchesName(classId: number, name: string): boolean {
+  return unitClassIdMatches(classId, PACKED_SIEGE_UNIT_CLASS_IDS)
+    && unitNameMatches(name, /\b(trebuchet|mang|pmang|sling|neighbor)\b/);
+}
+
 function classifyUnitCategory({
   name = "",
   stats = {},
@@ -1598,14 +1619,23 @@ function classifyUnitCategory({
   readonly classId?: number | null;
   readonly worker?: boolean;
 } = {}): string | null {
+  const resolvedClassId = unitClassId(classId, stats);
   if (worker || unitNameMatches(name, /\bvillager\b/)) return "villagers";
-  if ([2, 20, 21, 22].includes(classId ?? integer(stats.class_id, integer(stats.classId, -1)) ?? -1)
+  if (unitClassIdMatches(resolvedClassId, NAVAL_UNIT_CLASS_IDS)
     || unitNameMatches(name, /\b(ship|galley|galleon|transport|cog|caravel|dromon|longboat|turtle ship)\b/)) return "naval";
-  if (unitNameMatches(name, /\b(monk|priest|missionary)\b/)) return "support";
-  if (unitNameMatches(name, /\b(ram|mangonel|onager|scorpion|trebuchet|bombard cannon|siege|ballista|houfnice)\b/)) return "siege";
-  if (unitNameMatches(name, /\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|kipchak|mangudai|cavalry archer|camel archer|elephant archer|conquistador|arambai|genitour|ratha)\b/)) return "ranged";
-  if (unitNameMatches(name, /\b(cavalry|knight|cavalier|paladin|hussar|camel|elephant|lancer|tarkan|cataphract|keshik|leitis|boyar|konnik|magyar huszar|coustillier|shrivamsha|centurion)\b/)) return "cavalry";
-  if (unitNameMatches(name, /\b(militia|man at arms|swordsman|champion|spearman|pikeman|halb|eagle|huskarl|samurai|teutonic|woad|berserk|jaguar|condottiero|karambit|kamayuk|gbeto|serjeant|obuch|legionary|throwing axeman)\b/)) return "infantry";
+  if (unitClassIdMatches(resolvedClassId, SUPPORT_UNIT_CLASS_IDS)
+    || unitNameMatches(name, /\b(monk|priest|missionary)\b/)) return "support";
+  if (
+    unitClassIdMatches(resolvedClassId, SIEGE_UNIT_CLASS_IDS)
+    || packedSiegeClassMatchesName(resolvedClassId, name)
+    || unitNameMatches(name, /\b(ram|mangonel|onager|scorpion|trebuchet|bombard cannon|siege|ballista|houfnice|hussite wagon|organ gun|flamethrower|rocket cart|traction trebuchet|armored elephant|mounted trebuchet)\b/)
+  ) return "siege";
+  if (unitClassIdMatches(resolvedClassId, RANGED_UNIT_CLASS_IDS)
+    || unitNameMatches(name, /\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|kipchak|mangudai|cavalry archer|camel archer|elephant archer|conquistador|arambai|genitour|ratha)\b/)) return "ranged";
+  if (unitClassIdMatches(resolvedClassId, CAVALRY_UNIT_CLASS_IDS)
+    || unitNameMatches(name, /\b(cavalry|knight|cavalier|paladin|hussar|camel|elephant|lancer|tarkan|cataphract|keshik|leitis|boyar|konnik|magyar huszar|coustillier|shrivamsha|centurion)\b/)) return "cavalry";
+  if (unitClassIdMatches(resolvedClassId, INFANTRY_UNIT_CLASS_IDS)
+    || unitNameMatches(name, /\b(militia|man at arms|swordsman|champion|spearman|pikeman|halb|eagle|huskarl|samurai|teutonic|woad|berserk|jaguar|condottiero|karambit|kamayuk|gbeto|serjeant|obuch|legionary|throwing axeman)\b/)) return "infantry";
   const attackAmount = number(object(stats.attack).amount);
   const maxRange = number(stats.max_range, number(stats.maxRange));
   const pierceArmor = number(stats.pierce_armor, number(stats.pierceArmor));
@@ -1631,9 +1661,20 @@ function resolveMapSpriteKey({
 } = {}): string | null {
   const normalized = normalizedLookupName(name);
   const has = (pattern: RegExp): boolean => pattern.test(normalized);
+  const resolvedClassId = unitClassId(classId, stats);
+  const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId });
   if (has(/\bvillager\b/)) return "villagers";
-  if ([2, 20, 21, 22].includes(classId ?? integer(stats.class_id, integer(stats.classId, -1)) ?? -1)
+  if (unitClassIdMatches(resolvedClassId, NAVAL_UNIT_CLASS_IDS)
     || has(/\b(ship|galley|galleon|transport|cog|caravel|dromon|longboat|turtle ship)\b/)) return "ship";
+  if (resolvedCategory === "siege") {
+    if (has(/\b(scorpion|ballista|hussite wagon)\b/)
+      || unitClassIdMatches(resolvedClassId, [55])) return "scorpion";
+    if (has(/\b(capped ram|siege ram|battering ram|ram|siege tower|armored elephant|siege elephant)\b/)) return "ram";
+    if (has(/\btrebuchet\b/)) return "trebuchet";
+    if (has(/\b(bombard cannon|houfnice)\b/)) return "bombardCannon";
+    if (has(/\b(mangonel|onager|catapult|pmang|sling|neighbor)\b/)) return "catapult";
+    return "catapult";
+  }
   if (has(/\belephant\b/)) return "elephant";
   if (has(/\b(cavalry archer|camel archer|conquistador|arambai|mangudai|kipchak|genitour|ratha|mounted ranged)\b/)) return "cavalryArcher";
   if (has(/\b(spearman|pikeman|halberdier|halb|kamayuk)\b/)) return "spear";
@@ -1641,14 +1682,8 @@ function resolveMapSpriteKey({
   if (has(/\b(scout cavalry|light cavalry|hussar|magyar huszar|steppe scout)\b/)) return "scout";
   if (has(/\b(camel|mameluke)\b/)) return "camel";
   if (has(/\b(knight|cavalier|paladin|cataphract|boyar|keshik|leitis|konnik|coustillier|lancer|shrivamsha|centurion|tarkan)\b/)) return "knight";
-  if (has(/\b(monk|priest|missionary)\b/)) return "monk";
-  if (has(/\b(scorpion|ballista)\b/)) return "scorpion";
-  if (has(/\b(capped ram|siege ram|battering ram|ram)\b/)) return "ram";
-  if (has(/\btrebuchet\b/)) return "trebuchet";
-  if (has(/\b(bombard cannon|houfnice)\b/)) return "bombardCannon";
-  if (has(/\b(mangonel|onager|catapult)\b/)) return "catapult";
+  if (has(/\b(monk|priest|missionary)\b/) || unitClassIdMatches(resolvedClassId, SUPPORT_UNIT_CLASS_IDS)) return "monk";
   if (has(/\b(archer|skirmisher|crossbow|bowman|longbow|chu ko nu|hand cannoneer|janissary|slinger|plumed|rattan|genoese|organ gun)\b/)) return "archer";
-  const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId });
   if (resolvedCategory === "villagers") return "villagers";
   if (resolvedCategory === "ranged") return "archer";
   if (resolvedCategory === "infantry") return "swordsman";
