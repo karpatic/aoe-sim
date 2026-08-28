@@ -1307,8 +1307,22 @@
       container.title = caveat;
     }
 
-    function unitSummaryAccessibleDescription(producedTotal, queuedTotal, currentMapTotal) {
-      return `Total built/produced ${producedTotal}, queued ${queuedTotal}, current map-position estimate ${currentMapTotal}. Units show estimated queue births, queued intent, and current individual map markers. Total built/produced excludes starting units. Current map-position counts only classified individual units visible from observed, simulated, or reconciled timeline rows; absent or stale positions are position-unknown, not confirmed dead, and this is not a complete army population.`;
+    function unitRemainderClassificationText(inventory) {
+      if (!inventory) return '';
+      return [
+        `side produced+queued ${inventory.sidePanelAggregate}`,
+        `map-visible positioned ${inventory.mapVisiblePositioned}`,
+        `position-known hidden ${inventory.positionKnown}`,
+        `position-unknown ${inventory.positionUnknown}`,
+        `queued-only ${inventory.queuedOnly}`,
+        `unresolved actor ${inventory.unresolvedActor}`,
+        `lifecycle-filtered ${inventory.lifecycleFiltered}`,
+      ].join(', ');
+    }
+
+    function unitSummaryAccessibleDescription(producedTotal, queuedTotal, currentMapTotal, inventory = null) {
+      const classification = unitRemainderClassificationText(inventory);
+      return `Total built/produced ${producedTotal}, queued ${queuedTotal}, current map-position estimate ${currentMapTotal}. Units show estimated queue births, queued intent, and current individual map markers. Total built/produced excludes starting units. Current map-position counts only classified individual units visible from observed, simulated, or reconciled timeline rows; absent or stale positions are position-unknown, not confirmed dead, and this is not a complete army population.${classification ? ` Current side/map classification: ${classification}.` : ''}`;
     }
 
     const technologyLinePatterns = Object.freeze([
@@ -1964,6 +1978,73 @@
         return byPlayer;
       }
 
+      function gameplayUnitPoint(value) {
+        const x = Number(value?.x);
+        const y = Number(value?.y);
+        return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+      }
+
+      function sidePanelUnitPositionInventory(player, seconds, producedTotal, queuedTotal, currentMapTotal) {
+        const sidePanelAggregate = producedTotal + queuedTotal;
+        if (!gameplayUnits.length) {
+          return {
+            sidePanelAggregate,
+            mapVisiblePositioned: currentMapTotal,
+            sideMinusMap: sidePanelAggregate - currentMapTotal,
+            positionKnown: 0,
+            positionUnknown: 0,
+            queuedOnly: queuedTotal,
+            unresolvedActor: 0,
+            lifecycleFiltered: 0,
+          };
+        }
+        const playerUnits = gameplayUnits.filter((unit) => unit.player === player);
+        const activeUnits = playerUnits.filter((unit) => {
+          const birthTime = Number(unit.birth_time);
+          const visibleUntil = Number(unit.visible_until ?? Infinity);
+          return Number.isFinite(birthTime) && birthTime <= seconds && seconds <= visibleUntil;
+        });
+        const activePositionKnown = activeUnits.filter((unit) => gameplayUnitPoint(unit.birth_position)).length;
+        const activePositionUnknown = activeUnits.length - activePositionKnown;
+        const lifecycleFiltered = playerUnits.filter((unit) => {
+          const birthTime = Number(unit.birth_time);
+          const visibleUntil = Number(unit.visible_until ?? Infinity);
+          return Number.isFinite(birthTime) && birthTime <= seconds && seconds > visibleUntil;
+        }).length;
+        const queuedOnly = (gameplayTimeline?.queue_timeline ?? [])
+          .filter((row) =>
+            row.player === player
+            && row.status === 'estimated_birth'
+            && Number(row.queued_time) <= seconds
+            && seconds < Number(row.estimated_completion_time))
+          .length;
+        const unresolvedActor = (gameplayTimeline?.reconciliation?.unmatched_observed_actors ?? [])
+          .filter((row) => row.player === player && Number(row.first_observed_time) <= seconds)
+          .length;
+        return {
+          sidePanelAggregate,
+          mapVisiblePositioned: currentMapTotal,
+          sideMinusMap: sidePanelAggregate - currentMapTotal,
+          positionKnown: Math.max(0, activePositionKnown - currentMapTotal),
+          positionUnknown: activePositionUnknown,
+          queuedOnly,
+          unresolvedActor,
+          lifecycleFiltered,
+        };
+      }
+
+      function applyUnitPositionInventoryDatasets(element, inventory) {
+        element.dataset.sidePanelAggregateUnits = String(inventory.sidePanelAggregate);
+        element.dataset.sidePanelMapVisiblePositionedUnits = String(inventory.mapVisiblePositioned);
+        element.dataset.sidePanelMapUnitDelta = String(inventory.sideMinusMap);
+        element.dataset.sidePanelRemainderPositionKnown = String(inventory.positionKnown);
+        element.dataset.sidePanelRemainderPositionUnknown = String(inventory.positionUnknown);
+        element.dataset.sidePanelRemainderQueuedOnly = String(inventory.queuedOnly);
+        element.dataset.sidePanelRemainderUnresolvedActor = String(inventory.unresolvedActor);
+        element.dataset.sidePanelRemainderLifecycleFiltered = String(inventory.lifecycleFiltered);
+        element.dataset.sidePanelRemainderClassification = unitRemainderClassificationText(inventory);
+      }
+
       function currentMapIdentityItem(assignment, statSnapshot, playerUnitStats) {
         const identity = assignment.unitIdentity ?? {};
         const unitId = numericId(identity.unit_id ?? identity.unitId);
@@ -2486,12 +2567,26 @@
           });
           const queuedTotal = visibleUnits.reduce((sum, unit) => sum + unit.queued, 0);
           const producedTotal = visibleUnits.reduce((sum, unit) => sum + unit.produced, 0);
+          const unitPositionInventory = sidePanelUnitPositionInventory(
+            state.player.number,
+            bounded,
+            producedTotal,
+            queuedTotal,
+            currentMapTotal,
+          );
+          const unitPositionInventoryText = unitRemainderClassificationText(unitPositionInventory);
           state.unitsSummary.textContent = 'Units';
-          state.unitsSummary.title = unitSummaryAccessibleDescription(producedTotal, queuedTotal, currentMapTotal);
+          state.unitsSummary.title = unitSummaryAccessibleDescription(
+            producedTotal,
+            queuedTotal,
+            currentMapTotal,
+            unitPositionInventory,
+          );
           state.unitsSummary.setAttribute('aria-label', `Units. ${state.unitsSummary.title}`);
           state.unitsSummary.dataset.hudBuiltProducedTotal = String(producedTotal);
           state.unitsSummary.dataset.hudQueuedTotal = String(queuedTotal);
           state.unitsSummary.dataset.hudCurrentMapTotal = String(currentMapTotal);
+          applyUnitPositionInventoryDatasets(state.unitsSummary, unitPositionInventory);
           state.unitsSummary.dataset.currentMapActiveAssignments = String(currentMapSummary.diagnostics.activeAssignments);
           state.unitsSummary.dataset.mapRenderedCategorizedTotal = String(currentMapSummary.diagnostics.mapRenderedCategorized);
           state.unitsSummary.dataset.currentMappedWorkerTotal = String(currentMappedWorkerTotal);
@@ -2508,11 +2603,14 @@
             visibleUnits,
             state.playerUnitStats,
             statSnapshot,
-            `${unitStatsCaveat} Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
+            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
             economy.methodology.unit_completions,
             state.unitSpriteImages,
           );
           state.unitsValue.dataset.hudCurrentMapTotal = String(currentMapTotal);
+          state.unitsValue.dataset.hudBuiltProducedTotal = String(producedTotal);
+          state.unitsValue.dataset.hudQueuedTotal = String(queuedTotal);
+          applyUnitPositionInventoryDatasets(state.unitsValue, unitPositionInventory);
           state.unitsValue.dataset.currentMapActiveAssignments = String(currentMapSummary.diagnostics.activeAssignments);
           state.unitsValue.dataset.mapRenderedCategorizedTotal = String(currentMapSummary.diagnostics.mapRenderedCategorized);
           state.unitsValue.dataset.currentMappedWorkerTotal = String(currentMappedWorkerTotal);
@@ -3162,6 +3260,10 @@
         ...villagerGatherEvents,
       ].sort((a, b) => a.time - b.time);
       const treeGatherResources = new Set(['Palm Forest', 'Dragon Tree', 'Bush B']);
+      function isMapTreeResource(resource) {
+        const name = String(resource?.name ?? '');
+        return name.startsWith('Tree (') || mapResources.treeResourceNames?.has(name);
+      }
       const foodGatherLabels = Object.freeze([
         'farm', 'sheep', 'wild boar', 'fruit bush', 'forage bush', 'berry', 'berries',
         'deer', 'boar', 'ibex', 'javelina', 'goat', 'turkey', 'cow', 'pig', 'llama',
@@ -3569,11 +3671,11 @@
       if (explicitGarrisonEvents.length) addCommandLegend('⌣◉', 'Un/garrison command', '#8b5a2b');
       addTeamCommandLegend('×', 'Attack command destination; individual unit markers remain static symbols');
       addTeamCommandLegend('○', 'Target / order command');
-      addTeamCommandLegend('▣', 'Movement command destination; individual unit markers interpolate straight-line');
+      addTeamCommandLegend('▣', 'Movement command destination; individual unit markers jump at observed command time');
       addTeamCommandLegend('→', 'Inferred command direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; their positions use deterministic replay-time straight-line interpolation from observed or estimated birth positions to later command destinations. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
+      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; their positions update at replay command timestamps from observed or estimated birth positions to later command destinations. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -3645,9 +3747,12 @@
           const gatherPointRows = gatherPointEvents.filter((point) =>
             point.time <= row.time && gatheringEvidenceOverlapsBounds(point, bounds),
           );
-          const resources = mapResources.resources.filter((resource) =>
-            pointInBounds(resourcePositionAt(resource, row.time), bounds),
-          );
+          const resources = mapResources.resources.filter((resource) => {
+            const position = resourcePositionAt(resource, row.time);
+            return isMapTreeResource(resource)
+              ? resourceOverlapsBounds(position, bounds)
+              : pointInBounds(position, bounds);
+          });
           if (!forestTiles.length && !resources.length && !gatherRows.length && !gatherPointRows.length) return null;
           const depletionPositions = [
             ...forestTiles.map((tile) => ({ x: tile.position.x + .5, y: tile.position.y + .5 })),
@@ -5206,20 +5311,10 @@
             progress = 0;
             break;
           }
-          if (seconds <= toTime && toTime > fromTime) {
-            progress = Math.max(0, Math.min(1, (seconds - fromTime) / (toTime - fromTime)));
-            current = {
-              x: from.x + (to.x - from.x) * progress,
-              y: from.y + (to.y - from.y) * progress,
-            };
-            destination = to;
-            status = progress >= 1 ? 'arrived' : progress <= 0 ? 'pending' : 'moving';
-            segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
-            break;
-          }
           current = to;
           destination = to;
-          status = 'arrived';
+          status = 'updated-at-command';
+          progress = 1;
           segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
         }
         return {
@@ -5806,7 +5901,7 @@
           `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
           assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
           `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(assignment.commandDestination)}.`,
-          `Interpolation: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; terrain avoidance false.`,
+          `Position update: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; terrain avoidance false.`,
           'Static DOM marker; no animated GIF/WebP bytes or animated sprite frames.',
         ].filter(Boolean).join(' ');
       }
@@ -5871,6 +5966,9 @@
         marker.dataset.commandInterpolationStatus = assignment.interpolationStatus;
         marker.dataset.commandInterpolationProgress = formatStatNumber(assignment.interpolationProgress ?? 1, 3);
         marker.dataset.commandInterpolationEvidenceClass = assignment.interpolationEvidenceClass;
+        marker.dataset.commandPositionUpdateStatus = assignment.interpolationStatus;
+        marker.dataset.commandPositionUpdateProgress = formatStatNumber(assignment.interpolationProgress ?? 1, 3);
+        marker.dataset.commandPositionUpdateEvidenceClass = assignment.interpolationEvidenceClass;
         marker.dataset.terrainAvoidance = 'false';
         marker.dataset.staticMapMarker = 'true';
         marker.dataset.animatedSpriteFrames = 'false';
@@ -6132,11 +6230,43 @@
         );
         const finalAllocationRows = finalCapacityAllocations.slice(0, upperBound(finalCapacityAllocations, seconds));
         const estimatedDepletedIds = new Set(estimatedDepletedNodes.map((node) => node.instance_id));
+        const treeResources = [];
+        const nonTreeResources = [];
+        mapResources.resources.forEach((resource) => {
+          (isMapTreeResource(resource) ? treeResources : nonTreeResources).push(resource);
+        });
+        let visibleTrees = 0;
+        let depletedTrees = 0;
+        let treeResourceDrawPixels = 0;
         let visibleAnimals = 0;
         let consumedAnimals = 0;
         let visibleGaiaFood = 0;
         let consumedGaiaFood = 0;
-        mapResources.resources.forEach((resource) => {
+        treeResources.forEach((resource) => {
+          const currentPosition = resourcePositionAt(resource, seconds);
+          const centerX = currentPosition.x * cellSize;
+          const centerY = currentPosition.y * cellSize;
+          const depleted = depletedIds.has(resource.instance_id) || estimatedDepletedIds.has(resource.instance_id)
+            || constructionDepletedIds.has(resource.instance_id);
+          const style = mapResources.treeResourceStyles.get(resource.name)
+            ?? { color: '#1f6f3a', shadow: '#123c25' };
+          const size = Math.max(4, Math.round(cellSize * .72));
+          const innerSize = Math.max(2, size - 2);
+          const left = Math.round(centerX - size / 2);
+          const top = Math.round(centerY - size / 2);
+          resourceContext.globalAlpha = depleted ? .22 : .94;
+          resourceContext.fillStyle = style.shadow;
+          resourceContext.fillRect(left, top, size, size);
+          resourceContext.fillStyle = style.color;
+          resourceContext.fillRect(left + 1, top + 1, innerSize, innerSize);
+          resourceContext.fillStyle = depleted ? '#3a3121' : '#6d5532';
+          resourceContext.fillRect(Math.round(centerX), Math.round(centerY), 1, Math.max(1, Math.round(size / 2)));
+          resourceContext.globalAlpha = 1;
+          treeResourceDrawPixels += (size * size) + (innerSize * innerSize);
+          if (depleted) depletedTrees += 1;
+          else visibleTrees += 1;
+        });
+        nonTreeResources.forEach((resource) => {
           const currentPosition = resourcePositionAt(resource, seconds);
           const centerX = currentPosition.x * cellSize;
           const centerY = currentPosition.y * cellSize;
@@ -6359,6 +6489,7 @@
           })
           .join(';');
         gameplayCanvas.dataset.partyStripInterpolationClock = `replay-time:${seconds.toFixed(3)}`;
+        gameplayCanvas.dataset.unitMarkerPositionClock = `replay-time:${seconds.toFixed(3)}`;
         gameplayCanvas.dataset.partyStripInterpolationEvidence = visibleIndividualMarkerInterpolations
           .map(({ assignment, interpolation }) => [
             `unit:p${assignment.player}:id${assignment.instanceId}`,
@@ -6369,12 +6500,15 @@
             `dst=${formatMapPosition(interpolation.destination)}`,
           ].join(','))
           .join(';');
+        gameplayCanvas.dataset.unitMarkerPositionEvidence = gameplayCanvas.dataset.partyStripInterpolationEvidence;
         gameplayCanvas.dataset.partyStripInterpolationFallbacks = String(
           visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'waiting-for-next-command').length,
         );
+        gameplayCanvas.dataset.unitMarkerWaitingForCommand = gameplayCanvas.dataset.partyStripInterpolationFallbacks;
         gameplayCanvas.dataset.partyStripInterpolated = String(
           visibleIndividualMarkerInterpolations.filter(({ interpolation }) => interpolation.status === 'moving').length,
         );
+        gameplayCanvas.dataset.unitMarkerInterpolatedMoving = gameplayCanvas.dataset.partyStripInterpolated;
         const elapsedPartyOutcomes = movementParties.flatMap((party) =>
           party.members
             .filter((member) => member.endTime <= seconds)
@@ -6430,10 +6564,20 @@
             .filter((resource) => !mapResources.animalStyles.has(resource.name))
             .map((resource) => resource.instance_id),
         );
+        const treeResourceIds = new Set(treeResources.map((resource) => resource.instance_id));
         const depletedVisibleResourceIds = new Set(
           [...depletedIds, ...estimatedDepletedIds, ...constructionDepletedIds].filter((id) => nonFoodResourceIds.has(id)),
         );
+        const depletedVisibleTreeIds = new Set(
+          [...depletedIds, ...estimatedDepletedIds, ...constructionDepletedIds].filter((id) => treeResourceIds.has(id)),
+        );
         resourceCanvas.dataset.visibleResources = Math.max(0, mapResources.resources.length - depletedVisibleResourceIds.size - consumedGaiaFood);
+        resourceCanvas.dataset.indexedTreeResources = String(treeResources.length);
+        resourceCanvas.dataset.visibleTreeResources = String(visibleTrees);
+        resourceCanvas.dataset.depletedTreeResources = String(Math.max(depletedTrees, depletedVisibleTreeIds.size));
+        resourceCanvas.dataset.treeResourceDrawPixels = String(treeResourceDrawPixels);
+        resourceCanvas.dataset.treeResourceNames = countSummary(treeResources.map((resource) => resource.name));
+        resourceCanvas.dataset.forestTerrainTiles = String(mapResources.forestTerrainTileCount ?? 0);
         resourceCanvas.dataset.visibleGaiaFood = visibleGaiaFood;
         resourceCanvas.dataset.consumedGaiaFood = consumedGaiaFood;
         resourceCanvas.dataset.visibleAnimals = visibleAnimals;
@@ -6515,9 +6659,9 @@
         [3, { name: 'Dirt 3', role: 'starting areas', color: '#d7b56d' }],
         [11, { name: 'Dirt 2', role: 'walkable land', color: '#b98b58' }],
         [14, { name: 'Desert sand', role: 'walkable land', color: '#e3c27a' }],
-        [48, { name: 'Dragon tree forest', role: 'trees', color: '#174d2b' }],
-        [89, { name: 'Bush forest', role: 'trees', color: '#557b38' }],
-        [112, { name: 'Palm grass forest', role: 'trees', color: '#2c683a' }],
+        [48, { name: 'Dragon tree forest', role: 'trees', color: '#1d5a36' }],
+        [89, { name: 'Bush forest', role: 'trees', color: '#5f8543' }],
+        [112, { name: 'Palm grass forest', role: 'trees', color: '#327844' }],
       ]);
       const terrainType = (id) => terrainTypes.get(id) ?? { name: `Unknown terrain ${id}`, role: 'unknown', color: '#888' };
 
@@ -6525,6 +6669,14 @@
         ['Gold Mine', { label: 'Gold mine', color: '#ffd700' }],
         ['Stone Mine', { label: 'Stone mine', color: '#d8d8d8' }],
       ]);
+      const treeResourceStyles = new Map([
+        ['Tree (Palm Forest)', { label: 'Palm forest tree', color: '#1f6f3a', shadow: '#123c25' }],
+        ['Tree (Dragon)', { label: 'Dragon tree', color: '#2a6748', shadow: '#15392d' }],
+        ['Palm Forest', { label: 'Palm forest tree', color: '#1f6f3a', shadow: '#123c25' }],
+        ['Dragon Tree', { label: 'Dragon tree', color: '#2a6748', shadow: '#15392d' }],
+        ['Bush B', { label: 'Bush forest wood', color: '#5d843b', shadow: '#2c3f21' }],
+      ]);
+      const treeResourceNames = new Set(treeResourceStyles.keys());
       const animalStyles = new Map([
         ['Sheep', { category: 'controllable', color: '#fff' }],
         ['Wild Boar', { category: 'non-controllable', color: '#6b3f22' }],
@@ -6533,7 +6685,12 @@
         ['Fruit Bush', { category: 'non-controllable', color: '#6b3f22' }],
       ]);
       const animalNames = new Set(['Sheep', 'Wild Boar', 'Ibex']);
-      const resources = gaia.filter((object) => resourceStyles.has(object.name) || animalStyles.has(object.name));
+      const isTreeResource = (object) => {
+        const name = String(object?.name ?? '');
+        return name.startsWith('Tree (') || treeResourceNames.has(name);
+      };
+      const resources = gaia.filter((object) =>
+        resourceStyles.has(object.name) || animalStyles.has(object.name) || isTreeResource(object));
 
       mapCanvas.width = dimension * cellSize;
       mapCanvas.height = dimension * cellSize;
@@ -6604,6 +6761,13 @@
         item.append(swatch, style.label);
         legendGroups.map.append(item);
       });
+      const treeLegend = document.createElement('span');
+      treeLegend.className = 'legend-item';
+      const treeSwatch = document.createElement('span');
+      treeSwatch.className = 'swatch';
+      treeSwatch.style.backgroundColor = '#1f6f3a';
+      treeLegend.append(treeSwatch, 'Forest resource nodes');
+      legendGroups.map.append(treeLegend);
       [
         { label: 'Controllable food', color: '#fff' },
         { label: 'Non-controllable food', color: '#6b3f22' },
@@ -6620,7 +6784,19 @@
       const forestTerrainIds = new Set(
         [...terrainTypes.entries()].filter(([, terrain]) => terrain.role === 'trees').map(([id]) => id),
       );
-      return { resources, resourceStyles, animalStyles, animalNames, forestTerrainIds, legendGroups };
+      const forestTerrainTileCount = map.tiles.filter((tile) => forestTerrainIds.has(tile.terrain)).length;
+      mapCanvas.dataset.forestTerrainTiles = String(forestTerrainTileCount);
+      return {
+        resources,
+        resourceStyles,
+        treeResourceStyles,
+        treeResourceNames,
+        animalStyles,
+        animalNames,
+        forestTerrainIds,
+        forestTerrainTileCount,
+        legendGroups,
+      };
     }
 
     function setViewerNotice(text, state = 'ready') {
