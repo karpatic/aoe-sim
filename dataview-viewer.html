@@ -1176,6 +1176,11 @@
       return number.toFixed(digits).replace(/0+$/, '').replace(/\.$/, '');
     }
 
+    function formatMapPosition(position, digits = 2) {
+      if (!position) return 'n/a';
+      return `${Number(position.x).toFixed(digits)},${Number(position.y).toFixed(digits)}`;
+    }
+
     function statScalar(stats, field) {
       if (field === 'attack') return stats?.attack?.amount;
       return stats?.[field];
@@ -2371,11 +2376,14 @@
 
       function updateTimeline(seconds) {
         const bounded = Math.max(0, Math.min(duration, seconds));
-        const currentMappedAssignments = typeof updateGameplay.activeIndividualUnitAssignments === 'function'
-          ? updateGameplay.activeIndividualUnitAssignments(bounded)
-          : typeof updateGameplay.activeMappedActorAssignments === 'function'
-            ? updateGameplay.activeMappedActorAssignments(bounded)
-          : [];
+        const gameplayFrame = updateGameplay(bounded);
+        const currentMappedAssignments = Array.isArray(gameplayFrame?.currentMappedAssignments)
+          ? gameplayFrame.currentMappedAssignments
+          : typeof updateGameplay.activeIndividualUnitAssignments === 'function'
+            ? updateGameplay.activeIndividualUnitAssignments(bounded)
+            : typeof updateGameplay.activeMappedActorAssignments === 'function'
+              ? updateGameplay.activeMappedActorAssignments(bounded)
+              : [];
         const currentMappedAssignmentsByPlayer = activeMappedAssignmentsByPlayer(currentMappedAssignments);
         timelineSlider.value = String(bounded);
         timelineTime.value = `${formatDuration(bounded)} / ${formatDuration(duration)}`;
@@ -2649,7 +2657,6 @@
           renderTechnologyGrid(state.technologiesList, displayedTechnologies, state.technologySpriteImages);
           state.economyHud.title = economy.methodology.spending;
         });
-        updateGameplay(bounded);
         if (playing && bounded >= previousTimelineSeconds) {
           showCrossedChatMessages(previousTimelineSeconds, bounded);
         } else if (bounded < previousTimelineSeconds) {
@@ -5666,11 +5673,6 @@
           .join(';');
       }
 
-      function formatMapPosition(position, digits = 2) {
-        if (!position) return 'n/a';
-        return `${Number(position.x).toFixed(digits)},${Number(position.y).toFixed(digits)}`;
-      }
-
       function partyStripInterpolationState(party, seconds) {
         const profile = party.movementProfile;
         const destination = profile?.destination ?? party.position;
@@ -6915,6 +6917,13 @@
         buildingCanvas.dataset.overlapDemolitions = buildingState.overlapDemolitions;
         buildingCanvas.dataset.inferredDemolitions = buildingState.targetedDemolitions
           + buildingState.overlapDemolitions;
+        return Object.freeze({
+          seconds,
+          currentMappedAssignments,
+          mapRenderedCategorizedAssignments,
+          mapRenderedVillagerAssignments,
+          markerCount: individualUnitMarkerNodes.size,
+        });
       }
 
       if (typeof ResizeObserver !== 'undefined') {
