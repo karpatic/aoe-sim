@@ -91,7 +91,7 @@ interface SpawnEstimate {
   readonly position: Point;
   readonly producer_position: Point | null;
   readonly rally_position: Point | null;
-  readonly direction: "rally" | "deterministic-east-edge" | "producer-position-missing";
+  readonly direction: "rally" | "deterministic-east-edge";
   readonly evidence_class: "simulated";
   readonly method: string;
 }
@@ -134,7 +134,7 @@ interface UnitTimelineRow {
   readonly sprite_key: string | null;
   readonly worker: boolean;
   readonly birth_time: number;
-  readonly birth_position: Point;
+  readonly birth_position: Point | null;
   readonly birth_evidence_class: "observed" | "simulated" | "reconciled";
   readonly birth_kind: "starting_actor" | "queue_estimate";
   readonly birth_confirmation: "parser_initial_actor" | "estimated_from_queue";
@@ -225,9 +225,12 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
   const knownObjectPositions = knownObjectPositionIndex(match);
   const lifetimeObjects = array(lifetimes.objects).map(object);
   const lifetimesByActor = new Map<number, JsonObject>();
+  const lifetimesByActorKey = new Map<string, JsonObject>();
   lifetimeObjects.forEach((row) => {
     const actorId = integer(row.instance_id, null);
+    const player = integer(row.player, integer(row.owner, null));
     if (actorId !== null) lifetimesByActor.set(actorId, row);
+    if (actorId !== null && player !== null) lifetimesByActorKey.set(actorKey(player, actorId), row);
   });
 
   const mapEvents = indexedMapEvents(lifetimes);
@@ -235,7 +238,11 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
   const buildingTimeline = [
     ...startingBuildingRows(players, rules),
     ...placedBuildingRows(economy, inputRows, mapEvents, rules),
-  ].sort((a, b) =>
+  ];
+  buildingTimeline.push(
+    ...inferredProducerBuildingRows(inputRows, mapEvents, lifetimesByActorKey, buildingTimeline, rules)
+  );
+  buildingTimeline.sort((a, b) =>
     a.player - b.player
       || a.available_time - b.available_time
       || a.placed_time - b.placed_time
@@ -280,7 +287,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       sprite_key: unit.sprite_key,
       worker: unit.worker,
       birth_time: cleanTime(unit.birth_time),
-      birth_position: cleanPoint(unit.birth_position),
+      birth_position: unit.birth_position ? cleanPoint(unit.birth_position) : null,
       birth_evidence_class: unit.birth_evidence_class,
       birth_kind: unit.birth_kind,
       birth_confirmation: unit.birth_confirmation,
@@ -326,12 +333,12 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
     },
     methodology: {
       evidence_classes: "Observed rows are parser/replay evidence; simulated rows are deterministic estimates; reconciled rows attach a later observed actor ID to one compatible prior estimate.",
-      building_timeline: "Starting player buildings are available at 0. Placed buildings use replay placement/build-selection evidence where present, ruleset build seconds where available, and documented name-family fallback seconds otherwise. Production gates wait until the conservative estimated completion time.",
+      building_timeline: "Starting player buildings are available at 0. Placed buildings use replay placement/build-selection evidence where present, ruleset build seconds where available, and documented name-family fallback seconds otherwise. Producer buildings without placement IDs can also receive observed target-position rows when the replay later identifies that building actor. Production gates wait until the conservative estimated completion or first producer-position observation time.",
       builder_count_effect: "When selected builder IDs are available near a placement, duration uses baseBuildSeconds * 3 / (builderCount + 2), matching the project viewer's prior conservative multi-builder policy. Missing builder evidence falls back to one builder.",
       production_queue: "Queue and unqueue commands are replay-observed intent. Birth rows are simulated only after sequential per-producer availability and effective train time gates; queue intent is never promoted to a confirmed birth.",
-      spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position is exposed and uses a deterministic map-origin marker.",
+      spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position stays position-unknown and produces no map marker.",
       reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward only when one compatible unmatched estimate wins by owner, unit name/category, timing, and straight-line spatial plausibility. Ambiguous and unmatched actor IDs are exposed instead of forced.",
-      motion: "Continuous unit motion is simulated straight-line interpolation from an observed or estimated birth position to later replay command destinations. No terrain avoidance, collision, obstruction, or pathfinding is claimed.",
+      motion: "Continuous unit motion is simulated straight-line interpolation from an observed or estimated birth position to later replay command destinations only when a birth position is known. No terrain avoidance, collision, obstruction, or pathfinding is claimed.",
       computation_boundary: "All rows in this artifact are produced in the browser worker after a local replay is loaded.",
     },
     policies: {
@@ -339,18 +346,21 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
         pattern.source,
         seconds,
       ])),
-      default_spawn_fallback: "deterministic-east-edge",
+      default_spawn_fallback: "producer-east-edge when producer position is known; no map-origin fallback for missing producer positions",
       pathfinding: "not-implemented",
       stale_or_death: "Explicit delete rows end visibility; possible-loss rows retire active visibility conservatively; otherwise anonymous and starting estimates remain survival-unresolved through replay end.",
     },
     counts: {
       starting_buildings: buildingTimeline.filter((row) => row.source === "parser-starting-building").length,
-      placed_buildings: buildingTimeline.filter((row) => row.source !== "parser-starting-building").length,
+      placed_buildings: buildingTimeline.filter((row) => row.source === "economy-building-placement").length,
+      inferred_producer_buildings: buildingTimeline.filter((row) => row.source === "lifetimes-target-position-producer").length,
       build_completion_estimates: buildingTimeline.filter((row) => row.completion_evidence_class === "simulated").length,
       queue_events: queueTimeline.length,
       unqueue_cancellations: queueTimeline.filter((row) => row.status === "cancelled").length,
       starting_units: startingUnits.length,
       estimated_births: estimatedUnits.length,
+      positioned_estimated_births: estimatedUnits.filter((unit) => unit.birth_position !== null).length,
+      position_unknown_estimated_births: estimatedUnits.filter((unit) => unit.birth_position === null).length,
       reconciled_births: outputUnits.filter((row) => row.reconciliation.status === "matched").length,
       anonymous_births: outputUnits.filter((row) => row.reconciliation.status === "anonymous-estimate").length,
       ambiguous_births: outputUnits.filter((row) => row.reconciliation.status === "ambiguous-observed-actor").length,
@@ -399,6 +409,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
     diagnostics: [
       "Starting units keep parser-provided actor IDs and parser positions at time 0.",
       "Estimated units are born only at estimated_completion_time, never at queue time.",
+      "Queue births without producer-position evidence keep their production count but have birth_position null and no map marker.",
       "Static map markers consume these rows; animated GIF/WebP or animated SVG frame behavior is not part of this artifact.",
       "Motion segments are deterministic straight-line rows with terrain_avoidance=false.",
     ],
@@ -526,6 +537,98 @@ function placedBuildingRows(
       };
     })
     .filter((row): row is BuildingTimelineRow => row !== null);
+}
+
+function inferredProducerBuildingRows(
+  inputRows: readonly IndexedInputRow[],
+  mapEvents: readonly JsonObject[],
+  lifetimesByActorKey: ReadonlyMap<string, JsonObject>,
+  existingBuildings: readonly BuildingTimelineRow[],
+  rules: RulesIndex
+): readonly BuildingTimelineRow[] {
+  const existingProducerKeys = new Set(existingBuildings
+    .flatMap((building) => building.instance_id === null ? [] : [actorKey(building.player, building.instance_id)]));
+  const queuedProducers = new Map<string, { readonly player: number; readonly actorId: number; firstQueueTime: number }>();
+  inputRows
+    .filter((row) => row.type === "Queue")
+    .forEach((row) => {
+      row.sourceIds.forEach((actorId) => {
+        const key = actorKey(row.player, actorId);
+        if (existingProducerKeys.has(key)) return;
+        const producer = queuedProducers.get(key) ?? {
+          player: row.player,
+          actorId,
+          firstQueueTime: row.time,
+        };
+        producer.firstQueueTime = Math.min(producer.firstQueueTime, row.time);
+        queuedProducers.set(key, producer);
+      });
+    });
+
+  const targetPositions = new Map<string, {
+    readonly time: number;
+    readonly position: Point;
+    readonly name: string;
+    readonly sourceKind: string;
+  }>();
+  mapEvents.forEach((event) => {
+    const player = integer(event.player, integer(event.owner, null));
+    const targetId = integer(event.target_id, null);
+    const time = replayTime(event);
+    const position = point(event.position);
+    if (player === null || targetId === null || time === null || !position) return;
+    const producerKey = actorKey(player, targetId);
+    if (!queuedProducers.has(producerKey) || existingProducerKeys.has(producerKey)) return;
+    const inferredName = targetBuildingName(event, lifetimesByActorKey.get(producerKey));
+    if (!inferredName) return;
+    const previous = targetPositions.get(producerKey);
+    if (previous && previous.time <= time) return;
+    targetPositions.set(producerKey, {
+      time,
+      position: cleanPoint(position),
+      name: inferredName,
+      sourceKind: text(event.kind, "target"),
+    });
+  });
+
+  return [...queuedProducers.values()].flatMap((producer): readonly BuildingTimelineRow[] => {
+    const key = actorKey(producer.player, producer.actorId);
+    const target = targetPositions.get(key);
+    if (!target) return [];
+    const rule = rules.ruleForName(target.name);
+    return [{
+      id: `building-producer-target:${producer.player}:${producer.actorId}`,
+      player: producer.player,
+      instance_id: producer.actorId,
+      name: target.name,
+      position: target.position,
+      footprint: buildingFootprint(target.name, rule),
+      placed_time: target.time,
+      estimated_completion_time: target.time,
+      available_time: target.time,
+      evidence_class: "observed",
+      completion_evidence_class: "observed",
+      builder_count: 0,
+      builder_ids: [],
+      base_build_seconds: 0,
+      construction_seconds: 0,
+      completion_method: `${target.sourceKind}-position-observation`,
+      source: "lifetimes-target-position-producer",
+    }];
+  });
+}
+
+function targetBuildingName(event: JsonObject, lifetime: JsonObject | undefined): string | null {
+  const lifetimeName = text(lifetime?.name);
+  if (lifetimeName && lifetimeName !== "Production building") return lifetimeName;
+  const labelName = text(event.name, labelObjectName(event.label));
+  return labelName && labelName !== "Production building" ? labelName : null;
+}
+
+function labelObjectName(value: unknown): string {
+  const label = text(value);
+  const match = /^\s*(?:Target|Spawn|Gather Point):\s*(.+?)\s*$/i.exec(label);
+  return match?.[1] ?? "";
 }
 
 interface BuildCommandRow {
@@ -782,7 +885,9 @@ function scheduleQueueItems(
         cancellation_evidence_class: draft.cancelledTime === null ? null : "observed",
         producer_completion_gate: producer
           ? `producer available at ${cleanTime(producer.available_time)} from ${producer.completion_method}`
-          : "producer identity observed but producer building position/completion was unavailable; queue time is used as the conservative gate",
+          : draft.producerId === null
+            ? "producer identity unavailable; queue time is used for production counts and spawn position remains unknown"
+            : "producer identity observed but producer building position/completion was unavailable; queue time is used for production counts and spawn position remains unknown",
         spawn,
       };
     });
@@ -856,8 +961,8 @@ function estimatedUnitRows(
   duration: number
 ): UnitTimelineRow[] {
   return queueTimeline
-    .filter((queue) => queue.status === "estimated_birth" && queue.spawn)
-    .map((queue, index): UnitTimelineRow => {
+    .filter((queue) => queue.status === "estimated_birth")
+    .map((queue): UnitTimelineRow => {
       const identity = unitIdentity(queue.player, queue.unit_id, queue.name, queue.estimated_completion_time, unitStats, rules);
       const stableId = `estimate:${queue.player}:${queue.producer_id ?? "unknown"}:${queue.queue_index}`;
       const terminal = terminalStates.get(stableId) ?? null;
@@ -875,14 +980,14 @@ function estimatedUnitRows(
         sprite_key: identity.spriteKey,
         worker: identity.category === "villagers",
         birth_time: queue.estimated_completion_time,
-        birth_position: cleanPoint(queue.spawn?.position ?? { x: index + 0.5, y: 0.5 }),
+        birth_position: queue.spawn ? cleanPoint(queue.spawn.position) : null,
         birth_evidence_class: "simulated",
         birth_kind: "queue_estimate",
         birth_confirmation: "estimated_from_queue",
         producer_id: queue.producer_id,
         queue_id: queue.id,
         estimated_completion_time: queue.estimated_completion_time,
-        spawn_method: queue.spawn?.method ?? null,
+        spawn_method: queue.spawn?.method ?? "producer-position-unknown",
         reconciliation: {
           status: "anonymous-estimate",
           actor_id: null,
@@ -942,7 +1047,7 @@ function attachStartingObservations(
     .filter((unit) => unit.birth_kind === "starting_actor" && unit.source_actor_id !== null)
     .forEach((unit) => {
       const actorId = unit.source_actor_id;
-      if (actorId === null) return;
+      if (actorId === null || !unit.birth_position) return;
       const actorObservations = observationsByActor.get(actorKey(unit.player, actorId)) ?? [];
       unit.observations = [
         {
@@ -1110,6 +1215,7 @@ function candidateScore(
     : "unknown";
   if (typeMatch === null) return null;
   const distanceToObservation = firstObservation.position
+    && unit.birth_position
     ? distance(unit.birth_position, firstObservation.position)
     : null;
   if (distanceToObservation !== null) {
@@ -1155,9 +1261,11 @@ function finalizeUnitMotion(
 }
 
 function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSegment[] {
+  const birthPosition = unit.birth_position;
+  if (!birthPosition) return [];
   const segments: MotionSegment[] = [];
   let anchorTime = unit.birth_time;
-  let anchorPosition = unit.birth_position;
+  let anchorPosition = birthPosition;
   const destinationRows = unit.observations
     .filter((row) => row.position && row.time >= unit.birth_time)
     .sort((a, b) => a.time - b.time || a.index - b.index);
@@ -1172,7 +1280,7 @@ function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSeg
       ? unit.birth_time
       : Math.max(unit.birth_time, row.time);
     const fromPosition = index === 0 && unit.birth_kind === "queue_estimate"
-      ? unit.birth_position
+      ? birthPosition
       : positionAtSegments(anchorPosition, segments, fromTime);
     const travelTime = travelSeconds(fromPosition, row.position, unit.speed);
     const toTime = cleanTime(unit.birth_kind === "queue_estimate" && index === 0
@@ -1387,16 +1495,9 @@ function estimatedConstructionDurationSeconds(baseBuildSeconds: number, builderC
   return cleanNumber(Math.max(0, baseBuildSeconds) * 3 / (builders + 2));
 }
 
-function spawnEstimate(producer: BuildingTimelineRow | null, rally: GatherPointRow | null): SpawnEstimate {
+function spawnEstimate(producer: BuildingTimelineRow | null, rally: GatherPointRow | null): SpawnEstimate | null {
   if (!producer) {
-    return {
-      position: { x: 0.5, y: 0.5 },
-      producer_position: null,
-      rally_position: rally?.position ?? null,
-      direction: "producer-position-missing",
-      evidence_class: "simulated",
-      method: "producer position unavailable; deterministic map-origin marker",
-    };
+    return null;
   }
   const rallyPosition = rally?.position ?? null;
   const vector = rallyPosition
