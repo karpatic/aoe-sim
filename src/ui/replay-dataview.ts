@@ -10,6 +10,7 @@ import type {
 } from "../replay/local-recording";
 import { compareCodePoint } from "../replay/canonical-json";
 import { assertCanonicalJsonByteLength, formatBytes, LOCAL_REPLAY_LIMITS } from "../replay/limits";
+import { drawForestTerrainCanopy, forestTerrainFloorColor, isForestTerrainId } from "../render/tree-visuals";
 
 export interface ReplayDataviewState {
   readonly playerFilter: string;
@@ -151,11 +152,13 @@ function buildMapPanel(map: BrowserReplayMap | undefined): HTMLElement {
   }
 
   const canvas = document.createElement("canvas");
+  const cellSize = replayMapCellSize(map);
   canvas.className = "replay-map";
-  canvas.width = map.widthTiles;
-  canvas.height = map.heightTiles;
+  canvas.width = map.widthTiles * cellSize;
+  canvas.height = map.heightTiles * cellSize;
+  canvas.dataset.forestVisualStrategy = "deterministic-canopy-no-tree-squares";
   canvas.setAttribute("aria-label", "Replay terrain and elevation map");
-  drawReplayMap(canvas, map);
+  drawReplayMap(canvas, map, cellSize);
 
   const stats = document.createElement("dl");
   stats.className = "diagnostics dataview-definition";
@@ -488,7 +491,18 @@ function filterActions(
   );
 }
 
-function drawReplayMap(canvas: HTMLCanvasElement, map: BrowserReplayMap): void {
+function replayMapCellSize(map: BrowserReplayMap): number {
+  const largestDimension = Math.max(map.widthTiles, map.heightTiles);
+  if (largestDimension > 512) {
+    return 2;
+  }
+  if (largestDimension > 256) {
+    return 3;
+  }
+  return 6;
+}
+
+function drawReplayMap(canvas: HTMLCanvasElement, map: BrowserReplayMap, cellSize: number): void {
   if (validateRenderableMap(map)) {
     return;
   }
@@ -497,21 +511,36 @@ function drawReplayMap(canvas: HTMLCanvasElement, map: BrowserReplayMap): void {
     return;
   }
 
-  const image = context.createImageData(map.widthTiles, map.heightTiles);
+  context.imageSmoothingEnabled = false;
+  const forestTiles: { x: number; y: number; terrain: number; elevation: number }[] = [];
   for (let index = 0; index < map.tileCount; index += 1) {
     const terrain = map.tileGrid.terrainIds[index];
     const elevation = map.tileGrid.elevations[index];
     if (terrain === undefined || elevation === undefined) {
       return;
     }
-    const [red, green, blue] = colorForTerrain(terrain, elevation);
-    const offset = index * 4;
-    image.data[offset] = red;
-    image.data[offset + 1] = green;
-    image.data[offset + 2] = blue;
-    image.data[offset + 3] = 255;
+    const x = index % map.widthTiles;
+    const y = Math.floor(index / map.widthTiles);
+    if (isForestTerrainId(terrain)) {
+      forestTiles.push({ x, y, terrain, elevation });
+      context.fillStyle = forestTerrainFloorColor(terrain, elevation);
+    } else {
+      context.fillStyle = rgbColor(colorForTerrain(terrain, elevation));
+    }
+    context.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
   }
-  context.putImageData(image, 0, 0);
+  for (const tile of forestTiles) {
+    drawForestTerrainCanopy(
+      context,
+      tile.x * cellSize + cellSize / 2,
+      tile.y * cellSize + cellSize / 2,
+      cellSize,
+      tile.terrain,
+      tile.elevation,
+      [tile.x, tile.y, tile.terrain]
+    );
+  }
+  canvas.dataset.forestTerrainTiles = String(forestTiles.length);
 }
 
 function validateRenderableMap(map: BrowserReplayMap): string | undefined {
@@ -593,6 +622,10 @@ function terrainPalette(terrain: number): readonly [number, number, number] {
 
 function clampColor(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function rgbColor([red, green, blue]: readonly [number, number, number]): string {
+  return `rgb(${red} ${green} ${blue})`;
 }
 
 function appendDefinitionRows(list: HTMLDListElement, rows: readonly (readonly [string, string])[]): void {

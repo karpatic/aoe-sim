@@ -1,4 +1,5 @@
 import type { EvidenceClass, PlayerDefinition, RenderEntitySnapshot } from "../replay/model";
+import { drawCompactTreeResourceCanopy, isTreeResourceEntity } from "./tree-visuals";
 
 const evidenceColors: Record<EvidenceClass, string> = {
   observed: "#f4ead7",
@@ -21,6 +22,21 @@ export function drawPixelToken(
 
   context.save();
   context.translate(Math.round(x), Math.round(y));
+
+  if (isTreeResourceEntity(entity)) {
+    drawCompactTreeResourceCanopy(
+      context,
+      `${entity.label ?? ""} ${entity.kind} ${entity.resourceNode?.family ?? ""}`,
+      0,
+      0,
+      tileSize,
+      entity.lifecycle.state === "dead" || Boolean(entity.resourceNode?.depleted),
+      [entity.position.x, entity.position.y, entity.label ?? entity.kind]
+    );
+    context.restore();
+    return;
+  }
+
   drawEvidenceFrame(context, entity.lifecycle.evidence, half + 2);
 
   if (entity.lifecycle.state === "dead") {

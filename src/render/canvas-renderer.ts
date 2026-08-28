@@ -1,4 +1,11 @@
 import { drawPixelToken, evidenceColor } from "./pixel-tokens";
+import {
+  drawForestTerrainCanopy,
+  drawTreeResourceCanopy,
+  forestTerrainFloorColor,
+  isForestTerrainId,
+  isTreeResourceEntity
+} from "./tree-visuals";
 import type {
   EntityId,
   MapBounds,
@@ -182,13 +189,6 @@ export class CanvasRenderer {
     } else {
       context.fillStyle = "#26351c";
       context.fillRect(originX, originY, map.widthTiles * tileSize, map.heightTiles * tileSize);
-
-      for (let y = 0; y < map.heightTiles; y += 1) {
-        for (let x = 0; x < map.widthTiles; x += 1) {
-          context.fillStyle = (x + y) % 2 === 0 ? "#2b3b20" : "#314324";
-          context.fillRect(originX + x * tileSize, originY + y * tileSize, tileSize, tileSize);
-        }
-      }
     }
 
     context.strokeStyle = "#52623b";
@@ -320,12 +320,32 @@ export class CanvasRenderer {
     }
 
     terrainContext.imageSmoothingEnabled = false;
+    const forestTiles: { x: number; y: number; terrainId: number; elevation: number }[] = [];
     for (let y = 0; y < map.heightTiles; y += 1) {
       for (let x = 0; x < map.widthTiles; x += 1) {
         const index = y * map.widthTiles + x;
-        terrainContext.fillStyle = terrainColor(grid.terrainIds[index] ?? 0, grid.elevations[index] ?? 0);
+        const terrainId = grid.terrainIds[index] ?? 0;
+        const elevation = grid.elevations[index] ?? 0;
+        if (isForestTerrainId(terrainId)) {
+          forestTiles.push({ x, y, terrainId, elevation });
+          terrainContext.fillStyle = forestTerrainFloorColor(terrainId, elevation);
+        } else {
+          terrainContext.fillStyle = terrainColor(terrainId, elevation);
+        }
         terrainContext.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
       }
+    }
+
+    for (const tile of forestTiles) {
+      drawForestTerrainCanopy(
+        terrainContext,
+        tile.x * tileSize + tileSize / 2,
+        tile.y * tileSize + tileSize / 2,
+        tileSize,
+        tile.terrainId,
+        tile.elevation,
+        [tile.x, tile.y, tile.terrainId]
+      );
     }
 
     this.terrainCache = {
@@ -360,15 +380,9 @@ export class CanvasRenderer {
       }
     }
 
-    if (drawMode === "dense") {
-      for (const entity of trees) {
-        drawDenseEntity(treeContext, entity, this.playerColors, this.players, 0, 0, tileSize);
-      }
-    } else {
-      for (const entity of trees.sort(compareEntityDepth)) {
-        const screen = worldToScreen(entity.position.x, entity.position.y, 0, 0, tileSize);
-        drawPixelToken(treeContext, entity, this.players, screen.x, screen.y, tileSize);
-      }
+    for (const entity of trees.sort(compareEntityDepth)) {
+      const screen = worldToScreen(entity.position.x, entity.position.y, 0, 0, tileSize);
+      drawTreeResourceCanopy(treeContext, entity, screen.x, screen.y, tileSize);
     }
 
     this.treeCache = {
@@ -429,6 +443,10 @@ function drawDenseEntity(
   tileSize: number
 ): void {
   const screen = worldToScreen(entity.position.x, entity.position.y, originX, originY, tileSize);
+  if (isTreeResourceEntity(entity)) {
+    drawTreeResourceCanopy(context, entity, screen.x, screen.y, tileSize);
+    return;
+  }
   if (isDenseBuilding(entity)) {
     drawDenseBuilding(context, entity, colors, players, screen.x, screen.y, tileSize);
     return;
