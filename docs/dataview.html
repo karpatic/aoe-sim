@@ -9,16 +9,20 @@
       * { box-sizing: border-box; }
       :root {
         --dataview-map-column: min(100dvh, calc(100vw - 24rem));
+        --dataview-settings-bottom: 0px;
+        --dataview-settings-top: 0px;
+        --dataview-settings-width: calc(100vw - var(--dataview-map-column));
       }
-      html, body { width: 100%; min-height: 100%; }
+      html, body { width: 100%; height: 100%; overflow: hidden; }
       body { margin: 0; color: #1b1b1b; background: #101214; font: 16px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
-      main { display: grid; grid-template-columns: var(--dataview-map-column) minmax(24rem, 1fr); grid-template-rows: minmax(0, 1fr) auto; width: 100%; height: 100dvh; background: #101214; }
-      main[data-viewer-loaded="true"] { grid-template-rows: 100dvh auto; height: auto; min-height: 100dvh; }
+      main { display: grid; grid-template-columns: var(--dataview-map-column) minmax(24rem, 1fr); grid-template-rows: 100dvh; width: 100%; height: 100dvh; overflow: hidden; background: #101214; }
       h1 { margin: 0 0 .25rem; font-size: 1.45rem; line-height: 1.15; }
+      h2 { margin: 0; font-size: 1rem; line-height: 1.2; }
       p { margin: .35rem 0; }
       button, input, select { min-height: 2.75rem; font: inherit; }
       button { padding: .45rem .8rem; border: 1px solid #333; border-radius: 0; color: #111; background: #eee; cursor: pointer; }
       button:disabled { color: #777; cursor: not-allowed; }
+      button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #0645ad; outline-offset: 2px; }
       select {
         width: min(28rem, 100%);
         max-width: 100%;
@@ -27,13 +31,38 @@
         background: #fff;
       }
       select:disabled { color: #777; background: #eee; }
-      .upload-panel { grid-column: 2; grid-row: 2; width: 100%; overflow-x: hidden; overflow-y: visible; border-top: 1px solid #333; border-left: 1px solid #333; background: #f7f7f7; }
-      .upload-panel:not([open]) { overflow: hidden; }
-      .upload-panel > summary { display: flex; align-items: baseline; gap: .65rem; padding: .65rem 1rem; cursor: pointer; }
-      .upload-panel > summary::marker { color: #555; }
+      .settings-layer {
+        position: fixed;
+        z-index: 30;
+        top: var(--dataview-settings-top);
+        right: 0;
+        bottom: var(--dataview-settings-bottom);
+        width: var(--dataview-settings-width);
+        min-width: 0;
+        pointer-events: none;
+      }
+      .settings-actions { display: flex; align-items: center; justify-content: flex-start; padding: .45rem .55rem; }
+      #settings-toggle { min-height: 2rem; padding: .25rem .65rem; pointer-events: auto; }
+      .upload-panel {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        border-left: 1px solid #333;
+        background: #f7f7f7;
+        box-shadow: -.25rem 0 .75rem rgba(0, 0, 0, .16);
+        pointer-events: auto;
+      }
+      .upload-panel[hidden] { display: none; }
+      .drawer-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-width: 0; padding: .65rem 1rem; border-bottom: 1px solid #333; background: #eee; }
+      .drawer-heading { min-width: 0; }
+      #settings-close { flex: 0 0 auto; width: 2rem; min-height: 2rem; padding: 0; background: #fff; font: 1.35rem/1 system-ui, sans-serif; }
       .panel-title { font-weight: 700; }
-      .panel-hint { color: #555; font-size: .86rem; }
-      .upload-content { padding: 0 1rem .8rem; }
+      .panel-hint { margin: .15rem 0 0; color: #555; font-size: .86rem; }
+      .upload-content { min-width: 0; min-height: 0; padding: .65rem 1rem .8rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
       .upload-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
       .privacy { color: #444; font-size: .92rem; }
       .controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .6rem 0; }
@@ -57,63 +86,76 @@
       @media (max-width: 50rem) {
         :root {
           --dataview-map-column: 0px;
+          --dataview-settings-width: 100vw;
+        }
+        main[data-viewer-loaded="true"] {
+          --dataview-settings-bottom: 7rem;
+          --dataview-settings-top: 48dvh;
         }
         main { grid-template-columns: 1fr; }
-        .upload-panel { grid-column: 1; width: 100%; border-left: 0; }
-        .upload-panel > summary { padding-inline: .65rem; }
+        .upload-panel { border-top: 1px solid #333; border-left: 0; }
+        .settings-actions, .drawer-header { padding-inline: .65rem; }
         .upload-content { padding-inline: .65rem; }
         .panel-hint { display: none; }
       }
     </style>
     <script type="module" crossorigin src="/aoe-sim/assets/limits-BIuC5h1x.js"></script>
-    <script type="module" crossorigin src="/aoe-sim/assets/dataview-DLwuzpyZ.js"></script>
+    <script type="module" crossorigin src="/aoe-sim/assets/dataview-e5KgqR2X.js"></script>
   </head>
   <body>
     <main class="shell">
-      <details id="upload-panel" class="upload-panel" open>
-        <summary>
-          <span class="panel-title">Replay controls</span>
-          <span class="panel-hint">Sanitized Glade default · choose another .aoe2record</span>
-        </summary>
-        <div class="upload-content">
-          <div class="upload-header">
-            <div>
-              <h1 id="page-heading">AoE II single-game data</h1>
-              <p id="privacy-copy" class="privacy">
-                Choose a replay folder to list direct child .aoe2record files. The folder handle and selected filename
-                are stored only in this browser's IndexedDB; replay bytes stay in this browser worker.
-              </p>
-            </div>
-            <nav aria-label="Related views">
-              <a class="back-link" href="./dataview-data.html">Schemas and parsed data</a>
-              ·
-              <a class="back-link" href="./index.html">Simulator</a>
-            </nav>
-          </div>
-
-          <div class="controls">
-            <button id="choose-recording" type="button">Choose replay folder</button>
-            <button id="reconnect-recording-folder" type="button" hidden>Reconnect replay folder</button>
-            <label id="recording-select-control" class="file-control">
-              <span>Replay</span>
-              <select id="recording-select" aria-describedby="status" disabled>
-                <option value="">Choose a replay folder first</option>
-              </select>
-            </label>
-            <label id="recording-file-control" class="file-control" hidden>
-              <span>.aoe2record</span>
-              <input id="recording-file" type="file" accept=".aoe2record,application/octet-stream" />
-            </label>
-            <button id="cancel-recording" type="button" disabled>Cancel</button>
-            <button id="clear-recording" type="button">Load Default Glade</button>
-          </div>
-
-          <p id="status" aria-live="polite">Choose a replay folder to list .aoe2record files, or load Glade explicitly.</p>
-          <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress" hidden></progress>
-          <ul id="progress-list" aria-label="Preprocessing stages" hidden></ul>
-          <p id="error" role="alert" hidden></p>
+      <div class="settings-layer" aria-label="Replay settings">
+        <div class="settings-actions">
+          <button id="settings-toggle" type="button" aria-expanded="false" aria-controls="upload-panel">Settings</button>
         </div>
-      </details>
+        <section id="upload-panel" class="upload-panel" aria-labelledby="settings-drawer-title" tabindex="-1" hidden>
+          <div class="drawer-header">
+            <div class="drawer-heading">
+              <h2 id="settings-drawer-title" class="panel-title">Replay controls</h2>
+              <p class="panel-hint">Sanitized Glade default · choose another .aoe2record</p>
+            </div>
+            <button id="settings-close" type="button" aria-label="Close settings">×</button>
+          </div>
+          <div class="upload-content">
+            <div class="upload-header">
+              <div>
+                <h1 id="page-heading">AoE II single-game data</h1>
+                <p id="privacy-copy" class="privacy">
+                  Choose a replay folder to list direct child .aoe2record files. The folder handle and selected filename
+                  are stored only in this browser's IndexedDB; replay bytes stay in this browser worker.
+                </p>
+              </div>
+              <nav aria-label="Related views">
+                <a class="back-link" href="./dataview-data.html">Schemas and parsed data</a>
+                ·
+                <a class="back-link" href="./index.html">Simulator</a>
+              </nav>
+            </div>
+
+            <div class="controls">
+              <button id="choose-recording" type="button">Choose replay folder</button>
+              <button id="reconnect-recording-folder" type="button" hidden>Reconnect replay folder</button>
+              <label id="recording-select-control" class="file-control">
+                <span>Replay</span>
+                <select id="recording-select" aria-describedby="status" disabled>
+                  <option value="">Choose a replay folder first</option>
+                </select>
+              </label>
+              <label id="recording-file-control" class="file-control" hidden>
+                <span>.aoe2record</span>
+                <input id="recording-file" type="file" accept=".aoe2record,application/octet-stream" />
+              </label>
+              <button id="cancel-recording" type="button" disabled>Cancel</button>
+              <button id="clear-recording" type="button">Load Default Glade</button>
+            </div>
+
+            <p id="status" aria-live="polite">Choose a replay folder to list .aoe2record files, or load Glade explicitly.</p>
+            <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress" hidden></progress>
+            <ul id="progress-list" aria-label="Preprocessing stages" hidden></ul>
+            <p id="error" role="alert" hidden></p>
+          </div>
+        </section>
+      </div>
 
       <section class="viewer-panel" aria-label="Generated dataview">
         <p id="viewer-empty">Choose a replay folder to list .aoe2record files, or load Glade explicitly.</p>

@@ -55,7 +55,9 @@ const statusText = must<HTMLElement>("#status");
 const progressBar = must<HTMLProgressElement>("#progress");
 const progressList = must<HTMLUListElement>("#progress-list");
 const errorText = must<HTMLElement>("#error");
-const uploadPanel = must<HTMLDetailsElement>("#upload-panel");
+const uploadPanel = must<HTMLElement>("#upload-panel");
+const settingsToggle = must<HTMLButtonElement>("#settings-toggle");
+const settingsClose = must<HTMLButtonElement>("#settings-close");
 const shell = must<HTMLElement>("main.shell");
 const viewerHost = must<HTMLElement>("#viewer-host");
 const viewerEmpty = must<HTMLElement>("#viewer-empty");
@@ -115,6 +117,7 @@ let replayFolderFileNames: readonly string[] = [];
 let rememberedReplayFileName = "";
 let controlsBlocked = false;
 let isBusy = false;
+let settingsReturnFocus: HTMLElement | undefined;
 const retainedResizeObservers: ResizeObserver[] = [];
 const stageStates = new Map<DataviewProgressStage, StageState>();
 
@@ -148,11 +151,13 @@ function initialize(): void {
     }
     startPrecompute(file).catch((error: unknown) => showError(error));
   });
+  settingsToggle.addEventListener("click", () => setReplayControlsOpen(true, { moveFocus: true }));
+  settingsClose.addEventListener("click", () => setReplayControlsOpen(false, { restoreFocus: true }));
+  uploadPanel.addEventListener("keydown", handleReplayControlsKeydown);
   window.addEventListener("message", handleViewerShellScrollRequest);
   window.addEventListener("message", handleViewerRenderState);
   window.addEventListener("scroll", sendViewerShellScrollState, { passive: true });
   window.addEventListener("resize", sendViewerShellScrollState);
-  uploadPanel.addEventListener("toggle", sendViewerShellScrollState);
   if (typeof ResizeObserver === "function") {
     const controlsResizeObserver = new ResizeObserver(() => sendViewerShellScrollState());
     controlsResizeObserver.observe(uploadPanel);
@@ -215,7 +220,7 @@ async function restoreReplayFolder(): Promise<void> {
     const fileText = rememberedReplayFileName ? ` and load ${rememberedReplayFileName}` : "";
     statusText.textContent = `Reconnect ${folderLabel(selection.directoryHandle)} to list replays${fileText}.`;
     viewerEmpty.textContent = "Reconnect the saved replay folder to load browser-local replay data.";
-    uploadPanel.open = true;
+    setReplayControlsOpen(true);
     return;
   }
 
@@ -238,7 +243,7 @@ async function chooseReplayFolder(): Promise<void> {
     return;
   }
 
-  uploadPanel.open = true;
+  setReplayControlsOpen(true);
   clearError();
   statusText.textContent = "Choose the folder containing your .aoe2record files.";
   let handle: FileSystemDirectoryHandle;
@@ -276,7 +281,7 @@ async function reconnectReplayFolder(): Promise<void> {
     return;
   }
 
-  uploadPanel.open = true;
+  setReplayControlsOpen(true);
   clearError();
   statusText.textContent = `Requesting permission for ${folderLabel(handle)}.`;
   replayFolderPermission = await requestReplayFolderPermission(handle);
@@ -390,7 +395,7 @@ async function clearMissingReplaySelection(fileName: string, message: string): P
   }
   renderReplayOptions();
   syncControls();
-  uploadPanel.open = true;
+  setReplayControlsOpen(true);
   statusText.textContent = message;
   viewerEmpty.textContent = "Choose a valid replay from the connected folder.";
   if (replaySelect.value === fileName) {
@@ -543,7 +548,7 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
 }
 
 async function startPrecompute(file: File): Promise<void> {
-  uploadPanel.open = true;
+  setReplayControlsOpen(true);
   cancelActiveWork("Preparing local replay preprocessing.");
   resetViewer();
   viewerEmpty.textContent = "Recording is preprocessing in this browser worker.";
@@ -658,7 +663,7 @@ function finishPrecompute(message: DataviewDoneMessage): void {
   progressList.hidden = true;
   createViewerIframe(payload, viewerNonce);
   shell.dataset.viewerLoaded = "true";
-  uploadPanel.open = false;
+  setReplayControlsOpen(false);
   sendViewerShellScrollState();
 }
 
@@ -824,9 +829,8 @@ function sendViewerShellScrollState(): void {
 }
 
 function shellControlsHeight(): number {
-  const height = Math.max(0, Math.ceil(uploadPanel.getBoundingClientRect().height));
-  uploadPanel.dataset.shellControlsHeight = String(height);
-  return height;
+  uploadPanel.dataset.shellControlsHeight = "0";
+  return 0;
 }
 
 function assertSelectedFile(file: File, fileName: string): void {
@@ -967,11 +971,97 @@ function showError(error: unknown): void {
 }
 
 function showWorkflowError(error: unknown, statusMessage: string): void {
-  uploadPanel.open = true;
+  setReplayControlsOpen(true);
   cancelActiveWork(statusMessage);
   const message = error instanceof Error ? error.message : String(error);
   errorText.textContent = message;
   errorText.hidden = false;
+}
+
+function setReplayControlsOpen(
+  open: boolean,
+  options: { readonly moveFocus?: boolean; readonly restoreFocus?: boolean } = {}
+): void {
+  const wasOpen = !uploadPanel.hidden;
+  if (open === wasOpen) {
+    if (open && options.moveFocus) {
+      settingsClose.focus({ preventScroll: true });
+    }
+    return;
+  }
+
+  if (open) {
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    settingsReturnFocus = activeElement && activeElement !== document.body ? activeElement : settingsToggle;
+    uploadPanel.hidden = false;
+    settingsToggle.setAttribute("aria-expanded", "true");
+    settingsToggle.tabIndex = -1;
+    shell.dataset.settingsDrawerOpen = "true";
+    if (options.moveFocus) {
+      requestAnimationFrame(() => settingsClose.focus({ preventScroll: true }));
+    }
+  } else {
+    uploadPanel.hidden = true;
+    settingsToggle.setAttribute("aria-expanded", "false");
+    settingsToggle.removeAttribute("tabindex");
+    delete shell.dataset.settingsDrawerOpen;
+    if (options.restoreFocus && settingsReturnFocus?.isConnected) {
+      settingsReturnFocus.focus({ preventScroll: true });
+    }
+    settingsReturnFocus = undefined;
+  }
+  sendViewerShellScrollState();
+}
+
+function handleReplayControlsKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    setReplayControlsOpen(false, { restoreFocus: true });
+    return;
+  }
+  if (event.key !== "Tab") {
+    return;
+  }
+
+  const focusable = replayControlsFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    uploadPanel.focus({ preventScroll: true });
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!first || !last) {
+    return;
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus({ preventScroll: true });
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+  }
+}
+
+function replayControlsFocusableElements(): HTMLElement[] {
+  const selector = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(",");
+  return [...uploadPanel.querySelectorAll<HTMLElement>(selector)].filter(isFocusableElement);
+}
+
+function isFocusableElement(element: HTMLElement): boolean {
+  if (element.hidden) {
+    return false;
+  }
+  const style = window.getComputedStyle(element);
+  return style.visibility !== "hidden" && style.display !== "none";
 }
 
 function clearError(): void {
