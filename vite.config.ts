@@ -3,8 +3,10 @@ import { defineConfig } from "vite";
 const htmlEntry = (name: string): string => new URL(name, import.meta.url).pathname;
 
 export default defineConfig({
-  base: "./",
+  base: "/aoe-sim/",
   build: {
+    outDir: "docs",
+    emptyOutDir: true,
     rollupOptions: {
       input: {
         index: htmlEntry("index.html"),

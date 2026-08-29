@@ -7,9 +7,10 @@
     "build:scenario": "node tools/build-scenario.mjs",
     "build:ruleset": "/tmp/aoe-genie-env/bin/python tools/build-ruleset.py",
     "prepare:dataview-runtime": "node tools/prepare-dataview-runtime.mjs",
+    "build:docs-manifest": "node tools/write-docs-manifest.mjs",
     "dev": "vite --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "npm run prepare:dataview-runtime && tsc -p tsconfig.json --noEmit && vite build",
+    "build": "npm run prepare:dataview-runtime && tsc -p tsconfig.json --noEmit && vite build && npm run build:docs-manifest",
     "preview": "vite preview --host 0.0.0.0"
   },
   "devDependencies": {

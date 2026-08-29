@@ -15,6 +15,10 @@ npm run build
 npm run dev
 ```
 
+`npm run build` is the canonical publication build: it prepares and hash-checks runtime assets, typechecks, emits the
+Vite site into tracked `docs/` with `/aoe-sim/` asset paths, and refreshes `docs/manifest.sha256`. Do not maintain a
+separate `dist/` tree or generated `gh-pages` branch for normal publication.
+
 Carlos has not opted into automated tests for this repository. This milestone uses TypeScript checking, production builds, runtime diagnostics, and browser verification.
 
 ## Local Replay Folder
@@ -93,4 +97,4 @@ export can include player names/profile IDs, terrain/elevation arrays, action ob
 and bounded chat text. Raw replay bytes remain local; raw parser objects, original AoE graphics/audio, raw DAT bytes,
 and selected-replay sidecar analytics are not committed or silently reused by the upload path.
 
-See [docs/replay-upload.md](docs/replay-upload.md) for the local upload boundary, parser license/provenance, exact fixture reconciliation, and unsupported mappings.
+See [repo-docs/replay-upload.md](repo-docs/replay-upload.md) for the local upload boundary, parser license/provenance, exact fixture reconciliation, and unsupported mappings.

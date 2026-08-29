@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>AoE II schemas and parsed data</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; }
+      body { margin: 0; color: #1b1b1b; background: #fff; font: 16px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
+      main { width: 100%; min-height: 100vh; min-height: 100dvh; }
+      h1 { margin: 0 0 .25rem; font-size: 1.45rem; line-height: 1.15; }
+      p { margin: .35rem 0; }
+      button, input { min-height: 2.75rem; font: inherit; }
+      button { padding: .45rem .8rem; border: 1px solid #333; border-radius: 0; color: #111; background: #eee; cursor: pointer; }
+      button:disabled { color: #777; cursor: not-allowed; }
+      .shell { display: block; }
+      .upload-panel { position: relative; border-bottom: 1px solid #333; background: #f7f7f7; }
+      .upload-panel > summary { display: flex; align-items: baseline; gap: .65rem; padding: .65rem 1rem; cursor: pointer; }
+      .upload-panel > summary::marker { color: #555; }
+      .panel-title { font-weight: 700; }
+      .panel-hint { color: #555; font-size: .86rem; }
+      .upload-content { padding: 0 1rem .8rem; }
+      .upload-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
+      .privacy { color: #444; font-size: .92rem; }
+      .controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .6rem 0; }
+      .file-control { display: inline-flex; align-items: center; gap: .45rem; }
+      .file-control input { max-width: min(22rem, 100%); }
+      #status { font-weight: 700; }
+      #error { margin-top: .5rem; padding: .5rem; border: 1px solid #7f1d1d; color: #7f1d1d; background: #fff7f7; }
+      #progress { width: 100%; height: 1rem; }
+      #progress-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); gap: .2rem .75rem; margin: .5rem 0 0; padding-left: 1.2rem; font-size: .86rem; }
+      #progress-list li[data-state="done"] { color: #285d2f; }
+      #progress-list li[data-state="active"] { color: #111; font-weight: 700; }
+      #progress-list li[data-state="skipped"] { color: #555; }
+      #progress-list li[data-state="failed"] { color: #7f1d1d; font-weight: 700; }
+      .diagnostics { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .15rem .65rem; margin: .65rem 0 0; font-size: .86rem; }
+      .diagnostics dt { font-weight: 700; }
+      .diagnostics dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .viewer-panel { min-width: 0; height: 100vh; height: 100dvh; }
+      #viewer-empty { margin: 0; padding: .75rem; color: #555; }
+      #viewer-host { height: 100%; }
+      #viewer-host iframe { display: block; width: 100%; height: 100%; min-height: 100%; border: 0; background: #fff; }
+      .back-link { color: #0645ad; }
+      @media (max-width: 40rem) {
+        .upload-panel > summary { padding-inline: .65rem; }
+        .upload-content { padding-inline: .65rem; }
+        .panel-hint { display: none; }
+        .diagnostics { grid-template-columns: 1fr; }
+      }
+    </style>
+    <script type="module" crossorigin src="/aoe-sim/assets/limits-BIuC5h1x.js"></script>
+    <script type="module" crossorigin src="/aoe-sim/assets/dataview-DaT02ys3.js"></script>
+  </head>
+  <body data-viewer-page="./dataview-data-viewer.html" data-viewer-title="Generated AoE II schemas and parsed data">
+    <main class="shell">
+      <details id="upload-panel" class="upload-panel" open>
+        <summary>
+          <span class="panel-title">Replay data controls</span>
+          <span class="panel-hint">Sanitized Glade default · choose another .aoe2record</span>
+        </summary>
+        <div class="upload-content">
+          <div class="upload-header">
+            <div>
+              <h1 id="page-heading">Schemas and complete parsed data</h1>
+              <p class="privacy">Load the sanitized Glade replay when you want it. Other replay bytes stay in this browser worker.</p>
+            </div>
+            <nav aria-label="Related views">
+              <a class="back-link" href="./dataview.html">Dataview</a>
+              ·
+              <a class="back-link" href="./index.html">Simulator</a>
+            </nav>
+          </div>
+
+          <div class="controls">
+            <label class="file-control">
+              <span>.aoe2record</span>
+              <input id="recording-file" type="file" accept=".aoe2record,application/octet-stream" />
+            </label>
+            <button id="choose-recording" type="button">Choose replay</button>
+            <button id="cancel-recording" type="button" disabled>Cancel</button>
+            <button id="clear-recording" type="button">Load Default Glade</button>
+          </div>
+
+          <p id="status" aria-live="polite">Load the sanitized Glade recording or choose another .aoe2record.</p>
+          <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress" hidden></progress>
+          <ul id="progress-list" aria-label="Preprocessing stages" hidden></ul>
+          <p id="error" role="alert" hidden></p>
+          <dl id="output-summary" class="diagnostics"></dl>
+        </div>
+      </details>
+
+      <section class="viewer-panel" aria-label="Generated schemas and parsed data">
+        <p id="viewer-empty">Load the sanitized Glade recording or choose another .aoe2record.</p>
+        <div id="viewer-host"></div>
+      </section>
+    </main>
+
+  </body>
+</html>

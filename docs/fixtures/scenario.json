@@ -1,0 +1,271 @@
+{
+  "schemaVersion": "aoe-sim.scenario.v1",
+  "scenarioId": "synthetic-m4-economy-slice",
+  "displayName": "Milestone 4 economy slice",
+  "durationMs": 520000,
+  "versions": {
+    "replayVersion": "synthetic-milestone-4",
+    "gameVersion": "synthetic-milestone-4",
+    "buildVersion": 0,
+    "dataset": "original synthetic fixture"
+  },
+  "map": {
+    "widthTiles": 24,
+    "heightTiles": 16
+  },
+  "players": [
+    {
+      "id": "gaia",
+      "name": "Gaia",
+      "team": 0,
+      "color": "#8aa15f"
+    },
+    {
+      "id": "p1",
+      "name": "Blue",
+      "team": 1,
+      "color": "#3f7ecb"
+    }
+  ],
+  "teams": [
+    {
+      "id": "team-0",
+      "playerIds": ["gaia"],
+      "sourceTeamIds": [0]
+    },
+    {
+      "id": "team-1",
+      "playerIds": ["p1"],
+      "sourceTeamIds": [1]
+    }
+  ],
+  "entities": [
+    {
+      "id": "p1-town-center",
+      "kind": "town-center",
+      "playerId": "p1",
+      "hp": null,
+      "position": {
+        "x": 5,
+        "y": 8,
+        "evidence": "observed"
+      },
+      "evidence": "observed",
+      "dataId": 109,
+      "classId": 80,
+      "label": "Town Center"
+    },
+    {
+      "id": "p1-villager-1",
+      "kind": "villager",
+      "playerId": "p1",
+      "hp": null,
+      "position": {
+        "x": 6.5,
+        "y": 8,
+        "evidence": "observed"
+      },
+      "evidence": "observed",
+      "dataId": 83,
+      "classId": 70,
+      "label": "Villager"
+    },
+    {
+      "id": "p1-villager-2",
+      "kind": "villager",
+      "playerId": "p1",
+      "hp": null,
+      "position": {
+        "x": 6.5,
+        "y": 9,
+        "evidence": "observed"
+      },
+      "evidence": "observed",
+      "dataId": 83,
+      "classId": 70,
+      "label": "Villager"
+    },
+    {
+      "id": "gaia-tree-1",
+      "kind": "tree-palm-forest",
+      "playerId": "gaia",
+      "hp": null,
+      "position": {
+        "x": 10.5,
+        "y": 8.5,
+        "evidence": "observed"
+      },
+      "evidence": "observed",
+      "dataId": 351,
+      "classId": 15,
+      "label": "Tree (Palm Forest)"
+    },
+    {
+      "id": "gaia-tree-2",
+      "kind": "tree-palm-forest",
+      "playerId": "gaia",
+      "hp": null,
+      "position": {
+        "x": 11.5,
+        "y": 8.5,
+        "evidence": "observed"
+      },
+      "evidence": "observed",
+      "dataId": 351,
+      "classId": 15,
+      "label": "Tree (Palm Forest)"
+    },
+    {
+      "id": "gaia-berries-1",
+      "kind": "forage-bush",
+      "playerId": "gaia",
+      "hp": null,
+      "position": {
+        "x": 5.5,
+        "y": 12.5,
+        "evidence": "observed"
+      },
+      "evidence": "observed",
+      "dataId": 59,
+      "classId": 7,
+      "label": "Forage Bush"
+    }
+  ],
+  "commands": [
+    {
+      "id": "cmd-0001-gather-tree",
+      "kind": "observed-intent",
+      "rawKind": "ORDER",
+      "issuedAtMs": 500,
+      "sourceSequence": 1,
+      "playerId": "p1",
+      "actorIds": ["p1-villager-1"],
+      "targetId": "gaia-tree-1",
+      "evidence": "observed",
+      "destination": {
+        "x": 10.5,
+        "y": 8.5,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "target_type": 351
+      }
+    },
+    {
+      "id": "cmd-0002-build-house",
+      "kind": "observed-intent",
+      "rawKind": "BUILD",
+      "issuedAtMs": 1000,
+      "sourceSequence": 2,
+      "playerId": "p1",
+      "actorIds": ["p1-villager-2"],
+      "evidence": "observed",
+      "destination": {
+        "x": 7,
+        "y": 6,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "building": "House",
+        "building_id": 70
+      }
+    },
+    {
+      "id": "cmd-0003-town-center-gather-point",
+      "kind": "observed-intent",
+      "rawKind": "GATHER_POINT",
+      "issuedAtMs": 1500,
+      "sourceSequence": 3,
+      "playerId": "p1",
+      "actorIds": ["p1-town-center"],
+      "targetId": "gaia-tree-1",
+      "evidence": "observed",
+      "destination": {
+        "x": 10.5,
+        "y": 8.5,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "target_type": 351
+      }
+    },
+    {
+      "id": "cmd-0004-queue-villager",
+      "kind": "observed-intent",
+      "rawKind": "DE_QUEUE",
+      "issuedAtMs": 2000,
+      "sourceSequence": 4,
+      "playerId": "p1",
+      "actorIds": ["p1-town-center"],
+      "evidence": "observed",
+      "parameters": {
+        "amount": 1,
+        "unit": "Villager",
+        "unit_id": 83
+      }
+    },
+    {
+      "id": "cmd-0005-build-farm",
+      "kind": "observed-intent",
+      "rawKind": "BUILD",
+      "issuedAtMs": 32000,
+      "sourceSequence": 5,
+      "playerId": "p1",
+      "actorIds": ["p1-villager-2"],
+      "evidence": "observed",
+      "destination": {
+        "x": 8,
+        "y": 13,
+        "source": "action-position",
+        "evidence": "observed",
+        "isMapCoordinate": true
+      },
+      "parameters": {
+        "building": "Farm",
+        "building_id": 50
+      }
+    }
+  ],
+  "randomSeeds": [],
+  "unsupported": {
+    "commandKinds": {},
+    "commandCount": 0,
+    "implementedCommandKinds": ["ORDER", "GATHER_POINT", "BUILD", "DE_QUEUE"],
+    "unresolved": [
+      "Synthetic fixture commands are observed intent; worker tasks, carried resources, construction, queues, and ledgers are simulated.",
+      "Starting stockpiles and finite node amounts are explicit Milestone 4 simulation assumptions."
+    ]
+  },
+  "provenance": {
+    "replay": {
+      "id": "synthetic-m4-economy-slice",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "gameJson": {
+      "id": "synthetic-m4-economy-slice",
+      "sha256": "sha256:not-applicable-synthetic"
+    },
+    "parser": {
+      "id": "manual-original-m4",
+      "sha256": "sha256:not-applicable-manual"
+    },
+    "ruleset": {
+      "id": "aoe2de-current-24094652-dat-ce3530df",
+      "sha256": "sha256:c23b1ffd73f1178baa011f41d7d7faab98f7076eb885dcdd43711a295afb7eab"
+    },
+    "importer": {
+      "id": "manual-original-m4",
+      "sha256": "sha256:not-applicable-manual"
+    },
+    "generatedArtifact": {
+      "id": "synthetic-m4-economy-slice",
+      "sha256": "sha256:not-applicable-manual"
+    }
+  }
+}

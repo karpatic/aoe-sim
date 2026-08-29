@@ -2,7 +2,7 @@
 
 `/dataview.html` keeps the original single-game dataview product identity while moving replay preprocessing into the
 browser. The selected `.aoe2record` is read with `File.arrayBuffer`, transferred to a one-shot Web Worker, written to
-Pyodide's in-memory filesystem, and never copied into the repository or `dist/`.
+Pyodide's in-memory filesystem, and never copied into the repository source tree or generated `docs/` artifact.
 
 The worker emits generated UTF-8 JSON buffers only:
 
