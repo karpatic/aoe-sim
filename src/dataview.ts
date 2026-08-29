@@ -3,6 +3,7 @@ import {
   DATAVIEW_REQUIRED_OUTPUT_NAMES,
   DATAVIEW_VIEWER_PAYLOAD_TYPE,
   DATAVIEW_VIEWER_READY_TYPE,
+  DATAVIEW_VIEWER_RENDER_STATE_TYPE,
   DATAVIEW_VIEWER_SHELL_SCROLL_REQUEST_TYPE,
   DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE,
   DATAVIEW_WORKER_REQUEST_TYPE,
@@ -11,6 +12,7 @@ import {
   type DataviewPrecomputeRequest,
   type DataviewProgressMessage,
   type DataviewProgressStage,
+  type DataviewViewerRenderStateMessage,
   type DataviewViewerReadyMessage,
   type DataviewViewerShellScrollRequest,
   type DataviewViewerShellScrollState,
@@ -22,6 +24,7 @@ import {
   assertDataviewGeneratedJsonTotalByteLength,
   assertRecordingByteLength
 } from "./replay/limits";
+import { readReplayFolderSelection, writeReplayFolderSelection } from "./ui/replay-folder-store";
 
 interface StageState {
   readonly label: string;
@@ -34,10 +37,20 @@ interface PendingViewerTransfer {
   readonly nonce: string;
 }
 
+interface ReplayFolderRefreshOptions {
+  readonly autoloadRememberedSelection: boolean;
+  readonly missingSelectionMessage?: string;
+}
+
 const fileInput = must<HTMLInputElement>("#recording-file");
+const fileControl = must<HTMLElement>("#recording-file-control");
 const chooseButton = must<HTMLButtonElement>("#choose-recording");
+const reconnectButton = must<HTMLButtonElement>("#reconnect-recording-folder");
+const replaySelectControl = must<HTMLElement>("#recording-select-control");
+const replaySelect = must<HTMLSelectElement>("#recording-select");
 const cancelButton = must<HTMLButtonElement>("#cancel-recording");
 const defaultLoadButton = must<HTMLButtonElement>("#clear-recording");
+const privacyCopy = must<HTMLElement>("#privacy-copy");
 const statusText = must<HTMLElement>("#status");
 const progressBar = must<HTMLProgressElement>("#progress");
 const progressList = must<HTMLUListElement>("#progress-list");
@@ -52,6 +65,8 @@ const viewerFrameTitle = document.body.dataset.viewerTitle ?? "Generated AoE II 
 const defaultRecordingUrl = new URL("./glade-default.aoe2record", document.baseURI);
 const defaultRecordingSize = 2_101_825;
 const defaultRecordingSha256 = "6fa2103c6b632edda3d114d5d1aabb5ed7560b4d70c0a1070d170e7b4c3833d9";
+const folderPickerSupported = typeof window.showDirectoryPicker === "function";
+const replayNameCollator = new Intl.Collator("en-US", { numeric: true, sensitivity: "base" });
 const stageOrder: readonly DataviewProgressStage[] = [
   "validating",
   "hashing",
@@ -94,6 +109,12 @@ let viewerIframe: HTMLIFrameElement | undefined;
 let pendingViewerTransfer: PendingViewerTransfer | undefined;
 let viewerReadyListener: ((event: MessageEvent<DataviewViewerReadyMessage>) => void) | undefined;
 let activeViewerIdentity: { requestId: string; nonce: string } | undefined;
+let replayFolderHandle: FileSystemDirectoryHandle | undefined;
+let replayFolderPermission: PermissionState = "prompt";
+let replayFolderFileNames: readonly string[] = [];
+let rememberedReplayFileName = "";
+let controlsBlocked = false;
+let isBusy = false;
 const retainedResizeObservers: ResizeObserver[] = [];
 const stageStates = new Map<DataviewProgressStage, StageState>();
 
@@ -101,7 +122,23 @@ initialize();
 
 function initialize(): void {
   buildProgressList();
-  chooseButton.addEventListener("click", () => fileInput.click());
+  chooseButton.addEventListener("click", () => {
+    if (!folderPickerSupported) {
+      fileInput.click();
+      return;
+    }
+    chooseReplayFolder().catch((error: unknown) => showWorkflowError(error, "Replay folder selection failed."));
+  });
+  reconnectButton.addEventListener("click", () => {
+    reconnectReplayFolder().catch((error: unknown) => showWorkflowError(error, "Replay folder reconnect failed."));
+  });
+  replaySelect.addEventListener("change", () => {
+    const fileName = replaySelect.value;
+    if (!fileName) {
+      return;
+    }
+    loadReplayFromFolder(fileName).catch((error: unknown) => showWorkflowError(error, "Replay loading failed."));
+  });
   cancelButton.addEventListener("click", () => cancelActiveWork("Preprocessing cancelled."));
   defaultLoadButton.addEventListener("click", () => void loadDefaultRecording());
   fileInput.addEventListener("change", () => {
@@ -112,6 +149,7 @@ function initialize(): void {
     startPrecompute(file).catch((error: unknown) => showError(error));
   });
   window.addEventListener("message", handleViewerShellScrollRequest);
+  window.addEventListener("message", handleViewerRenderState);
   window.addEventListener("scroll", sendViewerShellScrollState, { passive: true });
   window.addEventListener("resize", sendViewerShellScrollState);
   uploadPanel.addEventListener("toggle", sendViewerShellScrollState);
@@ -123,21 +161,343 @@ function initialize(): void {
 
   const missingSupport = supportProblem();
   if (missingSupport) {
-    setBusy(false);
-    fileInput.disabled = true;
-    chooseButton.disabled = true;
-    defaultLoadButton.disabled = true;
+    controlsBlocked = true;
+    syncControls();
     statusText.textContent = missingSupport;
     errorText.textContent = missingSupport;
     errorText.hidden = false;
     return;
   }
 
-  showIdlePrompt();
+  configureSelectionMode();
+  if (folderPickerSupported) {
+    restoreReplayFolder().catch((error: unknown) => showWorkflowError(error, "Saved replay folder restore failed."));
+  } else {
+    showIdlePrompt();
+  }
+}
+
+function configureSelectionMode(): void {
+  if (folderPickerSupported) {
+    fileControl.hidden = true;
+    replaySelectControl.hidden = false;
+    privacyCopy.textContent =
+      "Choose a replay folder to list direct child .aoe2record files. The folder handle and selected filename " +
+      "are stored only in this browser's IndexedDB; replay bytes stay in this browser worker.";
+    renderReplayOptions();
+  } else {
+    replaySelectControl.hidden = true;
+    reconnectButton.hidden = true;
+    fileControl.hidden = false;
+    privacyCopy.textContent =
+      "This browser does not support persistent replay folders. Choose a .aoe2record file each session; " +
+      "replay bytes stay in this browser worker.";
+  }
+  syncControls();
+}
+
+async function restoreReplayFolder(): Promise<void> {
+  statusText.textContent = "Checking for a saved replay folder.";
+  viewerEmpty.textContent = "Checking for a saved replay folder.";
+  const selection = await readReplayFolderSelection();
+  if (!selection) {
+    showIdlePrompt();
+    return;
+  }
+
+  replayFolderHandle = selection.directoryHandle;
+  rememberedReplayFileName = selection.selectedFileName ?? "";
+  replayFolderPermission = await queryReplayFolderPermission(selection.directoryHandle);
+  if (replayFolderPermission !== "granted") {
+    replayFolderFileNames = [];
+    renderReplayOptions();
+    syncControls();
+    const fileText = rememberedReplayFileName ? ` and load ${rememberedReplayFileName}` : "";
+    statusText.textContent = `Reconnect ${folderLabel(selection.directoryHandle)} to list replays${fileText}.`;
+    viewerEmpty.textContent = "Reconnect the saved replay folder to load browser-local replay data.";
+    uploadPanel.open = true;
+    return;
+  }
+
+  await refreshReplayFolder({
+    autoloadRememberedSelection: Boolean(rememberedReplayFileName),
+    ...(rememberedReplayFileName
+      ? {
+        missingSelectionMessage:
+          `${rememberedReplayFileName} is no longer in ${folderLabel(selection.directoryHandle)}. ` +
+          "Choose a listed replay."
+      }
+      : {})
+  });
+}
+
+async function chooseReplayFolder(): Promise<void> {
+  const picker = window.showDirectoryPicker;
+  if (!picker) {
+    fileInput.click();
+    return;
+  }
+
+  uploadPanel.open = true;
+  clearError();
+  statusText.textContent = "Choose the folder containing your .aoe2record files.";
+  let handle: FileSystemDirectoryHandle;
+  try {
+    handle = await picker.call(window, { id: "aoe-sim-replays", mode: "read" });
+  } catch (error: unknown) {
+    if (isPickerCancellation(error)) {
+      statusText.textContent = "Folder selection cancelled. No replay changed.";
+      return;
+    }
+    throw error;
+  }
+
+  const permission = await queryReplayFolderPermission(handle);
+  await writeReplayFolderSelection({ directoryHandle: handle, selectedFileName: null });
+  replayFolderHandle = handle;
+  replayFolderPermission = permission;
+  rememberedReplayFileName = "";
+  replayFolderFileNames = [];
+  if (permission !== "granted") {
+    renderReplayOptions();
+    syncControls();
+    statusText.textContent = `Reconnect ${folderLabel(handle)} to list replay files.`;
+    viewerEmpty.textContent = "Reconnect the selected replay folder to load browser-local replay data.";
+    return;
+  }
+
+  await refreshReplayFolder({ autoloadRememberedSelection: false });
+}
+
+async function reconnectReplayFolder(): Promise<void> {
+  const handle = replayFolderHandle;
+  if (!handle) {
+    statusText.textContent = "Choose a replay folder first.";
+    return;
+  }
+
+  uploadPanel.open = true;
+  clearError();
+  statusText.textContent = `Requesting permission for ${folderLabel(handle)}.`;
+  replayFolderPermission = await requestReplayFolderPermission(handle);
+  if (replayFolderPermission !== "granted") {
+    replayFolderFileNames = [];
+    renderReplayOptions();
+    syncControls();
+    statusText.textContent = `Permission was not granted. Reconnect ${folderLabel(handle)} to list replays.`;
+    viewerEmpty.textContent = "Reconnect the saved replay folder to load browser-local replay data.";
+    return;
+  }
+
+  await refreshReplayFolder({
+    autoloadRememberedSelection: Boolean(rememberedReplayFileName),
+    ...(rememberedReplayFileName
+      ? {
+        missingSelectionMessage:
+          `${rememberedReplayFileName} is no longer in ${folderLabel(handle)}. Choose a listed replay.`
+      }
+      : {})
+  });
+}
+
+async function refreshReplayFolder(options: ReplayFolderRefreshOptions): Promise<void> {
+  const handle = replayFolderHandle;
+  if (!handle) {
+    renderReplayOptions();
+    syncControls();
+    statusText.textContent = "Choose a replay folder to list .aoe2record files, or load Glade explicitly.";
+    return;
+  }
+
+  statusText.textContent = `Scanning direct child .aoe2record files in ${folderLabel(handle)}.`;
+  replayFolderFileNames = await listReplayFolderFileNames(handle);
+  if (rememberedReplayFileName && !replayFolderFileNames.includes(rememberedReplayFileName)) {
+    await clearMissingReplaySelection(
+      rememberedReplayFileName,
+      options.missingSelectionMessage ??
+        `${rememberedReplayFileName} is no longer in ${folderLabel(handle)}. Choose a listed replay.`
+    );
+    return;
+  }
+
+  renderReplayOptions();
+  syncControls();
+  if (options.autoloadRememberedSelection && rememberedReplayFileName) {
+    await loadReplayFromFolder(rememberedReplayFileName, { persistSelection: false });
+    return;
+  }
+  if (replayFolderFileNames.length === 0) {
+    statusText.textContent =
+      `Connected to ${folderLabel(handle)}, but no direct child .aoe2record files were found. ` +
+      "Choose another folder or load Glade explicitly.";
+    viewerEmpty.textContent = "Choose another replay folder or load Glade explicitly.";
+    return;
+  }
+
+  statusText.textContent = `Connected to ${folderLabel(handle)}. Choose a replay to preprocess.`;
+  viewerEmpty.textContent = "Choose a .aoe2record from the connected replay folder.";
+}
+
+async function loadReplayFromFolder(
+  fileName: string,
+  options: { readonly persistSelection?: boolean } = {}
+): Promise<void> {
+  const handle = replayFolderHandle;
+  if (!handle) {
+    throw new Error("Choose a replay folder before selecting a replay.");
+  }
+  assertReplayBasename(fileName);
+  rememberedReplayFileName = fileName;
+  if (options.persistSelection !== false) {
+    await writeReplayFolderSelection({ directoryHandle: handle, selectedFileName: fileName });
+  }
+  replayFolderPermission = await queryReplayFolderPermission(handle);
+  if (replayFolderPermission !== "granted") {
+    renderReplayOptions();
+    syncControls();
+    statusText.textContent = `Reconnect ${folderLabel(handle)} to load ${fileName}.`;
+    viewerEmpty.textContent = "Reconnect the saved replay folder to load browser-local replay data.";
+    return;
+  }
+
+  renderReplayOptions();
+  syncControls();
+
+  let file: File;
+  try {
+    const fileHandle = await handle.getFileHandle(fileName);
+    file = await fileHandle.getFile();
+  } catch (error: unknown) {
+    if (isMissingFolderEntry(error)) {
+      await clearMissingReplaySelection(
+        fileName,
+        `${fileName} is no longer in ${folderLabel(handle)}. Choose a listed replay.`
+      );
+      return;
+    }
+    throw error;
+  }
+
+  await startPrecompute(file);
+}
+
+async function clearMissingReplaySelection(fileName: string, message: string): Promise<void> {
+  const handle = replayFolderHandle;
+  rememberedReplayFileName = "";
+  if (handle) {
+    await writeReplayFolderSelection({ directoryHandle: handle, selectedFileName: null });
+    replayFolderFileNames = await listReplayFolderFileNames(handle);
+  }
+  renderReplayOptions();
+  syncControls();
+  uploadPanel.open = true;
+  statusText.textContent = message;
+  viewerEmpty.textContent = "Choose a valid replay from the connected folder.";
+  if (replaySelect.value === fileName) {
+    replaySelect.value = "";
+  }
+}
+
+async function listReplayFolderFileNames(handle: FileSystemDirectoryHandle): Promise<readonly string[]> {
+  const names: string[] = [];
+  try {
+    for await (const [name, childHandle] of handle.entries()) {
+      if (childHandle.kind === "file" && isSupportedReplayFileName(name)) {
+        names.push(name);
+      }
+    }
+  } catch (error: unknown) {
+    if (isPermissionFailure(error)) {
+      replayFolderPermission = "prompt";
+      renderReplayOptions();
+      syncControls();
+      throw new Error(`Reconnect ${folderLabel(handle)} before listing replay files.`);
+    }
+    throw error;
+  }
+  return names.sort(compareReplayFileNames);
+}
+
+function renderReplayOptions(): void {
+  replaySelect.replaceChildren();
+  if (!folderPickerSupported || !replayFolderHandle) {
+    replaySelect.append(optionElement("", "Choose a replay folder first", true));
+    replaySelect.value = "";
+    return;
+  }
+  if (replayFolderPermission !== "granted") {
+    replaySelect.append(optionElement("", "Reconnect replay folder to list replays", true));
+    replaySelect.value = "";
+    return;
+  }
+  if (replayFolderFileNames.length === 0) {
+    replaySelect.append(optionElement("", "No .aoe2record files in this folder", true));
+    replaySelect.value = "";
+    return;
+  }
+
+  replaySelect.append(optionElement("", "Choose replay", true));
+  for (const fileName of replayFolderFileNames) {
+    replaySelect.append(optionElement(fileName, fileName, false));
+  }
+  replaySelect.value = replayFolderFileNames.includes(rememberedReplayFileName) ? rememberedReplayFileName : "";
+}
+
+function optionElement(value: string, label: string, disabled: boolean): HTMLOptionElement {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  option.disabled = disabled;
+  return option;
+}
+
+async function queryReplayFolderPermission(handle: FileSystemDirectoryHandle): Promise<PermissionState> {
+  if (typeof handle.queryPermission !== "function") {
+    return "granted";
+  }
+  return handle.queryPermission({ mode: "read" });
+}
+
+async function requestReplayFolderPermission(handle: FileSystemDirectoryHandle): Promise<PermissionState> {
+  if (typeof handle.requestPermission !== "function") {
+    return "granted";
+  }
+  return handle.requestPermission({ mode: "read" });
+}
+
+function assertReplayBasename(fileName: string): void {
+  if (!fileName || /[\\/]/.test(fileName) || !isSupportedReplayFileName(fileName)) {
+    throw new Error("Choose a listed .aoe2record file from the connected folder.");
+  }
+}
+
+function isSupportedReplayFileName(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith(".aoe2record");
+}
+
+function compareReplayFileNames(left: string, right: string): number {
+  return replayNameCollator.compare(left, right) || left.localeCompare(right, "en-US");
+}
+
+function folderLabel(handle: FileSystemDirectoryHandle): string {
+  return handle.name ? `folder "${handle.name}"` : "the replay folder";
+}
+
+function isPickerCancellation(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isMissingFolderEntry(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === "NotFoundError" || error.name === "TypeMismatchError");
+}
+
+function isPermissionFailure(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "SecurityError");
 }
 
 async function loadDefaultRecording(): Promise<void> {
   resetSelection("Loading the sanitized Glade replay.");
+  replaySelect.value = "";
   viewerEmpty.textContent = "The sanitized Glade recording is loading.";
   setBusy(true);
   const requestId = `dataview-default-${Date.now()}-${++requestOrdinal}`;
@@ -419,6 +779,33 @@ function handleViewerShellScrollRequest(event: MessageEvent<DataviewViewerShellS
   sendViewerShellScrollState();
 }
 
+function handleViewerRenderState(event: MessageEvent<DataviewViewerRenderStateMessage>): void {
+  const identity = activeViewerIdentity;
+  const iframe = viewerIframe;
+  const iframeWindow = iframe?.contentWindow;
+  const message = event.data;
+  if (
+    !identity ||
+    !iframeWindow ||
+    event.source !== iframeWindow ||
+    !message ||
+    message.type !== DATAVIEW_VIEWER_RENDER_STATE_TYPE ||
+    message.requestId !== identity.requestId ||
+    message.nonce !== identity.nonce ||
+    !Number.isFinite(message.seconds) ||
+    !Number.isFinite(message.durationSeconds)
+  ) {
+    return;
+  }
+
+  const finalDelta = Math.abs(message.seconds - message.durationSeconds);
+  iframe.dataset.initialTimelineSeconds = String(message.seconds);
+  iframe.dataset.initialTimelineDurationSeconds = String(message.durationSeconds);
+  iframe.dataset.initialTimelinePlaying = String(message.playing);
+  iframe.dataset.initialTimelineState =
+    finalDelta < 0.001 && !message.playing ? "paused-final" : "unexpected";
+}
+
 function sendViewerShellScrollState(): void {
   const identity = activeViewerIdentity;
   const iframeWindow = viewerIframe?.contentWindow;
@@ -527,23 +914,69 @@ function showIdlePrompt(): void {
   setBusy(false);
   progressBar.hidden = true;
   progressList.hidden = true;
-  statusText.textContent = "Load the sanitized Glade recording or choose another .aoe2record.";
-  viewerEmpty.textContent = "Load the sanitized Glade recording or choose another .aoe2record.";
+  if (folderPickerSupported) {
+    statusText.textContent = "Choose a replay folder to list .aoe2record files, or load Glade explicitly.";
+    viewerEmpty.textContent = "Choose a replay folder to list .aoe2record files, or load Glade explicitly.";
+    renderReplayOptions();
+    syncControls();
+    return;
+  }
+  statusText.textContent = "Choose a local .aoe2record file, or load Glade explicitly.";
+  viewerEmpty.textContent = "Choose a local .aoe2record file, or load Glade explicitly.";
 }
 
-function setBusy(isBusy: boolean): void {
-  chooseButton.disabled = isBusy;
-  fileInput.disabled = isBusy;
-  cancelButton.disabled = !isBusy;
-  defaultLoadButton.disabled = isBusy;
+function setBusy(nextBusy: boolean): void {
+  isBusy = nextBusy;
+  syncControls();
+}
+
+function syncControls(): void {
+  cancelButton.disabled = controlsBlocked || !isBusy;
+  defaultLoadButton.disabled = controlsBlocked || isBusy;
+
+  if (folderPickerSupported) {
+    fileControl.hidden = true;
+    fileInput.disabled = true;
+    replaySelectControl.hidden = false;
+    chooseButton.textContent = replayFolderHandle ? "Change replay folder" : "Choose replay folder";
+    chooseButton.disabled = controlsBlocked || isBusy;
+    const needsReconnect = Boolean(replayFolderHandle) && replayFolderPermission !== "granted";
+    reconnectButton.hidden = !needsReconnect;
+    reconnectButton.disabled = controlsBlocked || isBusy || !needsReconnect;
+    replaySelect.disabled =
+      controlsBlocked ||
+      isBusy ||
+      !replayFolderHandle ||
+      replayFolderPermission !== "granted" ||
+      replayFolderFileNames.length === 0;
+    return;
+  }
+
+  replaySelectControl.hidden = true;
+  replaySelect.disabled = true;
+  reconnectButton.hidden = true;
+  reconnectButton.disabled = true;
+  fileControl.hidden = false;
+  fileInput.disabled = controlsBlocked || isBusy;
+  chooseButton.textContent = "Choose replay file";
+  chooseButton.disabled = controlsBlocked || isBusy;
 }
 
 function showError(error: unknown): void {
+  showWorkflowError(error, "Preprocessing failed.");
+}
+
+function showWorkflowError(error: unknown, statusMessage: string): void {
   uploadPanel.open = true;
-  cancelActiveWork("Preprocessing failed.");
+  cancelActiveWork(statusMessage);
   const message = error instanceof Error ? error.message : String(error);
   errorText.textContent = message;
   errorText.hidden = false;
+}
+
+function clearError(): void {
+  errorText.hidden = true;
+  errorText.textContent = "";
 }
 
 function supportProblem(): string | undefined {

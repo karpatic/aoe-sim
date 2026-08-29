@@ -631,6 +631,7 @@
 
     const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
     const viewerReadyType = 'aoe-sim.dataview.viewer-ready.v1';
+    const viewerRenderStateType = 'aoe-sim.dataview.viewer-render-state.v1';
     const viewerShellScrollRequestType = 'aoe-sim.dataview.shell-scroll-request.v1';
     const viewerShellScrollStateType = 'aoe-sim.dataview.shell-scroll-state.v1';
     const viewerRequiredOutputNames = Object.freeze(['game.json', 'schemas.json', 'lifetimes.json', 'economy.json', 'resource_estimates.json', 'unit_stats.json', 'gameplay_timeline.json']);
@@ -3257,6 +3258,7 @@
       updateSpeedButton();
       updateMapScaleDiagnostics();
       updateTimeline(duration);
+      postViewerRenderState(Number(timelineSlider.value), duration, playing);
     }
 
     function schemaShape(schema) {
@@ -7863,6 +7865,18 @@
         type: viewerReadyType,
         requestId: viewerHandshake.requestId,
         nonce: viewerHandshake.nonce,
+      }, window.location.origin);
+    }
+
+    function postViewerRenderState(seconds, durationSeconds, playing) {
+      if (!viewerHandshake) return;
+      window.parent.postMessage({
+        type: viewerRenderStateType,
+        requestId: viewerHandshake.requestId,
+        nonce: viewerHandshake.nonce,
+        seconds,
+        durationSeconds,
+        playing,
       }, window.location.origin);
     }
 

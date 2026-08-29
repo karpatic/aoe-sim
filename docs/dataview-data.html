@@ -12,9 +12,17 @@
       main { width: 100%; min-height: 100vh; min-height: 100dvh; }
       h1 { margin: 0 0 .25rem; font-size: 1.45rem; line-height: 1.15; }
       p { margin: .35rem 0; }
-      button, input { min-height: 2.75rem; font: inherit; }
+      button, input, select { min-height: 2.75rem; font: inherit; }
       button { padding: .45rem .8rem; border: 1px solid #333; border-radius: 0; color: #111; background: #eee; cursor: pointer; }
       button:disabled { color: #777; cursor: not-allowed; }
+      select {
+        width: min(28rem, 100%);
+        max-width: 100%;
+        padding: .45rem .6rem;
+        border: 1px solid #333;
+        background: #fff;
+      }
+      select:disabled { color: #777; background: #eee; }
       .shell { display: block; }
       .upload-panel { position: relative; border-bottom: 1px solid #333; background: #f7f7f7; }
       .upload-panel > summary { display: flex; align-items: baseline; gap: .65rem; padding: .65rem 1rem; cursor: pointer; }
@@ -25,8 +33,10 @@
       .upload-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
       .privacy { color: #444; font-size: .92rem; }
       .controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .6rem 0; }
-      .file-control { display: inline-flex; align-items: center; gap: .45rem; }
+      .file-control { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: .45rem; }
       .file-control input { max-width: min(22rem, 100%); }
+      #recording-select-control { flex: 1 1 min(28rem, 100%); }
+      .file-control[hidden], #reconnect-recording-folder[hidden] { display: none; }
       #status { font-weight: 700; }
       #error { margin-top: .5rem; padding: .5rem; border: 1px solid #7f1d1d; color: #7f1d1d; background: #fff7f7; }
       #progress { width: 100%; height: 1rem; }
@@ -51,7 +61,7 @@
       }
     </style>
     <script type="module" crossorigin src="/aoe-sim/assets/limits-BIuC5h1x.js"></script>
-    <script type="module" crossorigin src="/aoe-sim/assets/dataview-DaT02ys3.js"></script>
+    <script type="module" crossorigin src="/aoe-sim/assets/dataview-DErP5ztx.js"></script>
   </head>
   <body data-viewer-page="./dataview-data-viewer.html" data-viewer-title="Generated AoE II schemas and parsed data">
     <main class="shell">
@@ -64,7 +74,10 @@
           <div class="upload-header">
             <div>
               <h1 id="page-heading">Schemas and complete parsed data</h1>
-              <p class="privacy">Load the sanitized Glade replay when you want it. Other replay bytes stay in this browser worker.</p>
+              <p id="privacy-copy" class="privacy">
+                Choose a replay folder to list direct child .aoe2record files. The folder handle and selected filename
+                are stored only in this browser's IndexedDB; replay bytes stay in this browser worker.
+              </p>
             </div>
             <nav aria-label="Related views">
               <a class="back-link" href="./dataview.html">Dataview</a>
@@ -74,16 +87,23 @@
           </div>
 
           <div class="controls">
-            <label class="file-control">
+            <button id="choose-recording" type="button">Choose replay folder</button>
+            <button id="reconnect-recording-folder" type="button" hidden>Reconnect replay folder</button>
+            <label id="recording-select-control" class="file-control">
+              <span>Replay</span>
+              <select id="recording-select" aria-describedby="status" disabled>
+                <option value="">Choose a replay folder first</option>
+              </select>
+            </label>
+            <label id="recording-file-control" class="file-control" hidden>
               <span>.aoe2record</span>
               <input id="recording-file" type="file" accept=".aoe2record,application/octet-stream" />
             </label>
-            <button id="choose-recording" type="button">Choose replay</button>
             <button id="cancel-recording" type="button" disabled>Cancel</button>
             <button id="clear-recording" type="button">Load Default Glade</button>
           </div>
 
-          <p id="status" aria-live="polite">Load the sanitized Glade recording or choose another .aoe2record.</p>
+          <p id="status" aria-live="polite">Choose a replay folder to list .aoe2record files, or load Glade explicitly.</p>
           <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress" hidden></progress>
           <ul id="progress-list" aria-label="Preprocessing stages" hidden></ul>
           <p id="error" role="alert" hidden></p>
@@ -92,7 +112,7 @@
       </details>
 
       <section class="viewer-panel" aria-label="Generated schemas and parsed data">
-        <p id="viewer-empty">Load the sanitized Glade recording or choose another .aoe2record.</p>
+        <p id="viewer-empty">Choose a replay folder to list .aoe2record files, or load Glade explicitly.</p>
         <div id="viewer-host"></div>
       </section>
     </main>
