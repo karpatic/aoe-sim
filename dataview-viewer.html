@@ -27,9 +27,9 @@
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
     #detail-column { display: grid; align-content: start; gap: .5rem; min-width: 0; min-height: 0; height: 100dvh; margin: 0; padding: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     #timeline-section, #timeline-players, #map-legend-details, #chat-section, #viewer-notice { width: 100%; max-width: none; }
-    #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
+    #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; overscroll-behavior: contain; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
-    #map-stack.is-panning { cursor: grabbing; }
+    #map-stack.is-panning, #map-stack.is-pinching { cursor: grabbing; }
     #map-viewport { position: absolute; inset: 0; transform: translate(var(--map-pan-x), var(--map-pan-y)) scale(var(--map-zoom)); transform-origin: 0 0; will-change: transform; }
     #map-canvas { position: relative; z-index: 0; display: block; width: 100%; height: 100%; border: 1px solid; object-fit: contain; image-rendering: pixelated; }
     #resource-canvas, #building-canvas, #gameplay-canvas, #sprite-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
@@ -66,7 +66,6 @@
     #timeline-section { position: fixed; z-index: 20; right: auto; bottom: 0; left: 0; width: var(--map-column-width); min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border-top: 1px solid #333; border-right: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
-    #timeline-map-size { flex: 0 0 auto; padding-inline: .65rem; white-space: nowrap; }
     #timeline-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15.5rem, 100%), 1fr)); align-items: start; gap: .35rem; margin-bottom: .35rem; }
     .legend-category-icon { display: inline-block; flex: 0 0 auto; width: 1rem; height: 1rem; margin-right: .25rem; image-rendering: pixelated; vertical-align: text-bottom; }
     .panel-details { width: 100%; margin: 0; border: 1px solid; }
@@ -174,7 +173,6 @@
         <div id="timeline-controls">
           <button id="timeline-play" type="button">Play</button>
           <button id="timeline-speed" type="button" aria-label="Playback speed: 30×. Activate for 4×.">30×</button>
-          <button id="timeline-map-size" type="button" aria-label="Map zoom: fit. Activate for 2×.">Zoom</button>
           <input id="timeline-slider" type="range" min="0" value="0" step="any" aria-label="Match time">
           <output id="timeline-time" for="timeline-slider"></output>
         </div>
@@ -198,7 +196,6 @@
     const timelineSection = document.querySelector('#timeline-section');
     const timelinePlay = document.querySelector('#timeline-play');
     const timelineSpeed = document.querySelector('#timeline-speed');
-    const timelineMapSize = document.querySelector('#timeline-map-size');
     const timelineSlider = document.querySelector('#timeline-slider');
     const timelineTime = document.querySelector('#timeline-time');
     const timelinePlayers = document.querySelector('#timeline-players');
@@ -216,17 +213,32 @@
 
     const mapChatOverlay = document.querySelector('#map-chat-overlay');
     const mapPanThresholdPx = 6;
+    const mapMinScale = 1;
+    const mapMaxScale = 3;
+    const mapWheelZoomIntensity = .0012;
+    const mapZoomResetEpsilon = .001;
     const mapViewState = {
       scale: 1,
       panX: 0,
       panY: 0,
       pointer: null,
+      touchPointers: new Map(),
+      pinch: null,
     };
     let timelineResizeObserver = null;
     let mapViewResizeObserver = null;
+    let mapScaleDiagnosticsFrame = 0;
 
     function clampNumber(value, minimum, maximum) {
       return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    function clampedMapScale(scale) {
+      const numeric = Number(scale);
+      if (!Number.isFinite(numeric)) return mapMinScale;
+      const clamped = clampNumber(numeric, mapMinScale, mapMaxScale);
+      if (Math.abs(clamped - mapMinScale) < mapZoomResetEpsilon) return mapMinScale;
+      return Math.round(clamped * 10000) / 10000;
     }
 
     function clampedMapPan(panX, panY, scale = mapViewState.scale) {
@@ -234,12 +246,13 @@
       const width = Math.max(1, bounds.width);
       const height = Math.max(1, bounds.height);
       return {
-        x: scale <= 1 ? 0 : clampNumber(panX, width - width * scale, 0),
-        y: scale <= 1 ? 0 : clampNumber(panY, height - height * scale, 0),
+        x: scale <= mapMinScale ? 0 : clampNumber(panX, width - width * scale, 0),
+        y: scale <= mapMinScale ? 0 : clampNumber(panY, height - height * scale, 0),
       };
     }
 
     function applyMapViewState() {
+      mapViewState.scale = clampedMapScale(mapViewState.scale);
       const pan = clampedMapPan(mapViewState.panX, mapViewState.panY);
       mapViewState.panX = pan.x;
       mapViewState.panY = pan.y;
@@ -247,7 +260,7 @@
       document.documentElement.style.setProperty('--map-pan-x', `${pan.x}px`);
       document.documentElement.style.setProperty('--map-pan-y', `${pan.y}px`);
       mapViewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${mapViewState.scale})`;
-      mapStack.classList.toggle('is-zoomed', mapViewState.scale > 1);
+      mapStack.classList.toggle('is-zoomed', mapViewState.scale > mapMinScale);
       mapStack.dataset.mapZoom = String(mapViewState.scale);
       mapStack.dataset.mapPan = `${pan.x.toFixed(1)},${pan.y.toFixed(1)}`;
       mapStack.dataset.mapPanThresholdPx = String(mapPanThresholdPx);
@@ -259,23 +272,115 @@
       });
     }
 
-    function setMapZoom(scale) {
-      const nextScale = Number(scale) || 1;
+    function mapStackPointFromClient(clientX, clientY) {
       const bounds = mapStack.getBoundingClientRect();
-      const oldScale = mapViewState.scale || 1;
-      if (nextScale <= 1) {
-        mapViewState.scale = 1;
+      return {
+        x: Number(clientX) - bounds.left,
+        y: Number(clientY) - bounds.top,
+      };
+    }
+
+    function mapStackCenterPoint() {
+      const bounds = mapStack.getBoundingClientRect();
+      return {
+        x: bounds.width / 2,
+        y: bounds.height / 2,
+      };
+    }
+
+    function mapPointForViewportPoint(point) {
+      const scale = mapViewState.scale || mapMinScale;
+      return {
+        x: (point.x - mapViewState.panX) / scale,
+        y: (point.y - mapViewState.panY) / scale,
+      };
+    }
+
+    function normalizedMapAnchor(point) {
+      const center = mapStackCenterPoint();
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      return {
+        x: Number.isFinite(x) ? x : center.x,
+        y: Number.isFinite(y) ? y : center.y,
+      };
+    }
+
+    function normalizedMapPoint(point, fallbackAnchor) {
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      return Number.isFinite(x) && Number.isFinite(y)
+        ? { x, y }
+        : mapPointForViewportPoint(fallbackAnchor);
+    }
+
+    function formattedMapScale(scale) {
+      return scale === mapMinScale ? 'fit' : `${String(scale).replace(/\.?0+$/, '')}x`;
+    }
+
+    function updateMapScaleDiagnostics(scale = mapViewState.scale, widthFormula = '') {
+      const boundedScale = clampedMapScale(scale);
+      const widthText = widthFormula || `${formattedMapScale(boundedScale)} native transform`;
+      const elements = [
+        timelinePlayers,
+        timelineSection,
+        mapStack,
+        mapViewport,
+        mapLegendDetails,
+        mapLegend,
+        mapCanvas,
+        resourceCanvas,
+        buildingCanvas,
+        gameplayCanvas,
+        spriteOverlay,
+      ];
+      elements.forEach((element) => {
+        if (!element) return;
+        element.dataset.mapScale = String(boundedScale);
+        element.dataset.mapScaleWidth = widthText;
+      });
+      if (mapScaleDiagnosticsFrame) cancelAnimationFrame(mapScaleDiagnosticsFrame);
+      mapScaleDiagnosticsFrame = requestAnimationFrame(() => {
+        mapScaleDiagnosticsFrame = 0;
+        const renderedWidth = `${Math.round(mapStack.getBoundingClientRect().width)}px`;
+        [
+          timelinePlayers,
+          timelineSection,
+          mapStack,
+          mapViewport,
+          mapLegendDetails,
+          mapLegend,
+        ].forEach((element) => {
+          if (!element) return;
+          element.dataset.mapRenderedWidth = renderedWidth;
+        });
+        [mapCanvas, resourceCanvas, buildingCanvas, gameplayCanvas, spriteOverlay].forEach((element) => {
+          if (!element) return;
+          element.dataset.mapRenderedWidth = `${Math.round(element.getBoundingClientRect().width)}px`;
+        });
+      });
+    }
+
+    function setMapZoom(scale, anchor = mapStackCenterPoint(), mapPoint = null, input = 'direct') {
+      const nextScale = clampedMapScale(scale);
+      const anchorPoint = normalizedMapAnchor(anchor);
+      const oldScale = mapViewState.scale || mapMinScale;
+      const lockedMapPoint = normalizedMapPoint(mapPoint, anchorPoint);
+      mapStack.dataset.mapZoomInput = input;
+      if (nextScale <= mapMinScale) {
+        mapViewState.scale = mapMinScale;
         mapViewState.panX = 0;
         mapViewState.panY = 0;
         applyMapViewState();
-        return;
+        updateMapScaleDiagnostics(nextScale);
+        return nextScale !== oldScale;
       }
-      const centerX = (bounds.width / 2 - mapViewState.panX) / oldScale;
-      const centerY = (bounds.height / 2 - mapViewState.panY) / oldScale;
       mapViewState.scale = nextScale;
-      mapViewState.panX = bounds.width / 2 - centerX * nextScale;
-      mapViewState.panY = bounds.height / 2 - centerY * nextScale;
+      mapViewState.panX = anchorPoint.x - lockedMapPoint.x * nextScale;
+      mapViewState.panY = anchorPoint.y - lockedMapPoint.y * nextScale;
       applyMapViewState();
+      updateMapScaleDiagnostics(nextScale);
+      return nextScale !== oldScale;
     }
 
     function setMapPan(panX, panY) {
@@ -285,10 +390,12 @@
       applyMapViewState();
     }
 
-    function clearMapPointerState(state = 'idle') {
+    function clearMapPointerState(state = 'idle', pinchState = '') {
       mapViewState.pointer = null;
-      mapStack.classList.remove('is-panning');
+      mapViewState.pinch = null;
+      mapStack.classList.remove('is-panning', 'is-pinching');
       mapStack.dataset.mapPanState = state;
+      if (pinchState) mapStack.dataset.mapPinchState = pinchState;
     }
 
     function applyTimelineLayoutInsets() {
@@ -315,25 +422,140 @@
       window.addEventListener('resize', applyTimelineLayoutInsets);
     }
 
-    function setupMapPanInteractions() {
+    function mapPointerSnapshot(event) {
+      return {
+        id: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        type: event.pointerType || 'unknown',
+      };
+    }
+
+    function beginMapPan(pointer) {
+      if (mapViewState.scale <= mapMinScale) return false;
+      mapViewState.pointer = {
+        id: pointer.id,
+        startX: pointer.clientX,
+        startY: pointer.clientY,
+        panX: mapViewState.panX,
+        panY: mapViewState.panY,
+        moved: false,
+        type: pointer.type || 'unknown',
+      };
+      mapStack.dataset.mapPanState = 'pending';
+      mapStack.dataset.mapPanPointerType = mapViewState.pointer.type;
+      return true;
+    }
+
+    function mapTouchPointerPair() {
+      return [...mapViewState.touchPointers.values()].slice(0, 2);
+    }
+
+    function mapTouchMidpoint(first, second) {
+      return mapStackPointFromClient(
+        (first.clientX + second.clientX) / 2,
+        (first.clientY + second.clientY) / 2,
+      );
+    }
+
+    function mapTouchDistance(first, second) {
+      return Math.max(1, Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY));
+    }
+
+    function startMapPinch() {
+      const [first, second] = mapTouchPointerPair();
+      if (!first || !second) return false;
+      const midpoint = mapTouchMidpoint(first, second);
+      mapViewState.pointer = null;
+      mapStack.classList.remove('is-panning');
+      mapViewState.pinch = {
+        firstId: first.id,
+        secondId: second.id,
+        startDistance: mapTouchDistance(first, second),
+        startScale: mapViewState.scale,
+        mapPoint: mapPointForViewportPoint(midpoint),
+      };
+      mapStack.classList.add('is-pinching');
+      mapStack.dataset.mapPanState = 'pinching';
+      mapStack.dataset.mapPinchState = 'active';
+      mapStack.dataset.mapPanPointerType = 'touch';
+      return true;
+    }
+
+    function updateMapPinch() {
+      const pinch = mapViewState.pinch;
+      if (!pinch) return false;
+      const first = mapViewState.touchPointers.get(pinch.firstId);
+      const second = mapViewState.touchPointers.get(pinch.secondId);
+      if (!first || !second) return false;
+      const distance = mapTouchDistance(first, second);
+      const midpoint = mapTouchMidpoint(first, second);
+      const nextScale = pinch.startScale * distance / pinch.startDistance;
+      setMapZoom(nextScale, midpoint, pinch.mapPoint, 'pinch');
+      mapStack.dataset.mapPinchDistance = distance.toFixed(1);
+      return true;
+    }
+
+    function settleMapTouchPointers(state) {
+      if (mapViewState.touchPointers.size >= 2) {
+        startMapPinch();
+        return;
+      }
+      mapStack.classList.remove('is-pinching');
+      mapViewState.pinch = null;
+      const [remaining] = mapTouchPointerPair();
+      if (remaining && beginMapPan(remaining)) {
+        mapStack.dataset.mapPinchState = 'settled';
+        return;
+      }
+      clearMapPointerState(state, state);
+    }
+
+    function normalizedWheelDeltaY(event) {
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * window.innerHeight;
+      return event.deltaY;
+    }
+
+    function setupMapInteractions() {
       mapStack.dataset.mapPanState = 'idle';
-      mapStack.dataset.mapPanInput = 'pointer-events';
+      mapStack.dataset.mapPanInput = 'pointer-and-wheel-events';
+      mapStack.dataset.mapPinchState = 'idle';
+      mapStack.dataset.mapZoomMin = String(mapMinScale);
+      mapStack.dataset.mapZoomMax = String(mapMaxScale);
+      mapStack.addEventListener('wheel', (event) => {
+        const deltaY = normalizedWheelDeltaY(event);
+        if (!Number.isFinite(deltaY) || deltaY === 0) return;
+        const anchor = mapStackPointFromClient(event.clientX, event.clientY);
+        const nextScale = mapViewState.scale * Math.exp(-deltaY * mapWheelZoomIntensity);
+        setMapZoom(nextScale, anchor, null, 'wheel');
+        mapStack.dataset.mapWheelDelta = deltaY.toFixed(2);
+        event.preventDefault();
+      }, { passive: false });
       mapStack.addEventListener('pointerdown', (event) => {
-        if (event.button !== 0 || !event.isPrimary || mapViewState.scale <= 1) return;
-        mapViewState.pointer = {
-          id: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          panX: mapViewState.panX,
-          panY: mapViewState.panY,
-          moved: false,
-          type: event.pointerType || 'unknown',
-        };
-        mapStack.dataset.mapPanState = 'pending';
-        mapStack.dataset.mapPanPointerType = mapViewState.pointer.type;
+        if (event.pointerType === 'touch') {
+          mapViewState.touchPointers.set(event.pointerId, mapPointerSnapshot(event));
+          mapStack.setPointerCapture(event.pointerId);
+          if (mapViewState.touchPointers.size >= 2) {
+            startMapPinch();
+            event.preventDefault();
+            return;
+          }
+          beginMapPan(mapPointerSnapshot(event));
+          return;
+        }
+        if (event.button !== 0 || !event.isPrimary || !beginMapPan(mapPointerSnapshot(event))) return;
         mapStack.setPointerCapture(event.pointerId);
       });
       mapStack.addEventListener('pointermove', (event) => {
+        if (event.pointerType === 'touch' && mapViewState.touchPointers.has(event.pointerId)) {
+          mapViewState.touchPointers.set(event.pointerId, mapPointerSnapshot(event));
+          if (mapViewState.touchPointers.size >= 2) {
+            if (!mapViewState.pinch) startMapPinch();
+            if (updateMapPinch()) event.preventDefault();
+            return;
+          }
+        }
         const pointer = mapViewState.pointer;
         if (!pointer || pointer.id !== event.pointerId) return;
         const deltaX = event.clientX - pointer.startX;
@@ -346,27 +568,65 @@
         event.preventDefault();
       });
       mapStack.addEventListener('pointerup', (event) => {
+        const wasPinching = Boolean(mapViewState.pinch);
+        if (event.pointerType === 'touch') {
+          mapViewState.touchPointers.delete(event.pointerId);
+        }
+        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
+        if (wasPinching) {
+          settleMapTouchPointers('pinched');
+          return;
+        }
         const pointer = mapViewState.pointer;
         if (!pointer || pointer.id !== event.pointerId) return;
-        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
-        clearMapPointerState(pointer.moved ? 'panned' : 'idle');
+        const finishedPinchState = mapStack.dataset.mapPinchState === 'settled' ? 'pinched' : '';
+        clearMapPointerState(pointer.moved ? 'panned' : 'idle', finishedPinchState);
       });
       mapStack.addEventListener('pointercancel', (event) => {
+        const wasPinching = Boolean(mapViewState.pinch);
+        if (event.pointerType === 'touch') {
+          mapViewState.touchPointers.delete(event.pointerId);
+        }
+        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
+        if (wasPinching) {
+          settleMapTouchPointers('cancelled');
+          return;
+        }
         const pointer = mapViewState.pointer;
         if (!pointer || pointer.id !== event.pointerId) return;
-        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
         clearMapPointerState('cancelled');
       });
+      mapStack.addEventListener('touchend', (event) => {
+        if (event.touches.length > 0) return;
+        const finishingPinch = ['active', 'settled'].includes(mapStack.dataset.mapPinchState ?? '');
+        if (!finishingPinch && mapViewState.pointer?.type !== 'touch' && !mapViewState.touchPointers.size) return;
+        mapViewState.touchPointers.clear();
+        clearMapPointerState('idle', finishingPinch ? 'pinched' : '');
+      }, { passive: true });
+      mapStack.addEventListener('touchcancel', (event) => {
+        if (event.touches.length > 0) return;
+        const cancellingPinch = ['active', 'settled'].includes(mapStack.dataset.mapPinchState ?? '');
+        if (!cancellingPinch && mapViewState.pointer?.type !== 'touch' && !mapViewState.touchPointers.size) return;
+        mapViewState.touchPointers.clear();
+        clearMapPointerState('cancelled', cancellingPinch ? 'cancelled' : '');
+      }, { passive: true });
     }
 
-    setupMapPanInteractions();
+    setupMapInteractions();
     applyMapViewState();
+    updateMapScaleDiagnostics();
     setupTimelineLayoutInsets();
     if (typeof ResizeObserver !== 'undefined') {
-      mapViewResizeObserver = new ResizeObserver(() => applyMapViewState());
+      mapViewResizeObserver = new ResizeObserver(() => {
+        applyMapViewState();
+        updateMapScaleDiagnostics();
+      });
       mapViewResizeObserver.observe(mapStack);
     } else {
-      window.addEventListener('resize', applyMapViewState);
+      window.addEventListener('resize', () => {
+        applyMapViewState();
+        updateMapScaleDiagnostics();
+      });
     }
 
     const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
@@ -2850,67 +3110,12 @@
       let lastFrame = null;
       const playbackSpeeds = [4, 10, 30];
       let speedIndex = playbackSpeeds.indexOf(30);
-      const mapScales = [1, 2, 3];
-      let mapScaleIndex = 0;
       function updateSpeedButton() {
         const speed = playbackSpeeds[speedIndex];
         const nextSpeed = playbackSpeeds[(speedIndex + 1) % playbackSpeeds.length];
         timelineSpeed.textContent = `${speed}×`;
         timelineSpeed.dataset.speed = String(speed);
         timelineSpeed.setAttribute('aria-label', `Playback speed: ${speed}×. Activate for ${nextSpeed}×.`);
-      }
-      function updateMapScaleDiagnostics(scale, widthFormula) {
-        const elements = [
-          timelinePlayers,
-          timelineSection,
-          mapStack,
-          mapViewport,
-          mapLegendDetails,
-          mapLegend,
-          mapCanvas,
-          resourceCanvas,
-          buildingCanvas,
-          gameplayCanvas,
-          spriteOverlay,
-        ];
-        elements.forEach((element) => {
-          if (!element) return;
-          element.dataset.mapScale = String(scale);
-          element.dataset.mapScaleWidth = widthFormula;
-        });
-        requestAnimationFrame(() => {
-          const renderedWidth = `${Math.round(mapStack.getBoundingClientRect().width)}px`;
-          [
-            timelinePlayers,
-            timelineSection,
-            mapStack,
-            mapViewport,
-            mapLegendDetails,
-            mapLegend,
-          ].forEach((element) => {
-            if (!element) return;
-            element.dataset.mapRenderedWidth = renderedWidth;
-          });
-          [mapCanvas, resourceCanvas, buildingCanvas, gameplayCanvas, spriteOverlay].forEach((element) => {
-            if (!element) return;
-            element.dataset.mapRenderedWidth = `${Math.round(element.getBoundingClientRect().width)}px`;
-          });
-        });
-      }
-      function updateMapSizeButton() {
-        const scale = mapScales[mapScaleIndex];
-        const nextScale = mapScales[(mapScaleIndex + 1) % mapScales.length];
-        const widthFormula = `${scale}x transform`;
-        setMapZoom(scale);
-        timelineMapSize.textContent = 'Zoom';
-        timelineMapSize.dataset.mapScale = String(scale);
-        timelineMapSize.dataset.nextMapScale = String(nextScale);
-        timelineMapSize.setAttribute(
-          'aria-label',
-          `Map zoom: ${scale === 1 ? 'fit' : `${scale}x`}. Activate for ${nextScale === 1 ? 'fit' : `${nextScale}x`}.`,
-        );
-        timelineMapSize.title = `Map zoom ${scale === 1 ? 'fit' : `${scale}x`}`;
-        updateMapScaleDiagnostics(scale, widthFormula);
       }
       function setPlaying(value) {
         playing = value;
@@ -2937,13 +3142,8 @@
         lastFrame = null;
         updateSpeedButton();
       });
-      timelineMapSize.addEventListener('click', () => {
-        mapScaleIndex = (mapScaleIndex + 1) % mapScales.length;
-        updateMapSizeButton();
-        requestAnimationFrame(() => updateTimeline(Number(timelineSlider.value || 0)));
-      });
       updateSpeedButton();
-      updateMapSizeButton();
+      updateMapScaleDiagnostics();
       updateTimeline(0);
     }
 
