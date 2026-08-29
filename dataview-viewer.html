@@ -2434,6 +2434,38 @@
         return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
       }
 
+      function gameplayUnitPositionHorizonSeconds(unit) {
+        const explicit = Number(unit.position_horizon_seconds);
+        if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+        return unit.worker || unit.category === 'villagers' ? 600 : 360;
+      }
+
+      function gameplayUnitRetiredPositionBetween(unit, fromExclusive, toInclusive) {
+        return (unit.position_retirements ?? [])
+          .some((row) => {
+            const time = Number(row.time);
+            return Number.isFinite(time) && time > fromExclusive + .001 && time <= toInclusive + .001;
+          });
+      }
+
+      function gameplayUnitPositionKnownAt(unit, seconds) {
+        const evidenceTimes = [];
+        const birthTime = Number(unit.birth_time);
+        const visibleUntil = Number(unit.visible_until ?? Infinity);
+        if (!Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) return false;
+        if (gameplayUnitPoint(unit.birth_position)) evidenceTimes.push(birthTime);
+        (unit.motion_segments ?? []).forEach((segment) => {
+          const time = Number(segment.to_time);
+          if (gameplayUnitPoint(segment.to) && Number.isFinite(time) && time <= seconds + .001) {
+            evidenceTimes.push(time);
+          }
+        });
+        if (!evidenceTimes.length) return false;
+        const latestEvidenceTime = Math.max(...evidenceTimes);
+        if (seconds - latestEvidenceTime > gameplayUnitPositionHorizonSeconds(unit) + .001) return false;
+        return !gameplayUnitRetiredPositionBetween(unit, latestEvidenceTime, seconds);
+      }
+
       function sidePanelUnitPositionInventory(player, seconds, producedTotal, queuedTotal, currentMapTotal) {
         const sidePanelAggregate = producedTotal + queuedTotal;
         if (!gameplayUnits.length) {
@@ -2454,7 +2486,7 @@
           const visibleUntil = Number(unit.visible_until ?? Infinity);
           return Number.isFinite(birthTime) && birthTime <= seconds && seconds <= visibleUntil;
         });
-        const activePositionKnown = activeUnits.filter((unit) => gameplayUnitPoint(unit.birth_position)).length;
+        const activePositionKnown = activeUnits.filter((unit) => gameplayUnitPositionKnownAt(unit, seconds)).length;
         const activePositionUnknown = activeUnits.length - activePositionKnown;
         const lifecycleFiltered = playerUnits.filter((unit) => {
           const birthTime = Number(unit.birth_time);
@@ -3034,6 +3066,7 @@
             currentMapTotal,
           );
           const unitPositionInventoryText = unitRemainderClassificationText(unitPositionInventory);
+          const unitCompletionsMethodology = economy.methodology?.unit_completions ?? '';
           state.unitsSummary.textContent = 'Units';
           state.unitsSummary.title = unitSummaryAccessibleDescription(
             producedTotal,
@@ -3063,8 +3096,8 @@
             visibleUnits,
             state.playerUnitStats,
             statSnapshot,
-            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count with credible in-bounds positions from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
-            economy.methodology.unit_completions,
+            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count with credible in-bounds positions from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${unitCompletionsMethodology}`,
+            unitCompletionsMethodology,
             state.unitSpriteImages,
           );
           state.unitsValue.dataset.hudCurrentMapTotal = String(currentMapTotal);
@@ -5733,11 +5766,33 @@
         return unit.birth_evidence_class ?? 'unclassified';
       }
 
+      function unitTimelinePositionHorizonSeconds(unit) {
+        const explicit = Number(unit.position_horizon_seconds);
+        if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+        return unit.worker || unit.category === 'villagers' ? 600 : 360;
+      }
+
+      function unitTimelineFirstRetirementBetween(unit, fromExclusive, toInclusive) {
+        return (unit.position_retirements ?? [])
+          .map((row) => ({ ...row, time: Number(row.time) }))
+          .filter((row) =>
+            Number.isFinite(row.time)
+            && row.time > fromExclusive + .001
+            && row.time <= toInclusive + .001)
+          .sort((a, b) => a.time - b.time || String(a.kind).localeCompare(String(b.kind)))[0] ?? null;
+      }
+
+      function unitTimelinePositionFreshAt(unit, evidenceTime, seconds) {
+        if (!Number.isFinite(evidenceTime) || !Number.isFinite(seconds)) return false;
+        if (seconds - evidenceTime > unitTimelinePositionHorizonSeconds(unit) + .001) return false;
+        return !unitTimelineFirstRetirementBetween(unit, evidenceTime, seconds);
+      }
+
       function unitTimelineInterpolationState(unit, seconds) {
         const birthTime = Number(unit.birth_time);
         const visibleUntil = Number(unit.visible_until ?? Infinity);
         const birthPosition = timelinePoint(unit.birth_position);
-        if (!birthPosition || !Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) {
+        if (!Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) {
           return null;
         }
         let current = birthPosition;
@@ -5753,7 +5808,9 @@
         let timeBound = 'birth';
         let distanceTiles = 0;
         let travelTimeSeconds = 0;
-        for (const segment of unit.motion_segments ?? []) {
+        let latestPositionEvidenceTime = birthPosition ? birthTime : null;
+        for (const segment of [...unit.motion_segments ?? []]
+          .sort((a, b) => Number(a.to_time) - Number(b.to_time) || Number(a.from_time) - Number(b.from_time))) {
           const from = timelinePoint(segment.from);
           const to = timelinePoint(segment.to);
           const rawFromTime = Number(segment.from_time);
@@ -5768,11 +5825,14 @@
           const segmentTimeBound = segment.time_bound ?? (segmentDuration > .001 ? 'replay-timestamp' : 'instant');
           const segmentDistanceTiles = Number(segment.distance_tiles ?? Math.hypot(to.x - from.x, to.y - from.y));
           const segmentTravelTimeSeconds = Number(segment.travel_time_seconds ?? segmentDuration);
-          if (seconds < segmentFromTime) {
-            current = from;
+          if (!current || latestPositionEvidenceTime === null) {
+            if (seconds + .001 < segmentToTime) return null;
+            current = to;
             destination = to;
-            status = 'waiting-for-interpolation';
-            progress = 0;
+            status = segmentKind === 'instant-evidence-update'
+              ? 'instant-evidence-update'
+              : 'arrived-at-evidence-time';
+            progress = 1;
             segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
             fromPosition = from;
             toPosition = to;
@@ -5782,9 +5842,34 @@
             timeBound = segmentTimeBound;
             distanceTiles = Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
             travelTimeSeconds = Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
+            latestPositionEvidenceTime = segmentToTime;
+            continue;
+          }
+          if (seconds < segmentFromTime) {
+            if (!unitTimelinePositionFreshAt(unit, latestPositionEvidenceTime, seconds)) return null;
+            const awaitingInstantUpdate = segmentDuration <= .001 || segmentKind === 'instant-evidence-update';
+            destination = awaitingInstantUpdate ? current : to;
+            status = awaitingInstantUpdate ? status : 'waiting-for-interpolation';
+            progress = awaitingInstantUpdate ? progress : 0;
+            segmentEvidence = awaitingInstantUpdate
+              ? segmentEvidence
+              : segment.interpolation_evidence_class ?? segmentEvidence;
+            fromPosition = awaitingInstantUpdate ? current : from;
+            toPosition = awaitingInstantUpdate ? current : to;
+            fromTime = awaitingInstantUpdate ? latestPositionEvidenceTime : segmentFromTime;
+            toTime = awaitingInstantUpdate ? latestPositionEvidenceTime : segmentToTime;
+            interpolationKind = awaitingInstantUpdate ? interpolationKind : segmentKind;
+            timeBound = awaitingInstantUpdate ? timeBound : segmentTimeBound;
+            distanceTiles = awaitingInstantUpdate
+              ? distanceTiles
+              : Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
+            travelTimeSeconds = awaitingInstantUpdate
+              ? travelTimeSeconds
+              : Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
             break;
           }
           if (segmentDuration > .001 && seconds < segmentToTime) {
+            if (!unitTimelinePositionFreshAt(unit, latestPositionEvidenceTime, segmentFromTime)) return null;
             const segmentProgress = Math.max(0, Math.min(1, (seconds - segmentFromTime) / segmentDuration));
             return {
               current: timelineInterpolatedPoint(from, to, segmentProgress),
@@ -5819,7 +5904,10 @@
           timeBound = segmentTimeBound;
           distanceTiles = Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
           travelTimeSeconds = Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
+          latestPositionEvidenceTime = segmentToTime;
         }
+        if (!current || latestPositionEvidenceTime === null) return null;
+        if (!unitTimelinePositionFreshAt(unit, latestPositionEvidenceTime, seconds)) return null;
         return {
           current,
           from: fromPosition,
@@ -5912,6 +6000,9 @@
             birthTime: Number(unit.birth_time),
             birthEvidenceClass: unit.birth_evidence_class,
             birthConfirmation: unit.birth_confirmation,
+            positionHorizonSeconds: unitTimelinePositionHorizonSeconds(unit),
+            positionValidUntil: Number(unit.position_valid_until ?? Infinity),
+            positionEndReason: unit.position_end_reason ?? '',
             producerId: unit.producer_id ?? null,
             queueId: unit.queue_id ?? null,
             reconciliationStatus: unit.reconciliation?.status ?? '',
@@ -5919,9 +6010,50 @@
         }));
       }
 
+      function activeIndividualUnitIdentityKey(assignment) {
+        const actorId = numericId(assignment.sourceActorId ?? assignment.instanceId);
+        return actorId === null
+          ? `stable:${assignment.player}:${assignment.stableId ?? assignment.markerKey ?? assignment.instanceId}`
+          : `actor:${assignment.player}:${actorId}`;
+      }
+
+      function assignmentEvidenceRank(assignment) {
+        const quality = assignment.evidenceQuality ?? 'unclassified';
+        if (quality === 'observed') return 0;
+        if (quality === 'reconciled') return 1;
+        if (quality === 'simulated') return 2;
+        if (quality === 'anonymous') return 3;
+        if (quality === 'ambiguous') return 4;
+        return 5;
+      }
+
+      function dedupeActiveIndividualUnitAssignments(assignments) {
+        const selected = new Map();
+        assignments.forEach((assignment) => {
+          const key = activeIndividualUnitIdentityKey(assignment);
+          const previous = selected.get(key);
+          if (!previous) {
+            selected.set(key, assignment);
+            return;
+          }
+          const preference = assignmentEvidenceRank(assignment) - assignmentEvidenceRank(previous)
+            || Number(previous.birthTime ?? 0) - Number(assignment.birthTime ?? 0)
+            || String(assignment.markerKey ?? '').localeCompare(String(previous.markerKey ?? ''), undefined, { numeric: true });
+          if (preference < 0) selected.set(key, assignment);
+        });
+        return Object.freeze([...selected.values()]
+          .sort((a, b) => activeIndividualUnitIdentityKey(a).localeCompare(
+            activeIndividualUnitIdentityKey(b),
+            undefined,
+            { numeric: true },
+          )));
+      }
+
       function activeIndividualUnitAssignments(seconds) {
-        if (!gameplayTimelineUnits.length) return activeMappedActorAssignments(seconds);
-        return Object.freeze(timelineIndividualUnitAssignments(seconds));
+        const assignments = gameplayTimelineUnits.length
+          ? timelineIndividualUnitAssignments(seconds)
+          : activeMappedActorAssignments(seconds);
+        return dedupeActiveIndividualUnitAssignments(assignments);
       }
 
       function partyComposition(members, villagerTaskAssignment = null, villagerTaskState = null) {
@@ -6429,6 +6561,7 @@
           `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
           assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
           `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(interpolationTo)}.`,
+          `Position horizon: ${formatStatNumber(assignment.positionHorizonSeconds ?? 0)}s; final valid-until ${formatEstimatedTimelineTime(assignment.positionValidUntil)}; ${assignment.positionEndReason || 'position remains within current evidence horizon'}.`,
           `Visual interpolation: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; from ${formatMapPosition(interpolationFrom)} to ${formatMapPosition(interpolationTo)}; ${assignment.interpolationKind ?? 'legacy'}; ${assignment.interpolationTimeBound ?? 'unbounded'}; terrain avoidance false.`,
           'Static DOM marker; no animated GIF/WebP bytes or animated sprite frames.',
         ].filter(Boolean).join(' ');
@@ -6495,6 +6628,11 @@
         marker.dataset.reconciliationStatus = assignment.reconciliationStatus ?? '';
         marker.dataset.birthTime = formatStatNumber(assignment.birthTime, 3);
         marker.dataset.birthEvidenceClass = assignment.birthEvidenceClass ?? '';
+        marker.dataset.positionHorizonSeconds = formatStatNumber(assignment.positionHorizonSeconds ?? 0, 3);
+        marker.dataset.positionValidUntil = Number.isFinite(assignment.positionValidUntil)
+          ? formatStatNumber(assignment.positionValidUntil, 3)
+          : '';
+        marker.dataset.positionEndReason = assignment.positionEndReason ?? '';
         marker.dataset.producerId = assignment.producerId === null ? '' : String(assignment.producerId);
         marker.dataset.queueId = assignment.queueId ?? '';
         marker.dataset.position = formatMapPosition(assignment.position);

@@ -125,6 +125,13 @@ interface MotionSegment {
   readonly source_observation_kind: string;
 }
 
+interface PositionRetirement {
+  readonly time: number;
+  readonly kind: "possible_loss";
+  readonly reason: string;
+  readonly confidence: string;
+}
+
 interface UnitTimelineRow {
   id: string;
   readonly stable_id: string;
@@ -149,7 +156,11 @@ interface UnitTimelineRow {
   readonly spawn_method: string | null;
   reconciliation: ReconciliationState;
   observations: ActorObservation[];
+  position_retirements: PositionRetirement[];
   motion_segments: MotionSegment[];
+  readonly position_horizon_seconds: number;
+  position_valid_until: number;
+  position_end_reason: string;
   visible_until: number;
   end_reason: string;
   readonly speed: number;
@@ -190,6 +201,8 @@ interface TerminalState {
 
 const DEFAULT_UNIT_SPEED = 0.8;
 const VISIBILITY_EPSILON = 0.001;
+const UNIT_POSITION_HORIZON_SECONDS = 6 * 60;
+const WORKER_POSITION_HORIZON_SECONDS = 10 * 60;
 const BUILD_COMPLETION_FALLBACK_SECONDS: readonly [RegExp, number][] = [
   [/\bfarm\b/, 15],
   [/\b(outpost|watch tower|guard tower|keep)\b/, 15],
@@ -229,17 +242,16 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
   const rules = buildRulesIndex(ruleset);
   const knownObjectPositions = knownObjectPositionIndex(match);
   const lifetimeObjects = array(lifetimes.objects).map(object);
-  const lifetimesByActor = new Map<number, JsonObject>();
   const lifetimesByActorKey = new Map<string, JsonObject>();
   lifetimeObjects.forEach((row) => {
     const actorId = integer(row.instance_id, null);
     const player = integer(row.player, integer(row.owner, null));
-    if (actorId !== null) lifetimesByActor.set(actorId, row);
     if (actorId !== null && player !== null) lifetimesByActorKey.set(actorKey(player, actorId), row);
   });
 
   const mapEvents = indexedMapEvents(lifetimes);
   const terminalStates = terminalStateIndex(lifetimes, duration);
+  const positionRetirements = positionRetirementIndex(lifetimes, duration);
   const buildingTimeline = [
     ...startingBuildingRows(players, rules),
     ...placedBuildingRows(economy, inputRows, mapEvents, rules),
@@ -269,7 +281,8 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
     .flatMap((unit) => unit.source_actor_id === null ? [] : [actorKey(unit.player, unit.source_actor_id)]));
   const observationsByActor = actorObservationIndex(mapEvents, startingActorKeys);
   attachStartingObservations(units, observationsByActor);
-  const reconciliation = reconcileEstimatedUnits(units, observationsByActor, lifetimesByActor);
+  const reconciliation = reconcileEstimatedUnits(units, observationsByActor, lifetimesByActorKey);
+  attachPositionRetirements(units, positionRetirements);
   finalizeUnitMotion(units, terminalStates, duration);
 
   const visibleSampleTimes = representativeSampleTimes(duration, units, reconciliation.matched_observed_actors.length);
@@ -308,6 +321,10 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
         time: cleanTime(row.time),
         position: row.position ? cleanPoint(row.position) : null,
       })),
+      position_retirements: unit.position_retirements.map((row) => ({
+        ...row,
+        time: cleanTime(row.time),
+      })),
       motion_segments: unit.motion_segments.map((segment) => ({
         ...segment,
         from_time: cleanTime(segment.from_time),
@@ -315,6 +332,9 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
         from: cleanPoint(segment.from),
         to: cleanPoint(segment.to),
       })),
+      position_horizon_seconds: cleanTime(unit.position_horizon_seconds),
+      position_valid_until: cleanTime(unit.position_valid_until),
+      position_end_reason: unit.position_end_reason,
       visible_until: cleanTime(unit.visible_until),
       end_reason: unit.end_reason,
       speed: cleanNumber(unit.speed),
@@ -343,7 +363,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       production_queue: "Queue and unqueue commands are replay-observed intent. Birth rows are simulated only after sequential per-producer availability and effective train time gates; queue intent is never promoted to a confirmed birth.",
       spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position stays position-unknown and produces no map marker.",
       reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward only when one compatible unmatched estimate wins by owner, unit name/category, timing, and coarse spatial plausibility. Ambiguous and unmatched actor IDs are exposed instead of forced.",
-      motion: "Unit marker positions use deterministic bounded straight-line visual interpolation between known evidence endpoints when a birth position is known. Destination commands are replay evidence endpoints, not observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed.",
+      motion: "Unit marker positions use deterministic bounded straight-line visual interpolation only while the previous position evidence is still fresh. Later command endpoints re-acquire the player-scoped actor identity, but long unsupported gaps become position-unknown until that endpoint time. Destination commands are replay evidence endpoints, not observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed.",
       computation_boundary: "All rows in this artifact are produced in the browser worker after a local replay is loaded.",
     },
     policies: {
@@ -353,7 +373,11 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       ])),
       default_spawn_fallback: "producer-east-edge when producer position is known; no map-origin fallback for missing producer positions",
       pathfinding: "not-implemented",
-      stale_or_death: "Explicit delete rows end visibility; possible-loss rows retire active visibility conservatively; otherwise anonymous and starting estimates remain survival-unresolved through replay end.",
+      stale_or_death: "Confirmed terminal rows end lifecycle visibility; possible-loss rows and stale command endpoints retire only current map position, leaving survival unresolved until later evidence or replay end.",
+      position_horizons_seconds: {
+        command_selected_unit: UNIT_POSITION_HORIZON_SECONDS,
+        command_selected_worker: WORKER_POSITION_HORIZON_SECONDS,
+      },
     },
     counts: {
       starting_buildings: buildingTimeline.filter((row) => row.source === "parser-starting-building").length,
@@ -380,6 +404,9 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
           segment.interpolation === "instant-evidence-update").length, 0),
       unit_speed_bound_motion_segments: outputUnits.reduce((sum, row) =>
         sum + row.motion_segments.filter((segment) => segment.time_bound === "unit-speed").length, 0),
+      position_retirements: outputUnits.reduce((sum, row) => sum + row.position_retirements.length, 0),
+      current_position_expired_before_replay_end: outputUnits.filter((row) =>
+        row.birth_position !== null && row.position_valid_until < duration).length,
     },
     sample_times: visibleSampleTimes,
     building_timeline: buildingTimeline.map((row) => ({
@@ -926,6 +953,7 @@ function startingUnitRows(
         const sourceUnitId = integer(unit.object_id, null);
         const identity = unitIdentity(playerNumber, sourceUnitId, text(unit.name, "Unit"), 0, unitStats, rules);
         const terminal = actorId === null ? null : terminalStates.get(actorKey(playerNumber, actorId)) ?? null;
+        const positionHorizon = positionHorizonSeconds(identity.category === "villagers");
         rows.push({
           id: `actor:${playerNumber}:${actorId ?? `starting-${index}`}`,
           stable_id: `starting:${playerNumber}:${actorId ?? index}`,
@@ -956,7 +984,15 @@ function startingUnitRows(
             evidence: "parser-provided starting actor ID and position",
           },
           observations: [],
+          position_retirements: [],
           motion_segments: [],
+          position_horizon_seconds: positionHorizon,
+          position_valid_until: cleanTime(Math.min(
+            terminal?.time ?? duration + VISIBILITY_EPSILON,
+            positionHorizon,
+            duration + VISIBILITY_EPSILON
+          )),
+          position_end_reason: terminal?.reason ?? "position-horizon-expired; survival unresolved",
           visible_until: terminal?.time ?? duration + VISIBILITY_EPSILON,
           end_reason: terminal?.reason ?? "survival-unresolved-through-replay-end",
           speed: identity.speed,
@@ -979,6 +1015,7 @@ function estimatedUnitRows(
       const identity = unitIdentity(queue.player, queue.unit_id, queue.name, queue.estimated_completion_time, unitStats, rules);
       const stableId = `estimate:${queue.player}:${queue.producer_id ?? "unknown"}:${queue.queue_index}`;
       const terminal = terminalStates.get(stableId) ?? null;
+      const positionHorizon = positionHorizonSeconds(identity.category === "villagers");
       return {
         id: `anon:${stableId}`,
         stable_id: stableId,
@@ -1009,7 +1046,19 @@ function estimatedUnitRows(
           evidence: "queue completion estimate has no later unambiguous parser actor ID",
         },
         observations: [],
+        position_retirements: [],
         motion_segments: [],
+        position_horizon_seconds: positionHorizon,
+        position_valid_until: queue.spawn
+          ? cleanTime(Math.min(
+              terminal?.time ?? duration + VISIBILITY_EPSILON,
+              queue.estimated_completion_time + positionHorizon,
+              duration + VISIBILITY_EPSILON
+            ))
+          : queue.estimated_completion_time,
+        position_end_reason: queue.spawn
+          ? terminal?.reason ?? "position-horizon-expired; survival unresolved"
+          : "producer-position-unknown",
         visible_until: terminal?.time ?? duration + VISIBILITY_EPSILON,
         end_reason: terminal?.reason ?? "anonymous-estimated-survival-unresolved-through-replay-end",
         speed: identity.speed,
@@ -1082,7 +1131,7 @@ function attachStartingObservations(
 function reconcileEstimatedUnits(
   units: readonly UnitTimelineRow[],
   observationsByActor: ReadonlyMap<string, readonly ActorObservation[]>,
-  lifetimesByActor: ReadonlyMap<number, JsonObject>
+  lifetimesByActorKey: ReadonlyMap<string, JsonObject>
 ): ReconciliationSummary {
   const startingKeys = new Set(units
     .flatMap((unit) =>
@@ -1116,7 +1165,7 @@ function reconcileEstimatedUnits(
         || a.actorId - b.actorId);
 
   observedActors.forEach((observed) => {
-    const actorLifetime = lifetimesByActor.get(observed.actorId) ?? {};
+    const actorLifetime = lifetimesByActorKey.get(observed.key) ?? {};
     const observedName = text(actorLifetime.name);
     const candidates = producedUnits
       .filter((unit) => !matched.has(unit))
@@ -1209,6 +1258,20 @@ function reconcileEstimatedUnits(
   };
 }
 
+function attachPositionRetirements(
+  units: readonly UnitTimelineRow[],
+  retirementsByActor: ReadonlyMap<string, readonly PositionRetirement[]>
+): void {
+  units.forEach((unit) => {
+    const actorId = unit.source_actor_id;
+    unit.position_retirements = actorId === null
+      ? []
+      : [...retirementsByActor.get(actorKey(unit.player, actorId)) ?? []]
+          .filter((row) => row.time >= unit.birth_time && row.time <= unit.visible_until + VISIBILITY_EPSILON)
+          .sort((a, b) => a.time - b.time || a.kind.localeCompare(b.kind));
+  });
+}
+
 function candidateScore(
   unit: UnitTimelineRow,
   observedPlayer: number,
@@ -1270,29 +1333,60 @@ function finalizeUnitMotion(
       unit.end_reason = terminal.reason;
     }
     unit.motion_segments = buildMotionSegments(unit, duration);
+    const positionState = finalPositionValidity(unit, duration);
+    unit.position_valid_until = positionState.time;
+    unit.position_end_reason = positionState.reason;
   });
 }
 
 function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSegment[] {
-  const birthPosition = unit.birth_position;
-  if (!birthPosition) return [];
   const segments: MotionSegment[] = [];
   let anchorTime = unit.birth_time;
-  let anchorPosition = birthPosition;
+  let anchorEvidenceTime = unit.birth_time;
+  let anchorPosition = unit.birth_position;
   let anchorEvidenceClass: "observed" | "simulated" | "reconciled" = unit.birth_evidence_class;
   const destinationRows = unit.observations
-    .filter((row) => row.position && row.time >= unit.birth_time)
+    .filter((row) => row.position && row.time >= unit.birth_time && row.time <= unit.visible_until + VISIBILITY_EPSILON)
     .sort((a, b) => a.time - b.time || a.index - b.index);
-  destinationRows.forEach((row) => {
-    if (!row.position) return;
+  if (!anchorPosition) {
+    const first = destinationRows[0];
+    if (!first?.position) return [];
+    const evidenceTime = cleanTime(Math.min(duration, Math.max(unit.birth_time, first.time)));
+    segments.push({
+      from_time: evidenceTime,
+      to_time: evidenceTime,
+      from: cleanPoint(first.position),
+      to: cleanPoint(first.position),
+      from_evidence_class: "observed",
+      destination_evidence_class: "observed",
+      interpolation_evidence_class: unit.reconciliation.status === "matched" ? "reconciled" : "simulated",
+      interpolation: "instant-evidence-update",
+      time_bound: "instant",
+      distance_tiles: 0,
+      max_speed_tiles_per_second: cleanNumber(Math.max(DEFAULT_UNIT_SPEED, unit.speed)),
+      travel_time_seconds: 0,
+      terrain_avoidance: false,
+      source_observation_kind: first.kind,
+    });
+    anchorTime = evidenceTime;
+    anchorEvidenceTime = evidenceTime;
+    anchorPosition = first.position;
+    anchorEvidenceClass = "observed";
+  }
+  if (!anchorPosition) return segments;
+  for (const row of destinationRows) {
+    const rowPosition = row.position;
+    if (!rowPosition || !anchorPosition) continue;
+    if (row.time <= anchorEvidenceTime + VISIBILITY_EPSILON && samePoint(rowPosition, anchorPosition)) continue;
     if (row.kind === "parser-initial-position" && row.time <= unit.birth_time + VISIBILITY_EPSILON) {
       anchorTime = row.time;
-      anchorPosition = row.position;
+      anchorEvidenceTime = row.time;
+      anchorPosition = rowPosition;
       anchorEvidenceClass = "observed";
-      return;
+      continue;
     }
     const evidenceTime = cleanTime(Math.min(duration, Math.max(unit.birth_time, row.time)));
-    const distanceTiles = distance(anchorPosition, row.position);
+    const distanceTiles = distance(anchorPosition, rowPosition);
     const maxSpeedTilesPerSecond = Math.max(DEFAULT_UNIT_SPEED, unit.speed);
     const intervalSeconds = Math.max(0, evidenceTime - anchorTime);
     const speedTravelSeconds = maxSpeedTilesPerSecond > 0
@@ -1303,14 +1397,20 @@ function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSeg
       && speedTravelSeconds > VISIBILITY_EPSILON
       && speedTravelSeconds < intervalSeconds
     );
-    const fromTime = cleanTime(speedBounded ? evidenceTime - speedTravelSeconds : anchorTime);
-    const instant = distanceTiles <= VISIBILITY_EPSILON || evidenceTime <= fromTime + VISIBILITY_EPSILON;
+    const proposedFromTime = cleanTime(speedBounded ? evidenceTime - speedTravelSeconds : anchorTime);
+    const anchorFresh = positionEvidenceSupportsInterval(unit, anchorEvidenceTime, evidenceTime);
+    const fromTime = cleanTime(anchorFresh ? proposedFromTime : evidenceTime);
+    const instant = (
+      !anchorFresh
+      || distanceTiles <= VISIBILITY_EPSILON
+      || evidenceTime <= fromTime + VISIBILITY_EPSILON
+    );
     segments.push({
       from_time: instant ? evidenceTime : fromTime,
       to_time: evidenceTime,
-      from: cleanPoint(anchorPosition),
-      to: cleanPoint(row.position),
-      from_evidence_class: anchorEvidenceClass,
+      from: cleanPoint(instant && !anchorFresh ? rowPosition : anchorPosition),
+      to: cleanPoint(rowPosition),
+      from_evidence_class: instant && !anchorFresh ? "observed" : anchorEvidenceClass,
       destination_evidence_class: "observed",
       interpolation_evidence_class: unit.reconciliation.status === "matched" ? "reconciled" : "simulated",
       interpolation: instant ? "instant-evidence-update" : "bounded-straight-line-visual",
@@ -1322,33 +1422,107 @@ function buildMotionSegments(unit: UnitTimelineRow, duration: number): MotionSeg
       source_observation_kind: row.kind,
     });
     anchorTime = evidenceTime;
-    anchorPosition = row.position;
+    anchorEvidenceTime = evidenceTime;
+    anchorPosition = rowPosition;
     anchorEvidenceClass = "observed";
-  });
+  }
   if (segments.length && anchorTime > unit.visible_until) {
     unit.visible_until = anchorTime;
   }
   return segments;
 }
 
+function finalPositionValidity(unit: UnitTimelineRow, duration: number): TerminalState {
+  const lastPositionTime = latestPositionEvidenceTime(unit);
+  if (lastPositionTime === null) {
+    return { time: unit.birth_time, reason: "position-unknown" };
+  }
+
+  const horizonEnd = lastPositionTime + unit.position_horizon_seconds;
+  const retirement = firstPositionRetirementBetween(unit, lastPositionTime, horizonEnd);
+  if (retirement) {
+    return { time: retirement.time, reason: retirement.reason };
+  }
+  const visibleUntil = Math.min(unit.visible_until, duration + VISIBILITY_EPSILON);
+  const time = cleanTime(Math.min(visibleUntil, horizonEnd));
+  return {
+    time,
+    reason: time < visibleUntil - VISIBILITY_EPSILON
+      ? "position-horizon-expired; survival unresolved"
+      : unit.end_reason,
+  };
+}
+
+function latestPositionEvidenceTime(unit: UnitTimelineRow): number | null {
+  const segmentTimes = unit.motion_segments
+    .map((segment) => segment.to_time)
+    .filter((time) => Number.isFinite(time) && time <= unit.visible_until + VISIBILITY_EPSILON);
+  if (unit.birth_position) {
+    return segmentTimes.reduce((latest, time) => Math.max(latest, time), unit.birth_time);
+  }
+  return segmentTimes.length ? Math.max(...segmentTimes) : null;
+}
+
+function positionEvidenceSupportsInterval(unit: UnitTimelineRow, fromEvidenceTime: number, toEvidenceTime: number): boolean {
+  if (toEvidenceTime - fromEvidenceTime > unit.position_horizon_seconds + VISIBILITY_EPSILON) {
+    return false;
+  }
+  return !firstPositionRetirementBetween(unit, fromEvidenceTime, toEvidenceTime);
+}
+
+function firstPositionRetirementBetween(
+  unit: UnitTimelineRow,
+  fromExclusive: number,
+  toInclusive: number
+): PositionRetirement | null {
+  return unit.position_retirements
+    .filter((row) => row.time > fromExclusive + VISIBILITY_EPSILON && row.time <= toInclusive + VISIBILITY_EPSILON)
+    .sort((a, b) => a.time - b.time || a.kind.localeCompare(b.kind))[0] ?? null;
+}
+
 function terminalStateIndex(lifetimes: JsonObject, duration: number): ReadonlyMap<string, TerminalState> {
   const rows = new Map<string, TerminalState>();
   array(lifetimes.lifecycle_events).map(object).forEach((event) => {
     const kind = text(event.kind);
-    if (!["delete", "possible_loss"].includes(kind)) return;
+    if (!confirmedTerminalKind(kind)) return;
     const player = integer(event.player, integer(event.owner, null));
     const time = replayTime(event);
     if (player === null || time === null) return;
     uniqueNormalizedIds(array(event.object_ids)).forEach((actorId) => {
       const key = actorKey(player, actorId);
-      const reason = kind === "delete"
-        ? "explicit-delete"
-        : "possible-loss-active-position-retired";
+      const reason = kind === "delete" ? "explicit-delete" : `${kind}-terminal`;
       const previous = rows.get(key);
       if (!previous || time < previous.time) rows.set(key, { time: cleanTime(Math.min(time, duration)), reason });
     });
   });
   return rows;
+}
+
+function positionRetirementIndex(lifetimes: JsonObject, duration: number): ReadonlyMap<string, readonly PositionRetirement[]> {
+  const rows = new Map<string, PositionRetirement[]>();
+  array(lifetimes.lifecycle_events).map(object).forEach((event) => {
+    if (text(event.kind) !== "possible_loss") return;
+    const player = integer(event.player, integer(event.owner, null));
+    const time = replayTime(event);
+    if (player === null || time === null) return;
+    uniqueNormalizedIds(array(event.object_ids)).forEach((actorId) => {
+      const key = actorKey(player, actorId);
+      const values = rows.get(key) ?? [];
+      values.push({
+        time: cleanTime(Math.min(time, duration)),
+        kind: "possible_loss",
+        reason: "possible-loss-position-retired; survival unresolved",
+        confidence: text(event.confidence, "possible"),
+      });
+      rows.set(key, values);
+    });
+  });
+  rows.forEach((values) => values.sort((a, b) => a.time - b.time || a.kind.localeCompare(b.kind)));
+  return rows;
+}
+
+function confirmedTerminalKind(kind: string): boolean {
+  return kind === "delete" || kind === "death" || kind === "combat_death" || kind === "simulated_death";
 }
 
 interface RulesIndex {
@@ -1504,6 +1678,10 @@ function estimatedConstructionDurationSeconds(baseBuildSeconds: number, builderC
   return cleanNumber(Math.max(0, baseBuildSeconds) * 3 / (builders + 2));
 }
 
+function positionHorizonSeconds(worker: boolean): number {
+  return worker ? WORKER_POSITION_HORIZON_SECONDS : UNIT_POSITION_HORIZON_SECONDS;
+}
+
 function spawnEstimate(producer: BuildingTimelineRow | null, rally: GatherPointRow | null): SpawnEstimate | null {
   if (!producer) {
     return null;
@@ -1656,6 +1834,10 @@ function cleanPoint(value: Point): Point {
 
 function distance(first: Point, second: Point): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function samePoint(first: Point, second: Point): boolean {
+  return distance(first, second) <= VISIBILITY_EPSILON;
 }
 
 function firstNonNegative(values: readonly number[], fallback: number): number {

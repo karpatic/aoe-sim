@@ -124,15 +124,26 @@ export class CanvasRenderer {
   private applyEntityUpdate(entity: RenderEntitySnapshot): void {
     const wasTree = this.treeEntityIds.has(entity.id);
     const isTree = entity.representedTreeResource ?? wasTree;
-    this.entityCache.set(entity.id, entity);
 
     if (isTree) {
+      this.entityCache.set(entity.id, entity);
       this.treeEntityIds.add(entity.id);
       this.nonTreeEntities.delete(entity.id);
       this.treeCacheDirty = true;
       return;
     }
 
+    if (isDeadCharacterEntity(entity)) {
+      this.entityCache.delete(entity.id);
+      this.nonTreeEntities.delete(entity.id);
+      if (wasTree) {
+        this.treeEntityIds.delete(entity.id);
+        this.treeCacheDirty = true;
+      }
+      return;
+    }
+
+    this.entityCache.set(entity.id, entity);
     this.nonTreeEntities.set(entity.id, entity);
     if (wasTree) {
       this.treeEntityIds.delete(entity.id);
@@ -596,6 +607,15 @@ function isDenseBuilding(entity: RenderEntitySnapshot): boolean {
     entity.kind.includes("tower") ||
     entity.kind.includes("wall") ||
     entity.kind.includes("gate")
+  );
+}
+
+function isDeadCharacterEntity(entity: RenderEntitySnapshot): boolean {
+  return (
+    entity.lifecycle.state === "dead" &&
+    entity.playerId !== "gaia" &&
+    !entity.resourceNode &&
+    !isDenseBuilding(entity)
   );
 }
 
