@@ -27,9 +27,9 @@
     #map-column { display: grid; place-items: start center; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; background: #101214; }
     #detail-column { display: grid; align-content: start; gap: .5rem; min-width: 0; min-height: 0; height: 100dvh; margin: 0; padding: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     #timeline-section, #timeline-players, #map-legend-details, #chat-section, #viewer-notice { width: 100%; max-width: none; }
-    #map-stack { position: relative; width: 100%; height: 100dvh; overflow: hidden; touch-action: none; cursor: grab; }
+    #map-stack { position: relative; width: min(100%, max(1px, calc(100dvh - var(--timeline-height)))); max-width: 100%; height: auto; max-height: 100%; aspect-ratio: 1; overflow: hidden; overscroll-behavior: contain; touch-action: none; cursor: grab; }
     #map-stack[data-map-zoom="1"] { cursor: default; }
-    #map-stack.is-panning { cursor: grabbing; }
+    #map-stack.is-panning, #map-stack.is-pinching { cursor: grabbing; }
     #map-viewport { position: absolute; inset: 0; transform: translate(var(--map-pan-x), var(--map-pan-y)) scale(var(--map-zoom)); transform-origin: 0 0; will-change: transform; }
     #map-canvas { position: relative; z-index: 0; display: block; width: 100%; height: 100%; border: 1px solid; object-fit: contain; image-rendering: pixelated; }
     #resource-canvas, #building-canvas, #gameplay-canvas, #sprite-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
@@ -66,7 +66,6 @@
     #timeline-section { position: fixed; z-index: 20; right: auto; bottom: 0; left: 0; width: var(--map-column-width); min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border-top: 1px solid #333; border-right: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
-    #timeline-map-size { flex: 0 0 auto; padding-inline: .65rem; white-space: nowrap; }
     #timeline-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15.5rem, 100%), 1fr)); align-items: start; gap: .35rem; margin-bottom: .35rem; }
     .legend-category-icon { display: inline-block; flex: 0 0 auto; width: 1rem; height: 1rem; margin-right: .25rem; image-rendering: pixelated; vertical-align: text-bottom; }
     .panel-details { width: 100%; margin: 0; border: 1px solid; }
@@ -144,7 +143,7 @@
       }
       main { grid-template: minmax(0, 48dvh) minmax(0, 1fr) / 100%; }
       #map-column { grid-row: 1; height: 100%; min-height: 0; }
-      #map-stack { width: auto; max-width: none; height: 100%; aspect-ratio: 1; }
+      #map-stack { width: min(100%, 48dvh); max-width: 100%; height: auto; max-height: 100%; aspect-ratio: 1; }
       #detail-column { grid-row: 2; height: 100%; min-height: 0; padding: 0; }
       #timeline-section { bottom: var(--mobile-bottom-gap); left: 0; width: 100vw; border-right: 0; }
       #map-chat-overlay { max-height: 8rem; }
@@ -174,7 +173,6 @@
         <div id="timeline-controls">
           <button id="timeline-play" type="button">Play</button>
           <button id="timeline-speed" type="button" aria-label="Playback speed: 30×. Activate for 4×.">30×</button>
-          <button id="timeline-map-size" type="button" aria-label="Map zoom: fit. Activate for 2×.">Zoom</button>
           <input id="timeline-slider" type="range" min="0" value="0" step="any" aria-label="Match time">
           <output id="timeline-time" for="timeline-slider"></output>
         </div>
@@ -198,7 +196,6 @@
     const timelineSection = document.querySelector('#timeline-section');
     const timelinePlay = document.querySelector('#timeline-play');
     const timelineSpeed = document.querySelector('#timeline-speed');
-    const timelineMapSize = document.querySelector('#timeline-map-size');
     const timelineSlider = document.querySelector('#timeline-slider');
     const timelineTime = document.querySelector('#timeline-time');
     const timelinePlayers = document.querySelector('#timeline-players');
@@ -216,17 +213,32 @@
 
     const mapChatOverlay = document.querySelector('#map-chat-overlay');
     const mapPanThresholdPx = 6;
+    const mapMinScale = 1;
+    const mapMaxScale = 3;
+    const mapWheelZoomIntensity = .0012;
+    const mapZoomResetEpsilon = .001;
     const mapViewState = {
       scale: 1,
       panX: 0,
       panY: 0,
       pointer: null,
+      touchPointers: new Map(),
+      pinch: null,
     };
     let timelineResizeObserver = null;
     let mapViewResizeObserver = null;
+    let mapScaleDiagnosticsFrame = 0;
 
     function clampNumber(value, minimum, maximum) {
       return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    function clampedMapScale(scale) {
+      const numeric = Number(scale);
+      if (!Number.isFinite(numeric)) return mapMinScale;
+      const clamped = clampNumber(numeric, mapMinScale, mapMaxScale);
+      if (Math.abs(clamped - mapMinScale) < mapZoomResetEpsilon) return mapMinScale;
+      return Math.round(clamped * 10000) / 10000;
     }
 
     function clampedMapPan(panX, panY, scale = mapViewState.scale) {
@@ -234,12 +246,13 @@
       const width = Math.max(1, bounds.width);
       const height = Math.max(1, bounds.height);
       return {
-        x: scale <= 1 ? 0 : clampNumber(panX, width - width * scale, 0),
-        y: scale <= 1 ? 0 : clampNumber(panY, height - height * scale, 0),
+        x: scale <= mapMinScale ? 0 : clampNumber(panX, width - width * scale, 0),
+        y: scale <= mapMinScale ? 0 : clampNumber(panY, height - height * scale, 0),
       };
     }
 
     function applyMapViewState() {
+      mapViewState.scale = clampedMapScale(mapViewState.scale);
       const pan = clampedMapPan(mapViewState.panX, mapViewState.panY);
       mapViewState.panX = pan.x;
       mapViewState.panY = pan.y;
@@ -247,7 +260,7 @@
       document.documentElement.style.setProperty('--map-pan-x', `${pan.x}px`);
       document.documentElement.style.setProperty('--map-pan-y', `${pan.y}px`);
       mapViewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${mapViewState.scale})`;
-      mapStack.classList.toggle('is-zoomed', mapViewState.scale > 1);
+      mapStack.classList.toggle('is-zoomed', mapViewState.scale > mapMinScale);
       mapStack.dataset.mapZoom = String(mapViewState.scale);
       mapStack.dataset.mapPan = `${pan.x.toFixed(1)},${pan.y.toFixed(1)}`;
       mapStack.dataset.mapPanThresholdPx = String(mapPanThresholdPx);
@@ -259,23 +272,115 @@
       });
     }
 
-    function setMapZoom(scale) {
-      const nextScale = Number(scale) || 1;
+    function mapStackPointFromClient(clientX, clientY) {
       const bounds = mapStack.getBoundingClientRect();
-      const oldScale = mapViewState.scale || 1;
-      if (nextScale <= 1) {
-        mapViewState.scale = 1;
+      return {
+        x: Number(clientX) - bounds.left,
+        y: Number(clientY) - bounds.top,
+      };
+    }
+
+    function mapStackCenterPoint() {
+      const bounds = mapStack.getBoundingClientRect();
+      return {
+        x: bounds.width / 2,
+        y: bounds.height / 2,
+      };
+    }
+
+    function mapPointForViewportPoint(point) {
+      const scale = mapViewState.scale || mapMinScale;
+      return {
+        x: (point.x - mapViewState.panX) / scale,
+        y: (point.y - mapViewState.panY) / scale,
+      };
+    }
+
+    function normalizedMapAnchor(point) {
+      const center = mapStackCenterPoint();
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      return {
+        x: Number.isFinite(x) ? x : center.x,
+        y: Number.isFinite(y) ? y : center.y,
+      };
+    }
+
+    function normalizedMapPoint(point, fallbackAnchor) {
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      return Number.isFinite(x) && Number.isFinite(y)
+        ? { x, y }
+        : mapPointForViewportPoint(fallbackAnchor);
+    }
+
+    function formattedMapScale(scale) {
+      return scale === mapMinScale ? 'fit' : `${String(scale).replace(/\.?0+$/, '')}x`;
+    }
+
+    function updateMapScaleDiagnostics(scale = mapViewState.scale, widthFormula = '') {
+      const boundedScale = clampedMapScale(scale);
+      const widthText = widthFormula || `${formattedMapScale(boundedScale)} native transform`;
+      const elements = [
+        timelinePlayers,
+        timelineSection,
+        mapStack,
+        mapViewport,
+        mapLegendDetails,
+        mapLegend,
+        mapCanvas,
+        resourceCanvas,
+        buildingCanvas,
+        gameplayCanvas,
+        spriteOverlay,
+      ];
+      elements.forEach((element) => {
+        if (!element) return;
+        element.dataset.mapScale = String(boundedScale);
+        element.dataset.mapScaleWidth = widthText;
+      });
+      if (mapScaleDiagnosticsFrame) cancelAnimationFrame(mapScaleDiagnosticsFrame);
+      mapScaleDiagnosticsFrame = requestAnimationFrame(() => {
+        mapScaleDiagnosticsFrame = 0;
+        const renderedWidth = `${Math.round(mapStack.getBoundingClientRect().width)}px`;
+        [
+          timelinePlayers,
+          timelineSection,
+          mapStack,
+          mapViewport,
+          mapLegendDetails,
+          mapLegend,
+        ].forEach((element) => {
+          if (!element) return;
+          element.dataset.mapRenderedWidth = renderedWidth;
+        });
+        [mapCanvas, resourceCanvas, buildingCanvas, gameplayCanvas, spriteOverlay].forEach((element) => {
+          if (!element) return;
+          element.dataset.mapRenderedWidth = `${Math.round(element.getBoundingClientRect().width)}px`;
+        });
+      });
+    }
+
+    function setMapZoom(scale, anchor = mapStackCenterPoint(), mapPoint = null, input = 'direct') {
+      const nextScale = clampedMapScale(scale);
+      const anchorPoint = normalizedMapAnchor(anchor);
+      const oldScale = mapViewState.scale || mapMinScale;
+      const lockedMapPoint = normalizedMapPoint(mapPoint, anchorPoint);
+      mapStack.dataset.mapZoomInput = input;
+      if (nextScale <= mapMinScale) {
+        mapViewState.scale = mapMinScale;
         mapViewState.panX = 0;
         mapViewState.panY = 0;
         applyMapViewState();
-        return;
+        updateMapScaleDiagnostics(nextScale);
+        return nextScale !== oldScale;
       }
-      const centerX = (bounds.width / 2 - mapViewState.panX) / oldScale;
-      const centerY = (bounds.height / 2 - mapViewState.panY) / oldScale;
       mapViewState.scale = nextScale;
-      mapViewState.panX = bounds.width / 2 - centerX * nextScale;
-      mapViewState.panY = bounds.height / 2 - centerY * nextScale;
+      mapViewState.panX = anchorPoint.x - lockedMapPoint.x * nextScale;
+      mapViewState.panY = anchorPoint.y - lockedMapPoint.y * nextScale;
       applyMapViewState();
+      updateMapScaleDiagnostics(nextScale);
+      return nextScale !== oldScale;
     }
 
     function setMapPan(panX, panY) {
@@ -285,10 +390,12 @@
       applyMapViewState();
     }
 
-    function clearMapPointerState(state = 'idle') {
+    function clearMapPointerState(state = 'idle', pinchState = '') {
       mapViewState.pointer = null;
-      mapStack.classList.remove('is-panning');
+      mapViewState.pinch = null;
+      mapStack.classList.remove('is-panning', 'is-pinching');
       mapStack.dataset.mapPanState = state;
+      if (pinchState) mapStack.dataset.mapPinchState = pinchState;
     }
 
     function applyTimelineLayoutInsets() {
@@ -315,25 +422,140 @@
       window.addEventListener('resize', applyTimelineLayoutInsets);
     }
 
-    function setupMapPanInteractions() {
+    function mapPointerSnapshot(event) {
+      return {
+        id: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        type: event.pointerType || 'unknown',
+      };
+    }
+
+    function beginMapPan(pointer) {
+      if (mapViewState.scale <= mapMinScale) return false;
+      mapViewState.pointer = {
+        id: pointer.id,
+        startX: pointer.clientX,
+        startY: pointer.clientY,
+        panX: mapViewState.panX,
+        panY: mapViewState.panY,
+        moved: false,
+        type: pointer.type || 'unknown',
+      };
+      mapStack.dataset.mapPanState = 'pending';
+      mapStack.dataset.mapPanPointerType = mapViewState.pointer.type;
+      return true;
+    }
+
+    function mapTouchPointerPair() {
+      return [...mapViewState.touchPointers.values()].slice(0, 2);
+    }
+
+    function mapTouchMidpoint(first, second) {
+      return mapStackPointFromClient(
+        (first.clientX + second.clientX) / 2,
+        (first.clientY + second.clientY) / 2,
+      );
+    }
+
+    function mapTouchDistance(first, second) {
+      return Math.max(1, Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY));
+    }
+
+    function startMapPinch() {
+      const [first, second] = mapTouchPointerPair();
+      if (!first || !second) return false;
+      const midpoint = mapTouchMidpoint(first, second);
+      mapViewState.pointer = null;
+      mapStack.classList.remove('is-panning');
+      mapViewState.pinch = {
+        firstId: first.id,
+        secondId: second.id,
+        startDistance: mapTouchDistance(first, second),
+        startScale: mapViewState.scale,
+        mapPoint: mapPointForViewportPoint(midpoint),
+      };
+      mapStack.classList.add('is-pinching');
+      mapStack.dataset.mapPanState = 'pinching';
+      mapStack.dataset.mapPinchState = 'active';
+      mapStack.dataset.mapPanPointerType = 'touch';
+      return true;
+    }
+
+    function updateMapPinch() {
+      const pinch = mapViewState.pinch;
+      if (!pinch) return false;
+      const first = mapViewState.touchPointers.get(pinch.firstId);
+      const second = mapViewState.touchPointers.get(pinch.secondId);
+      if (!first || !second) return false;
+      const distance = mapTouchDistance(first, second);
+      const midpoint = mapTouchMidpoint(first, second);
+      const nextScale = pinch.startScale * distance / pinch.startDistance;
+      setMapZoom(nextScale, midpoint, pinch.mapPoint, 'pinch');
+      mapStack.dataset.mapPinchDistance = distance.toFixed(1);
+      return true;
+    }
+
+    function settleMapTouchPointers(state) {
+      if (mapViewState.touchPointers.size >= 2) {
+        startMapPinch();
+        return;
+      }
+      mapStack.classList.remove('is-pinching');
+      mapViewState.pinch = null;
+      const [remaining] = mapTouchPointerPair();
+      if (remaining && beginMapPan(remaining)) {
+        mapStack.dataset.mapPinchState = 'settled';
+        return;
+      }
+      clearMapPointerState(state, state);
+    }
+
+    function normalizedWheelDeltaY(event) {
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * window.innerHeight;
+      return event.deltaY;
+    }
+
+    function setupMapInteractions() {
       mapStack.dataset.mapPanState = 'idle';
-      mapStack.dataset.mapPanInput = 'pointer-events';
+      mapStack.dataset.mapPanInput = 'pointer-and-wheel-events';
+      mapStack.dataset.mapPinchState = 'idle';
+      mapStack.dataset.mapZoomMin = String(mapMinScale);
+      mapStack.dataset.mapZoomMax = String(mapMaxScale);
+      mapStack.addEventListener('wheel', (event) => {
+        const deltaY = normalizedWheelDeltaY(event);
+        if (!Number.isFinite(deltaY) || deltaY === 0) return;
+        const anchor = mapStackPointFromClient(event.clientX, event.clientY);
+        const nextScale = mapViewState.scale * Math.exp(-deltaY * mapWheelZoomIntensity);
+        setMapZoom(nextScale, anchor, null, 'wheel');
+        mapStack.dataset.mapWheelDelta = deltaY.toFixed(2);
+        event.preventDefault();
+      }, { passive: false });
       mapStack.addEventListener('pointerdown', (event) => {
-        if (event.button !== 0 || !event.isPrimary || mapViewState.scale <= 1) return;
-        mapViewState.pointer = {
-          id: event.pointerId,
-          startX: event.clientX,
-          startY: event.clientY,
-          panX: mapViewState.panX,
-          panY: mapViewState.panY,
-          moved: false,
-          type: event.pointerType || 'unknown',
-        };
-        mapStack.dataset.mapPanState = 'pending';
-        mapStack.dataset.mapPanPointerType = mapViewState.pointer.type;
+        if (event.pointerType === 'touch') {
+          mapViewState.touchPointers.set(event.pointerId, mapPointerSnapshot(event));
+          mapStack.setPointerCapture(event.pointerId);
+          if (mapViewState.touchPointers.size >= 2) {
+            startMapPinch();
+            event.preventDefault();
+            return;
+          }
+          beginMapPan(mapPointerSnapshot(event));
+          return;
+        }
+        if (event.button !== 0 || !event.isPrimary || !beginMapPan(mapPointerSnapshot(event))) return;
         mapStack.setPointerCapture(event.pointerId);
       });
       mapStack.addEventListener('pointermove', (event) => {
+        if (event.pointerType === 'touch' && mapViewState.touchPointers.has(event.pointerId)) {
+          mapViewState.touchPointers.set(event.pointerId, mapPointerSnapshot(event));
+          if (mapViewState.touchPointers.size >= 2) {
+            if (!mapViewState.pinch) startMapPinch();
+            if (updateMapPinch()) event.preventDefault();
+            return;
+          }
+        }
         const pointer = mapViewState.pointer;
         if (!pointer || pointer.id !== event.pointerId) return;
         const deltaX = event.clientX - pointer.startX;
@@ -346,27 +568,65 @@
         event.preventDefault();
       });
       mapStack.addEventListener('pointerup', (event) => {
+        const wasPinching = Boolean(mapViewState.pinch);
+        if (event.pointerType === 'touch') {
+          mapViewState.touchPointers.delete(event.pointerId);
+        }
+        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
+        if (wasPinching) {
+          settleMapTouchPointers('pinched');
+          return;
+        }
         const pointer = mapViewState.pointer;
         if (!pointer || pointer.id !== event.pointerId) return;
-        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
-        clearMapPointerState(pointer.moved ? 'panned' : 'idle');
+        const finishedPinchState = mapStack.dataset.mapPinchState === 'settled' ? 'pinched' : '';
+        clearMapPointerState(pointer.moved ? 'panned' : 'idle', finishedPinchState);
       });
       mapStack.addEventListener('pointercancel', (event) => {
+        const wasPinching = Boolean(mapViewState.pinch);
+        if (event.pointerType === 'touch') {
+          mapViewState.touchPointers.delete(event.pointerId);
+        }
+        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
+        if (wasPinching) {
+          settleMapTouchPointers('cancelled');
+          return;
+        }
         const pointer = mapViewState.pointer;
         if (!pointer || pointer.id !== event.pointerId) return;
-        if (mapStack.hasPointerCapture(event.pointerId)) mapStack.releasePointerCapture(event.pointerId);
         clearMapPointerState('cancelled');
       });
+      mapStack.addEventListener('touchend', (event) => {
+        if (event.touches.length > 0) return;
+        const finishingPinch = ['active', 'settled'].includes(mapStack.dataset.mapPinchState ?? '');
+        if (!finishingPinch && mapViewState.pointer?.type !== 'touch' && !mapViewState.touchPointers.size) return;
+        mapViewState.touchPointers.clear();
+        clearMapPointerState('idle', finishingPinch ? 'pinched' : '');
+      }, { passive: true });
+      mapStack.addEventListener('touchcancel', (event) => {
+        if (event.touches.length > 0) return;
+        const cancellingPinch = ['active', 'settled'].includes(mapStack.dataset.mapPinchState ?? '');
+        if (!cancellingPinch && mapViewState.pointer?.type !== 'touch' && !mapViewState.touchPointers.size) return;
+        mapViewState.touchPointers.clear();
+        clearMapPointerState('cancelled', cancellingPinch ? 'cancelled' : '');
+      }, { passive: true });
     }
 
-    setupMapPanInteractions();
+    setupMapInteractions();
     applyMapViewState();
+    updateMapScaleDiagnostics();
     setupTimelineLayoutInsets();
     if (typeof ResizeObserver !== 'undefined') {
-      mapViewResizeObserver = new ResizeObserver(() => applyMapViewState());
+      mapViewResizeObserver = new ResizeObserver(() => {
+        applyMapViewState();
+        updateMapScaleDiagnostics();
+      });
       mapViewResizeObserver.observe(mapStack);
     } else {
-      window.addEventListener('resize', applyMapViewState);
+      window.addEventListener('resize', () => {
+        applyMapViewState();
+        updateMapScaleDiagnostics();
+      });
     }
 
     const viewerPayloadType = 'aoe-sim.dataview.generated-payload.v1';
@@ -568,6 +828,85 @@
       highlight: '#5d8f4d',
       trunk: '#695334',
     });
+    const mapProjectionAngleDegrees = -45;
+    const mapProjectionAngleRadians = mapProjectionAngleDegrees * Math.PI / 180;
+    const mapProjectionCos = Math.cos(mapProjectionAngleRadians);
+    const mapProjectionSin = Math.sin(mapProjectionAngleRadians);
+
+    function rotatedMapPixel(x, y) {
+      return {
+        x: x * mapProjectionCos - y * mapProjectionSin,
+        y: x * mapProjectionSin + y * mapProjectionCos,
+      };
+    }
+
+    function createMapProjection(widthTiles, heightTiles, cellSize) {
+      const width = Math.max(1, Number(widthTiles) || 1) * cellSize;
+      const height = Math.max(1, Number(heightTiles) || 1) * cellSize;
+      const corners = [
+        rotatedMapPixel(0, 0),
+        rotatedMapPixel(width, 0),
+        rotatedMapPixel(width, height),
+        rotatedMapPixel(0, height),
+      ];
+      const minX = Math.min(...corners.map((corner) => corner.x));
+      const maxX = Math.max(...corners.map((corner) => corner.x));
+      const minY = Math.min(...corners.map((corner) => corner.y));
+      const maxY = Math.max(...corners.map((corner) => corner.y));
+      const projectedWidth = maxX - minX;
+      const projectedHeight = maxY - minY;
+      const canvasWidth = Math.max(1, Math.ceil(projectedWidth));
+      const canvasHeight = Math.max(1, Math.ceil(projectedHeight));
+      return Object.freeze({
+        angleDegrees: mapProjectionAngleDegrees,
+        angleRadians: mapProjectionAngleRadians,
+        cellSize,
+        widthTiles,
+        heightTiles,
+        width,
+        height,
+        canvasWidth,
+        canvasHeight,
+        offsetX: -minX + (canvasWidth - projectedWidth) / 2,
+        offsetY: -minY + (canvasHeight - projectedHeight) / 2,
+      });
+    }
+
+    function mapPixelToProjected(projection, x, y) {
+      const rotated = rotatedMapPixel(x, y);
+      return {
+        x: rotated.x + projection.offsetX,
+        y: rotated.y + projection.offsetY,
+      };
+    }
+
+    function mapPositionToProjected(projection, position) {
+      return mapPixelToProjected(
+        projection,
+        Number(position.x) * projection.cellSize,
+        Number(position.y) * projection.cellSize,
+      );
+    }
+
+    function drawInProjectedMapSpace(context, projection, draw) {
+      context.save();
+      context.translate(projection.offsetX, projection.offsetY);
+      context.rotate(projection.angleRadians);
+      draw();
+      context.restore();
+    }
+
+    function sizeProjectedMapLayer(element, projection) {
+      if (element instanceof HTMLCanvasElement) {
+        element.width = projection.canvasWidth;
+        element.height = projection.canvasHeight;
+      }
+      element.dataset.mapProjection = 'rotate(-45deg)';
+      element.dataset.mapProjectionAngleDegrees = String(projection.angleDegrees);
+      element.dataset.mapProjectionCanvas = `${projection.canvasWidth}x${projection.canvasHeight}`;
+      element.dataset.mapProjectionSource = `${projection.widthTiles}x${projection.heightTiles}`;
+      element.style.setProperty('--map-ratio', `${projection.canvasWidth} / ${projection.canvasHeight}`);
+    }
 
     function mapTreeVisualStyleForTerrain(terrainId) {
       return mapTreeVisualStyles.get(Number(terrainId)) ?? defaultMapTreeVisualStyle;
@@ -2174,6 +2513,38 @@
         return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
       }
 
+      function gameplayUnitPositionHorizonSeconds(unit) {
+        const explicit = Number(unit.position_horizon_seconds);
+        if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+        return unit.worker || unit.category === 'villagers' ? 600 : 360;
+      }
+
+      function gameplayUnitRetiredPositionBetween(unit, fromExclusive, toInclusive) {
+        return (unit.position_retirements ?? [])
+          .some((row) => {
+            const time = Number(row.time);
+            return Number.isFinite(time) && time > fromExclusive + .001 && time <= toInclusive + .001;
+          });
+      }
+
+      function gameplayUnitPositionKnownAt(unit, seconds) {
+        const evidenceTimes = [];
+        const birthTime = Number(unit.birth_time);
+        const visibleUntil = Number(unit.visible_until ?? Infinity);
+        if (!Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) return false;
+        if (gameplayUnitPoint(unit.birth_position)) evidenceTimes.push(birthTime);
+        (unit.motion_segments ?? []).forEach((segment) => {
+          const time = Number(segment.to_time);
+          if (gameplayUnitPoint(segment.to) && Number.isFinite(time) && time <= seconds + .001) {
+            evidenceTimes.push(time);
+          }
+        });
+        if (!evidenceTimes.length) return false;
+        const latestEvidenceTime = Math.max(...evidenceTimes);
+        if (seconds - latestEvidenceTime > gameplayUnitPositionHorizonSeconds(unit) + .001) return false;
+        return !gameplayUnitRetiredPositionBetween(unit, latestEvidenceTime, seconds);
+      }
+
       function sidePanelUnitPositionInventory(player, seconds, producedTotal, queuedTotal, currentMapTotal) {
         const sidePanelAggregate = producedTotal + queuedTotal;
         if (!gameplayUnits.length) {
@@ -2194,7 +2565,7 @@
           const visibleUntil = Number(unit.visible_until ?? Infinity);
           return Number.isFinite(birthTime) && birthTime <= seconds && seconds <= visibleUntil;
         });
-        const activePositionKnown = activeUnits.filter((unit) => gameplayUnitPoint(unit.birth_position)).length;
+        const activePositionKnown = activeUnits.filter((unit) => gameplayUnitPositionKnownAt(unit, seconds)).length;
         const activePositionUnknown = activeUnits.length - activePositionKnown;
         const lifecycleFiltered = playerUnits.filter((unit) => {
           const birthTime = Number(unit.birth_time);
@@ -2774,6 +3145,7 @@
             currentMapTotal,
           );
           const unitPositionInventoryText = unitRemainderClassificationText(unitPositionInventory);
+          const unitCompletionsMethodology = economy.methodology?.unit_completions ?? '';
           state.unitsSummary.textContent = 'Units';
           state.unitsSummary.title = unitSummaryAccessibleDescription(
             producedTotal,
@@ -2803,8 +3175,8 @@
             visibleUnits,
             state.playerUnitStats,
             statSnapshot,
-            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count with credible in-bounds positions from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${economy.methodology.unit_completions}`,
-            economy.methodology.unit_completions,
+            `${unitStatsCaveat} Side/map classification: ${unitPositionInventoryText}. Total built/produced is estimated queue birth count and excludes starting units; queued is active queue intent remaining before estimated completion or observed unqueue; current map-position is the classified individual marker count with credible in-bounds positions from the worker timeline. Actors absent from active unexpired position evidence are position-unknown, not confirmed dead, and this is not complete army population. Technology completion times are estimates. ${unitCompletionsMethodology}`,
+            unitCompletionsMethodology,
             state.unitSpriteImages,
           );
           state.unitsValue.dataset.hudCurrentMapTotal = String(currentMapTotal);
@@ -2850,67 +3222,12 @@
       let lastFrame = null;
       const playbackSpeeds = [4, 10, 30];
       let speedIndex = playbackSpeeds.indexOf(30);
-      const mapScales = [1, 2, 3];
-      let mapScaleIndex = 0;
       function updateSpeedButton() {
         const speed = playbackSpeeds[speedIndex];
         const nextSpeed = playbackSpeeds[(speedIndex + 1) % playbackSpeeds.length];
         timelineSpeed.textContent = `${speed}×`;
         timelineSpeed.dataset.speed = String(speed);
         timelineSpeed.setAttribute('aria-label', `Playback speed: ${speed}×. Activate for ${nextSpeed}×.`);
-      }
-      function updateMapScaleDiagnostics(scale, widthFormula) {
-        const elements = [
-          timelinePlayers,
-          timelineSection,
-          mapStack,
-          mapViewport,
-          mapLegendDetails,
-          mapLegend,
-          mapCanvas,
-          resourceCanvas,
-          buildingCanvas,
-          gameplayCanvas,
-          spriteOverlay,
-        ];
-        elements.forEach((element) => {
-          if (!element) return;
-          element.dataset.mapScale = String(scale);
-          element.dataset.mapScaleWidth = widthFormula;
-        });
-        requestAnimationFrame(() => {
-          const renderedWidth = `${Math.round(mapStack.getBoundingClientRect().width)}px`;
-          [
-            timelinePlayers,
-            timelineSection,
-            mapStack,
-            mapViewport,
-            mapLegendDetails,
-            mapLegend,
-          ].forEach((element) => {
-            if (!element) return;
-            element.dataset.mapRenderedWidth = renderedWidth;
-          });
-          [mapCanvas, resourceCanvas, buildingCanvas, gameplayCanvas, spriteOverlay].forEach((element) => {
-            if (!element) return;
-            element.dataset.mapRenderedWidth = `${Math.round(element.getBoundingClientRect().width)}px`;
-          });
-        });
-      }
-      function updateMapSizeButton() {
-        const scale = mapScales[mapScaleIndex];
-        const nextScale = mapScales[(mapScaleIndex + 1) % mapScales.length];
-        const widthFormula = `${scale}x transform`;
-        setMapZoom(scale);
-        timelineMapSize.textContent = 'Zoom';
-        timelineMapSize.dataset.mapScale = String(scale);
-        timelineMapSize.dataset.nextMapScale = String(nextScale);
-        timelineMapSize.setAttribute(
-          'aria-label',
-          `Map zoom: ${scale === 1 ? 'fit' : `${scale}x`}. Activate for ${nextScale === 1 ? 'fit' : `${nextScale}x`}.`,
-        );
-        timelineMapSize.title = `Map zoom ${scale === 1 ? 'fit' : `${scale}x`}`;
-        updateMapScaleDiagnostics(scale, widthFormula);
       }
       function setPlaying(value) {
         playing = value;
@@ -2937,14 +3254,9 @@
         lastFrame = null;
         updateSpeedButton();
       });
-      timelineMapSize.addEventListener('click', () => {
-        mapScaleIndex = (mapScaleIndex + 1) % mapScales.length;
-        updateMapSizeButton();
-        requestAnimationFrame(() => updateTimeline(Number(timelineSlider.value || 0)));
-      });
       updateSpeedButton();
-      updateMapSizeButton();
-      updateTimeline(0);
+      updateMapScaleDiagnostics();
+      updateTimeline(duration);
     }
 
     function schemaShape(schema) {
@@ -2989,6 +3301,7 @@
     function renderGameplay(game, lifetimes, economy, mapResources, resourceEstimates, unitStats, gameplayTimeline) {
       const cellSize = 6;
       const dimension = game.match.map.dimension;
+      const mapProjection = mapResources.projection ?? createMapProjection(dimension, dimension, cellSize);
       const resourceContext = resourceCanvas.getContext('2d');
       const buildingContext = buildingCanvas.getContext('2d');
       const context = gameplayCanvas.getContext('2d');
@@ -3050,6 +3363,9 @@
       const gameplayTimelineUnits = gameplayTimeline?.schema === 'aoe-sim.dataview-gameplay-timeline/v1'
         ? (gameplayTimeline.units ?? [])
         : [];
+      const gameplayTimelinePositionedUnits = gameplayTimelineUnits
+        .filter((unit) => mapPositionIsCredible(timelinePoint(unit.birth_position)));
+      const gameplayTimelinePositionUnknownUnits = gameplayTimelineUnits.length - gameplayTimelinePositionedUnits.length;
 
       const mapEvents = lifetimes.map_events;
       const buildingEvents = economy.building_placements;
@@ -3717,9 +4033,11 @@
       const depletions = lifetimes.inferred_depletions;
 
 
-      [resourceCanvas, buildingCanvas, gameplayCanvas].forEach((canvas) => {
-        canvas.width = dimension * cellSize;
-        canvas.height = dimension * cellSize;
+      [resourceCanvas, buildingCanvas, gameplayCanvas, spriteOverlay].forEach((element) => {
+        sizeProjectedMapLayer(element, mapProjection);
+      });
+      [resourceContext, buildingContext, context].forEach((layerContext) => {
+        layerContext.imageSmoothingEnabled = false;
       });
       mapCanvas.dataset.layer = 'terrain';
       resourceCanvas.dataset.layer = 'resources';
@@ -3876,7 +4194,7 @@
       addTeamCommandLegend('→', 'Inferred straight-line visual direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; when two evidence-backed positions exist, their displayed position uses clearly labeled bounded straight-line visual interpolation and keeps exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
+      movementNote.textContent = `Individual unit markers are static generated silhouettes from the worker gameplay timeline when it is available; legacy command-position actor history remains a fallback for older data and command diagnostics only. Timeline births require producer or spawn position evidence to render on the map, while position-unknown births remain in totals without fabricated coordinates. When two evidence-backed endpoints exist, displayed marker positions use clearly labeled bounded straight-line visual interpolation and keep exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -4021,26 +4339,30 @@
       function drawBuilding(row, currentTime) {
         const name = buildingName(row);
         if (row.end_position) {
-          const startX = row.position.x * cellSize;
-          const startY = row.position.y * cellSize;
-          const endX = row.end_position.x * cellSize;
-          const endY = row.end_position.y * cellSize;
-          buildingContext.lineCap = 'square';
-          buildingContext.strokeStyle = '#111';
-          buildingContext.lineWidth = cellSize;
-          buildingContext.beginPath();
-          buildingContext.moveTo(startX, startY);
-          buildingContext.lineTo(endX, endY);
-          buildingContext.stroke();
-          buildingContext.strokeStyle = playerColors.get(row.player) ?? '#888';
-          buildingContext.lineWidth = Math.max(2, cellSize - 2);
-          buildingContext.stroke();
+          drawInProjectedMapSpace(buildingContext, mapProjection, () => {
+            const startX = row.position.x * cellSize;
+            const startY = row.position.y * cellSize;
+            const endX = row.end_position.x * cellSize;
+            const endY = row.end_position.y * cellSize;
+            buildingContext.lineCap = 'square';
+            buildingContext.strokeStyle = '#111';
+            buildingContext.lineWidth = cellSize;
+            buildingContext.beginPath();
+            buildingContext.moveTo(startX, startY);
+            buildingContext.lineTo(endX, endY);
+            buildingContext.stroke();
+            buildingContext.strokeStyle = playerColors.get(row.player) ?? '#888';
+            buildingContext.lineWidth = Math.max(2, cellSize - 2);
+            buildingContext.stroke();
+          });
           if (buildingNeedsIcon(name)) {
+            const start = mapPositionToProjected(mapProjection, row.position);
+            const end = mapPositionToProjected(mapProjection, row.end_position);
             drawBuildingIcon(
               name,
-              (startX + endX) / 2,
-              (startY + endY) / 2,
-              Math.max(cellSize, Math.hypot(endX - startX, endY - startY)),
+              (start.x + end.x) / 2,
+              (start.y + end.y) / 2,
+              Math.max(cellSize, Math.hypot(end.x - start.x, end.y - start.y)),
               cellSize * 2,
             );
           }
@@ -4053,35 +4375,40 @@
         const height = tilesHigh * cellSize;
         const left = row.position.x * cellSize - width / 2;
         const top = row.position.y * cellSize - height / 2;
+        const center = mapPositionToProjected(mapProjection, row.position);
         const farmStatus = farmEstimateStatus(row, currentTime);
         if (farmStatus && !farmStatus.active) {
-          buildingContext.globalAlpha = .35;
-          buildingContext.fillStyle = 'rgba(120, 120, 120, .18)';
-          buildingContext.fillRect(left, top, width, height);
-          buildingContext.globalAlpha = 1;
-          buildingContext.strokeStyle = '#333';
-          buildingContext.setLineDash([2, 2]);
-          buildingContext.strokeRect(left + .5, top + .5, Math.max(1, width - 1), Math.max(1, height - 1));
-          buildingContext.setLineDash([]);
+          drawInProjectedMapSpace(buildingContext, mapProjection, () => {
+            buildingContext.globalAlpha = .35;
+            buildingContext.fillStyle = 'rgba(120, 120, 120, .18)';
+            buildingContext.fillRect(left, top, width, height);
+            buildingContext.globalAlpha = 1;
+            buildingContext.strokeStyle = '#333';
+            buildingContext.setLineDash([2, 2]);
+            buildingContext.strokeRect(left + .5, top + .5, Math.max(1, width - 1), Math.max(1, height - 1));
+            buildingContext.setLineDash([]);
+          });
           if (buildingNeedsIcon(name)) {
             buildingContext.save();
             buildingContext.globalAlpha = .45;
-            drawBuildingIcon(name, left + width / 2, top + height / 2, width, height);
+            drawBuildingIcon(name, center.x, center.y, width, height);
             buildingContext.restore();
           }
           return;
         }
-        buildingContext.globalAlpha = farmStatus?.inferred ? .65 : .5;
-        buildingContext.fillStyle = name.toLowerCase() === 'farm'
-          ? (farmStatus?.inferred ? 'rgba(90, 118, 54, .65)' : '#777')
-          : (playerColors.get(row.player) ?? '#888');
-        buildingContext.fillRect(left, top, width, height);
-        buildingContext.globalAlpha = 1;
-        buildingContext.strokeStyle = '#111';
-        buildingContext.lineWidth = 1;
-        buildingContext.strokeRect(left + .5, top + .5, Math.max(1, width - 1), Math.max(1, height - 1));
+        drawInProjectedMapSpace(buildingContext, mapProjection, () => {
+          buildingContext.globalAlpha = farmStatus?.inferred ? .65 : .5;
+          buildingContext.fillStyle = name.toLowerCase() === 'farm'
+            ? (farmStatus?.inferred ? 'rgba(90, 118, 54, .65)' : '#777')
+            : (playerColors.get(row.player) ?? '#888');
+          buildingContext.fillRect(left, top, width, height);
+          buildingContext.globalAlpha = 1;
+          buildingContext.strokeStyle = '#111';
+          buildingContext.lineWidth = 1;
+          buildingContext.strokeRect(left + .5, top + .5, Math.max(1, width - 1), Math.max(1, height - 1));
+        });
         if (buildingNeedsIcon(name)) {
-          drawBuildingIcon(name, left + width / 2, top + height / 2, width, height);
+          drawBuildingIcon(name, center.x, center.y, width, height);
         }
       }
 
@@ -4089,13 +4416,14 @@
         const range = buildingAttackRange(buildingName(row));
         if (!range) return;
         const color = playerColors.get(row.player ?? row.owner) ?? '#aaa';
+        const point = mapPositionToProjected(mapProjection, row.position);
         buildingContext.save();
         buildingContext.globalAlpha = .3;
         buildingContext.strokeStyle = color;
         buildingContext.lineWidth = 1;
         buildingContext.setLineDash([3, 3]);
         buildingContext.beginPath();
-        buildingContext.arc(row.position.x * cellSize, row.position.y * cellSize, range * cellSize, 0, Math.PI * 2);
+        buildingContext.arc(point.x, point.y, range * cellSize, 0, Math.PI * 2);
         buildingContext.stroke();
         buildingContext.restore();
       }
@@ -4143,8 +4471,8 @@
       function drawRecentEvent(row, currentTime) {
         const position = row.position;
         if (!position) return;
-        const x = position.x * cellSize;
-        const y = position.y * cellSize;
+        const point = mapPositionToProjected(mapProjection, position);
+        const { x, y } = point;
         const age = currentTime - row.time;
         const fadeDuration = row.kind === 'gather'
           ? (row.commandDisplayLifetime ?? gatherEventLifetime(row))
@@ -4197,10 +4525,12 @@
       function drawCommandArrow(row, currentTime) {
         const age = currentTime - row.time;
         if (age < 0 || age >= row.lifetime) return;
-        const startX = row.from.x * cellSize;
-        const startY = row.from.y * cellSize;
-        const endX = row.to.x * cellSize;
-        const endY = row.to.y * cellSize;
+        const start = mapPositionToProjected(mapProjection, row.from);
+        const end = mapPositionToProjected(mapProjection, row.to);
+        const startX = start.x;
+        const startY = start.y;
+        const endX = end.x;
+        const endY = end.y;
         const angle = Math.atan2(endY - startY, endX - startX);
         const length = Math.hypot(endX - startX, endY - startY);
         if (length < 2) return;
@@ -4238,8 +4568,8 @@
       }
 
       function drawGatherPoint(row) {
-        const x = row.position.x * cellSize;
-        const y = row.position.y * cellSize;
+        const point = mapPositionToProjected(mapProjection, row.position);
+        const { x, y } = point;
         const color = playerColors.get(row.player) ?? '#fff';
         context.globalAlpha = 1;
         context.strokeStyle = '#111';
@@ -4272,15 +4602,15 @@
 
       function drawViewlock(row) {
         const size = viewlockSquareTiles * cellSize;
-        const x = row.position.x * cellSize;
-        const y = row.position.y * cellSize;
-        context.save();
-        context.globalAlpha = .46;
-        context.strokeStyle = playerColors.get(row.player) ?? '#fff';
-        context.lineWidth = 1.25;
-        context.setLineDash([5, 4]);
-        context.strokeRect(x - size / 2, y - size / 2, size, size);
-        context.restore();
+        drawInProjectedMapSpace(context, mapProjection, () => {
+          const x = row.position.x * cellSize;
+          const y = row.position.y * cellSize;
+          context.globalAlpha = .46;
+          context.strokeStyle = playerColors.get(row.player) ?? '#fff';
+          context.lineWidth = 1.25;
+          context.setLineDash([5, 4]);
+          context.strokeRect(x - size / 2, y - size / 2, size, size);
+        });
       }
 
       function placementKey(row) {
@@ -5530,11 +5860,33 @@
         return unit.birth_evidence_class ?? 'unclassified';
       }
 
+      function unitTimelinePositionHorizonSeconds(unit) {
+        const explicit = Number(unit.position_horizon_seconds);
+        if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+        return unit.worker || unit.category === 'villagers' ? 600 : 360;
+      }
+
+      function unitTimelineFirstRetirementBetween(unit, fromExclusive, toInclusive) {
+        return (unit.position_retirements ?? [])
+          .map((row) => ({ ...row, time: Number(row.time) }))
+          .filter((row) =>
+            Number.isFinite(row.time)
+            && row.time > fromExclusive + .001
+            && row.time <= toInclusive + .001)
+          .sort((a, b) => a.time - b.time || String(a.kind).localeCompare(String(b.kind)))[0] ?? null;
+      }
+
+      function unitTimelinePositionFreshAt(unit, evidenceTime, seconds) {
+        if (!Number.isFinite(evidenceTime) || !Number.isFinite(seconds)) return false;
+        if (seconds - evidenceTime > unitTimelinePositionHorizonSeconds(unit) + .001) return false;
+        return !unitTimelineFirstRetirementBetween(unit, evidenceTime, seconds);
+      }
+
       function unitTimelineInterpolationState(unit, seconds) {
         const birthTime = Number(unit.birth_time);
         const visibleUntil = Number(unit.visible_until ?? Infinity);
         const birthPosition = timelinePoint(unit.birth_position);
-        if (!birthPosition || !Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) {
+        if (!Number.isFinite(birthTime) || seconds + .001 < birthTime || seconds > visibleUntil) {
           return null;
         }
         let current = birthPosition;
@@ -5550,7 +5902,9 @@
         let timeBound = 'birth';
         let distanceTiles = 0;
         let travelTimeSeconds = 0;
-        for (const segment of unit.motion_segments ?? []) {
+        let latestPositionEvidenceTime = birthPosition ? birthTime : null;
+        for (const segment of [...unit.motion_segments ?? []]
+          .sort((a, b) => Number(a.to_time) - Number(b.to_time) || Number(a.from_time) - Number(b.from_time))) {
           const from = timelinePoint(segment.from);
           const to = timelinePoint(segment.to);
           const rawFromTime = Number(segment.from_time);
@@ -5565,11 +5919,14 @@
           const segmentTimeBound = segment.time_bound ?? (segmentDuration > .001 ? 'replay-timestamp' : 'instant');
           const segmentDistanceTiles = Number(segment.distance_tiles ?? Math.hypot(to.x - from.x, to.y - from.y));
           const segmentTravelTimeSeconds = Number(segment.travel_time_seconds ?? segmentDuration);
-          if (seconds < segmentFromTime) {
-            current = from;
+          if (!current || latestPositionEvidenceTime === null) {
+            if (seconds + .001 < segmentToTime) return null;
+            current = to;
             destination = to;
-            status = 'waiting-for-interpolation';
-            progress = 0;
+            status = segmentKind === 'instant-evidence-update'
+              ? 'instant-evidence-update'
+              : 'arrived-at-evidence-time';
+            progress = 1;
             segmentEvidence = segment.interpolation_evidence_class ?? segmentEvidence;
             fromPosition = from;
             toPosition = to;
@@ -5579,9 +5936,34 @@
             timeBound = segmentTimeBound;
             distanceTiles = Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
             travelTimeSeconds = Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
+            latestPositionEvidenceTime = segmentToTime;
+            continue;
+          }
+          if (seconds < segmentFromTime) {
+            if (!unitTimelinePositionFreshAt(unit, latestPositionEvidenceTime, seconds)) return null;
+            const awaitingInstantUpdate = segmentDuration <= .001 || segmentKind === 'instant-evidence-update';
+            destination = awaitingInstantUpdate ? current : to;
+            status = awaitingInstantUpdate ? status : 'waiting-for-interpolation';
+            progress = awaitingInstantUpdate ? progress : 0;
+            segmentEvidence = awaitingInstantUpdate
+              ? segmentEvidence
+              : segment.interpolation_evidence_class ?? segmentEvidence;
+            fromPosition = awaitingInstantUpdate ? current : from;
+            toPosition = awaitingInstantUpdate ? current : to;
+            fromTime = awaitingInstantUpdate ? latestPositionEvidenceTime : segmentFromTime;
+            toTime = awaitingInstantUpdate ? latestPositionEvidenceTime : segmentToTime;
+            interpolationKind = awaitingInstantUpdate ? interpolationKind : segmentKind;
+            timeBound = awaitingInstantUpdate ? timeBound : segmentTimeBound;
+            distanceTiles = awaitingInstantUpdate
+              ? distanceTiles
+              : Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
+            travelTimeSeconds = awaitingInstantUpdate
+              ? travelTimeSeconds
+              : Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
             break;
           }
           if (segmentDuration > .001 && seconds < segmentToTime) {
+            if (!unitTimelinePositionFreshAt(unit, latestPositionEvidenceTime, segmentFromTime)) return null;
             const segmentProgress = Math.max(0, Math.min(1, (seconds - segmentFromTime) / segmentDuration));
             return {
               current: timelineInterpolatedPoint(from, to, segmentProgress),
@@ -5616,7 +5998,10 @@
           timeBound = segmentTimeBound;
           distanceTiles = Number.isFinite(segmentDistanceTiles) ? segmentDistanceTiles : 0;
           travelTimeSeconds = Number.isFinite(segmentTravelTimeSeconds) ? segmentTravelTimeSeconds : segmentDuration;
+          latestPositionEvidenceTime = segmentToTime;
         }
+        if (!current || latestPositionEvidenceTime === null) return null;
+        if (!unitTimelinePositionFreshAt(unit, latestPositionEvidenceTime, seconds)) return null;
         return {
           current,
           from: fromPosition,
@@ -5632,56 +6017,6 @@
           distanceTiles,
           travelTimeSeconds,
         };
-      }
-
-      const commandMappedSupplementalCategoryKeys = new Set(categoryDefinitions.map((definition) => definition.key));
-
-      function assignmentSourceActorKey(assignment) {
-        const sourceActorId = numericId(assignment.sourceActorId ?? assignment.instanceId);
-        return sourceActorId === null ? '' : `${assignment.player}:${sourceActorId}`;
-      }
-
-      function shouldSupplementCommandMappedAssignment(assignment, representedActorKeys) {
-        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey);
-        const category = assignment.category ?? unitCategoryForMapSpriteKey(spriteKey);
-        return Boolean(
-          assignment.mapRendered
-            && assignment.positionCredible
-            && spriteKey
-            && spriteKey !== 'unknown'
-            && category
-            && category !== 'villagers'
-            && commandMappedSupplementalCategoryKeys.has(category)
-            && assignmentSourceActorKey(assignment)
-            && !representedActorKeys.has(assignmentSourceActorKey(assignment)),
-        );
-      }
-
-      function supplementCommandMappedAssignment(assignment) {
-        const sourceActorKey = assignmentSourceActorKey(assignment);
-        const stableId = assignment.stableId ?? sourceActorKey ?? `${assignment.player}:${assignment.instanceId}`;
-        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey);
-        return Object.freeze({
-          ...assignment,
-          stableId,
-          markerKey: `command:${stableId}`,
-          spriteKey,
-          category: assignment.category ?? unitCategoryForMapSpriteKey(spriteKey),
-          supplementalSource: 'command-mapped-actor',
-          birthTime: Number.isFinite(assignment.partyTime) ? assignment.partyTime : 0,
-          birthEvidenceClass: 'simulated',
-          birthConfirmation: 'command-position-estimate',
-          producerId: null,
-          queueId: null,
-          reconciliationStatus: 'command-mapped-actor',
-          interpolationEvidenceClass: assignment.interpolationEvidenceClass ?? 'simulated',
-          interpolationKind: assignment.interpolationKind ?? 'legacy-command-segment',
-          interpolationTimeBound: assignment.interpolationTimeBound ?? 'command-bounded',
-          interpolationFromTime: assignment.interpolationFromTime ?? assignment.partyTime ?? null,
-          interpolationToTime: assignment.interpolationToTime ?? assignment.partyTime ?? null,
-          interpolationDistanceTiles: assignment.interpolationDistanceTiles ?? null,
-          interpolationTravelTimeSeconds: assignment.interpolationTravelTimeSeconds ?? null,
-        });
       }
 
       function timelineIndividualUnitAssignments(seconds) {
@@ -5759,6 +6094,9 @@
             birthTime: Number(unit.birth_time),
             birthEvidenceClass: unit.birth_evidence_class,
             birthConfirmation: unit.birth_confirmation,
+            positionHorizonSeconds: unitTimelinePositionHorizonSeconds(unit),
+            positionValidUntil: Number(unit.position_valid_until ?? Infinity),
+            positionEndReason: unit.position_end_reason ?? '',
             producerId: unit.producer_id ?? null,
             queueId: unit.queue_id ?? null,
             reconciliationStatus: unit.reconciliation?.status ?? '',
@@ -5766,16 +6104,50 @@
         }));
       }
 
+      function activeIndividualUnitIdentityKey(assignment) {
+        const actorId = numericId(assignment.sourceActorId ?? assignment.instanceId);
+        return actorId === null
+          ? `stable:${assignment.player}:${assignment.stableId ?? assignment.markerKey ?? assignment.instanceId}`
+          : `actor:${assignment.player}:${actorId}`;
+      }
+
+      function assignmentEvidenceRank(assignment) {
+        const quality = assignment.evidenceQuality ?? 'unclassified';
+        if (quality === 'observed') return 0;
+        if (quality === 'reconciled') return 1;
+        if (quality === 'simulated') return 2;
+        if (quality === 'anonymous') return 3;
+        if (quality === 'ambiguous') return 4;
+        return 5;
+      }
+
+      function dedupeActiveIndividualUnitAssignments(assignments) {
+        const selected = new Map();
+        assignments.forEach((assignment) => {
+          const key = activeIndividualUnitIdentityKey(assignment);
+          const previous = selected.get(key);
+          if (!previous) {
+            selected.set(key, assignment);
+            return;
+          }
+          const preference = assignmentEvidenceRank(assignment) - assignmentEvidenceRank(previous)
+            || Number(previous.birthTime ?? 0) - Number(assignment.birthTime ?? 0)
+            || String(assignment.markerKey ?? '').localeCompare(String(previous.markerKey ?? ''), undefined, { numeric: true });
+          if (preference < 0) selected.set(key, assignment);
+        });
+        return Object.freeze([...selected.values()]
+          .sort((a, b) => activeIndividualUnitIdentityKey(a).localeCompare(
+            activeIndividualUnitIdentityKey(b),
+            undefined,
+            { numeric: true },
+          )));
+      }
+
       function activeIndividualUnitAssignments(seconds) {
-        if (!gameplayTimelineUnits.length) return activeMappedActorAssignments(seconds);
-        const timelineAssignments = timelineIndividualUnitAssignments(seconds);
-        const representedActorKeys = new Set(
-          timelineAssignments.map(assignmentSourceActorKey).filter(Boolean),
-        );
-        const supplementalAssignments = activeMappedActorAssignments(seconds)
-          .filter((assignment) => shouldSupplementCommandMappedAssignment(assignment, representedActorKeys))
-          .map(supplementCommandMappedAssignment);
-        return Object.freeze([...timelineAssignments, ...supplementalAssignments]);
+        const assignments = gameplayTimelineUnits.length
+          ? timelineIndividualUnitAssignments(seconds)
+          : activeMappedActorAssignments(seconds);
+        return dedupeActiveIndividualUnitAssignments(assignments);
       }
 
       function partyComposition(members, villagerTaskAssignment = null, villagerTaskState = null) {
@@ -6272,7 +6644,7 @@
       function unitMarkerTitle(assignment) {
         const stackCount = Number(assignment.stackCount ?? 1);
         const stackTitle = stackCount > 1
-          ? `Stack: ${stackCount} same-category ${assignment.spriteCategory || assignment.category || 'unit'} markers at this position; members ${assignment.stackMemberIds.join(', ')}; evidence ${assignment.stackEvidenceSplit}.`
+          ? `Stack: ${stackCount} compatible ${assignment.unitName || assignment.spriteCategory || assignment.category || 'unit'} markers at this evidence position; members ${assignment.stackMemberIds.join(', ')}; evidence ${assignment.stackEvidenceSplit}.`
           : '';
         const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
         const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
@@ -6283,6 +6655,7 @@
           `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
           assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
           `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(interpolationTo)}.`,
+          `Position horizon: ${formatStatNumber(assignment.positionHorizonSeconds ?? 0)}s; final valid-until ${formatEstimatedTimelineTime(assignment.positionValidUntil)}; ${assignment.positionEndReason || 'position remains within current evidence horizon'}.`,
           `Visual interpolation: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; from ${formatMapPosition(interpolationFrom)} to ${formatMapPosition(interpolationTo)}; ${assignment.interpolationKind ?? 'legacy'}; ${assignment.interpolationTimeBound ?? 'unbounded'}; terrain avoidance false.`,
           'Static DOM marker; no animated GIF/WebP bytes or animated sprite frames.',
         ].filter(Boolean).join(' ');
@@ -6324,11 +6697,17 @@
       function updateIndividualUnitMarker(marker, assignment, scale) {
         const uniformScale = Math.min(scale.x, scale.y) || 1;
         const teamColor = playerColors.get(assignment.player) ?? '#888';
+        const projectedPosition = mapPositionToProjected(mapProjection, assignment.position);
         const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
         const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
         const interpolationProgress = assignment.interpolationProgress ?? 1;
-        marker.style.left = `${assignment.position.x * cellSize * scale.x}px`;
-        marker.style.top = `${assignment.position.y * cellSize * scale.y}px`;
+        const stackOffset = individualUnitStackLayoutOffset(
+          assignment.stackLayoutIndex ?? 0,
+          assignment.stackLayoutCount ?? 1,
+          uniformScale,
+        );
+        marker.style.left = `${projectedPosition.x * scale.x + stackOffset.x}px`;
+        marker.style.top = `${projectedPosition.y * scale.y + stackOffset.y}px`;
         marker.style.setProperty('--player-color', teamColor);
         marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
         marker.style.setProperty('--unit-marker-size', `${Math.max(22, 26 * uniformScale)}px`);
@@ -6344,9 +6723,15 @@
         marker.dataset.reconciliationStatus = assignment.reconciliationStatus ?? '';
         marker.dataset.birthTime = formatStatNumber(assignment.birthTime, 3);
         marker.dataset.birthEvidenceClass = assignment.birthEvidenceClass ?? '';
+        marker.dataset.positionHorizonSeconds = formatStatNumber(assignment.positionHorizonSeconds ?? 0, 3);
+        marker.dataset.positionValidUntil = Number.isFinite(assignment.positionValidUntil)
+          ? formatStatNumber(assignment.positionValidUntil, 3)
+          : '';
+        marker.dataset.positionEndReason = assignment.positionEndReason ?? '';
         marker.dataset.producerId = assignment.producerId === null ? '' : String(assignment.producerId);
         marker.dataset.queueId = assignment.queueId ?? '';
         marker.dataset.position = formatMapPosition(assignment.position);
+        marker.dataset.projectedPosition = `${formatStatNumber(projectedPosition.x, 3)},${formatStatNumber(projectedPosition.y, 3)}`;
         marker.dataset.positionCredible = String(Boolean(assignment.positionCredible ?? mapPositionIsCredible(assignment.position)));
         marker.dataset.commandDestination = formatMapPosition(assignment.commandDestination);
         marker.dataset.interpolationCurrent = formatMapPosition(assignment.position);
@@ -6372,6 +6757,12 @@
         marker.dataset.staticMapMarker = 'true';
         marker.dataset.animatedSpriteFrames = 'false';
         marker.dataset.stackCount = String(assignment.stackCount ?? 1);
+        marker.dataset.stackAnchorPosition = formatMapPosition(assignment.position);
+        marker.dataset.stackAnchorPositionKey = assignment.stackAnchorPositionKey ?? '';
+        marker.dataset.stackUnitTypeKey = assignment.stackUnitTypeKey ?? '';
+        marker.dataset.stackLayoutIndex = String(assignment.stackLayoutIndex ?? 0);
+        marker.dataset.stackLayoutCount = String(assignment.stackLayoutCount ?? 1);
+        marker.dataset.stackOffsetPx = `${formatStatNumber(stackOffset.x, 3)},${formatStatNumber(stackOffset.y, 3)}`;
         marker.dataset.stackMemberIds = assignment.stackMemberIds.join(',');
         marker.dataset.stackMemberKeys = assignment.stackMemberKeys.join(',');
         marker.dataset.stackEvidenceSplit = assignment.stackEvidenceSplit;
@@ -6458,6 +6849,19 @@
         return `${Number(position.x).toFixed(2)}:${Number(position.y).toFixed(2)}`;
       }
 
+      function individualUnitTypeStackKey(assignment, spriteKey) {
+        const unitId = numericId(assignment.resolvedUnitId ?? assignment.unitIdentity?.unit_id);
+        if (unitId !== null) return `unit:${unitId}`;
+        const name = normalizedLookupName(
+          assignment.unitName
+            || assignment.referenceUnitName
+            || assignment.unitIdentity?.name
+            || '',
+        );
+        if (name) return `name:${name}`;
+        return `sprite:${spriteKey}`;
+      }
+
       function individualUnitMarkerIdentityKey(assignment) {
         return String(
           assignment.markerKey
@@ -6472,25 +6876,58 @@
           || String(left.instanceId).localeCompare(String(right.instanceId));
       }
 
+      function individualUnitStackGroupSort(left, right) {
+        return Number(left.player) - Number(right.player)
+          || String(left.stackUnitTypeKey).localeCompare(String(right.stackUnitTypeKey), undefined, { numeric: true })
+          || String(left.spriteKey).localeCompare(String(right.spriteKey))
+          || String(left.category).localeCompare(String(right.category))
+          || String(left.markerKey).localeCompare(String(right.markerKey), undefined, { numeric: true });
+      }
+
+      function individualUnitStackLayoutOffset(index, count, uniformScale) {
+        if (count <= 1) return { x: 0, y: 0 };
+        const spacing = Math.max(24, 28 * uniformScale);
+        if (count <= 6) {
+          return {
+            x: (index - (count - 1) / 2) * spacing,
+            y: 0,
+          };
+        }
+        const columns = Math.min(4, Math.ceil(Math.sqrt(count)));
+        const rows = Math.ceil(count / columns);
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        return {
+          x: (column - (columns - 1) / 2) * spacing,
+          y: (row - (rows - 1) / 2) * spacing,
+        };
+      }
+
       function individualUnitStackGroups(assignments) {
         const groups = new Map();
         assignments.filter((assignment) => assignment.mapRendered).forEach((assignment) => {
           const spriteKey = canonicalMapSpriteKey(assignment.spriteKey) ?? 'unknown';
           const category = assignment.category ?? unitCategoryForMapSpriteKey(spriteKey) ?? 'unknown';
+          const positionKey = individualUnitStackPositionKey(assignment.position);
+          const unitTypeKey = individualUnitTypeStackKey(assignment, spriteKey);
           const key = [
             assignment.player,
+            unitTypeKey,
             category,
             spriteKey,
             assignment.villagerTaskAssignment ?? '',
-            individualUnitStackPositionKey(assignment.position),
+            positionKey,
           ].join(':');
           const group = groups.get(key) ?? [];
           group.push(assignment);
           groups.set(key, group);
         });
-        return [...groups.values()].map((group) => {
+        const stackGroups = [...groups.values()].map((group) => {
           const members = [...group].sort(individualUnitStackSort);
           const representative = members[0];
+          const spriteKey = canonicalMapSpriteKey(representative.spriteKey) ?? 'unknown';
+          const stackUnitTypeKey = individualUnitTypeStackKey(representative, spriteKey);
+          const stackAnchorPositionKey = individualUnitStackPositionKey(representative.position);
           const stackMemberKeys = members.map(individualUnitMarkerIdentityKey);
           const stackMemberIds = members.map((member) => String(member.instanceId));
           const evidenceCounts = new Map();
@@ -6501,6 +6938,8 @@
           return Object.freeze({
             ...representative,
             markerKey: members.length === 1 ? individualUnitMarkerIdentityKey(representative) : `stack:${stackMemberKeys.join('|')}`,
+            stackAnchorPositionKey,
+            stackUnitTypeKey,
             stackCount: members.length,
             stackMemberKeys,
             stackMemberIds,
@@ -6509,6 +6948,20 @@
               .map(([evidence, count]) => `${evidence}:${count}`)
               .join(','),
           });
+        });
+        const byPosition = new Map();
+        stackGroups.forEach((group) => {
+          const rows = byPosition.get(group.stackAnchorPositionKey) ?? [];
+          rows.push(group);
+          byPosition.set(group.stackAnchorPositionKey, rows);
+        });
+        return [...byPosition.values()].flatMap((groupsAtPosition) => {
+          const sorted = [...groupsAtPosition].sort(individualUnitStackGroupSort);
+          return sorted.map((group, index) => Object.freeze({
+            ...group,
+            stackLayoutIndex: index,
+            stackLayoutCount: sorted.length,
+          }));
         });
       }
 
@@ -6697,8 +7150,8 @@
       }
 
       function drawMovementParty(party) {
-        const x = party.position.x * cellSize;
-        const y = party.position.y * cellSize;
+        const point = mapPositionToProjected(mapProjection, party.position);
+        const { x, y } = point;
         if (party.kind === 'attack') {
           const teamColor = playerColors.get(party.player) ?? '#888';
           context.save();
@@ -6750,15 +7203,14 @@
         let consumedGaiaFood = 0;
         treeResources.forEach((resource) => {
           const currentPosition = resourcePositionAt(resource, seconds);
-          const centerX = currentPosition.x * cellSize;
-          const centerY = currentPosition.y * cellSize;
+          const center = mapPositionToProjected(mapProjection, currentPosition);
           const depleted = depletedIds.has(resource.instance_id) || estimatedDepletedIds.has(resource.instance_id)
             || constructionDepletedIds.has(resource.instance_id);
           treeResourceDrawPixels += drawMapTreeResourceCanopy(
             resourceContext,
             resource.name,
-            centerX,
-            centerY,
+            center.x,
+            center.y,
             cellSize,
             depleted,
             [currentPosition.x, currentPosition.y, resource.name],
@@ -6768,8 +7220,7 @@
         });
         nonTreeResources.forEach((resource) => {
           const currentPosition = resourcePositionAt(resource, seconds);
-          const centerX = currentPosition.x * cellSize;
-          const centerY = currentPosition.y * cellSize;
+          const center = mapPositionToProjected(mapProjection, currentPosition);
           const animalStyle = mapResources.animalStyles.get(resource.name);
           if (animalStyle) {
             const isAnimal = mapResources.animalNames.has(resource.name);
@@ -6786,7 +7237,7 @@
               ? Math.max(0, 1 - (seconds - window.start) / 300)
               : 1;
             resourceContext.beginPath();
-            resourceContext.arc(centerX, centerY, 3.5, 0, Math.PI * 2);
+            resourceContext.arc(center.x, center.y, 3.5, 0, Math.PI * 2);
             resourceContext.fillStyle = animalStyle.color;
             resourceContext.fill();
             resourceContext.strokeStyle = animalStyle.color === '#111' ? '#fff' : '#111';
@@ -6799,7 +7250,7 @@
           resourceContext.globalAlpha = depletedIds.has(resource.instance_id) || estimatedDepletedIds.has(resource.instance_id)
             || constructionDepletedIds.has(resource.instance_id) ? .25 : 1;
           resourceContext.beginPath();
-          resourceContext.arc(centerX, centerY, 2.4, 0, Math.PI * 2);
+          resourceContext.arc(center.x, center.y, 2.4, 0, Math.PI * 2);
           resourceContext.fillStyle = style.color;
           resourceContext.fill();
           resourceContext.lineWidth = 1;
@@ -6808,8 +7259,8 @@
         });
         estimatedDepletedNodes.forEach((node) => {
           if (!node.position || depletedIds.has(node.instance_id)) return;
-          const x = node.position.x * cellSize;
-          const y = node.position.y * cellSize;
+          const point = mapPositionToProjected(mapProjection, node.position);
+          const { x, y } = point;
           resourceContext.strokeStyle = '#111';
           resourceContext.lineWidth = 2;
           resourceContext.setLineDash([2, 2]);
@@ -6823,8 +7274,8 @@
         });
         resourceContext.globalAlpha = 1;
         depletionRows.forEach((row) => {
-          const x = row.position.x * cellSize;
-          const y = row.position.y * cellSize;
+          const point = mapPositionToProjected(mapProjection, row.position);
+          const { x, y } = point;
           resourceContext.strokeStyle = '#111';
           resourceContext.lineWidth = 2;
           resourceContext.setLineDash([2, 2]);
@@ -6838,8 +7289,8 @@
 
         });
         activeConstructionDepletionPositions.forEach((position) => {
-          const x = position.x * cellSize;
-          const y = position.y * cellSize;
+          const point = mapPositionToProjected(mapProjection, position);
+          const { x, y } = point;
           resourceContext.strokeStyle = '#111';
           resourceContext.lineWidth = 2;
           resourceContext.setLineDash([2, 2]);
@@ -6870,8 +7321,8 @@
         visibleViewlocks.forEach(drawViewlock);
 
         lifetimes.players.forEach((player) => {
-          const x = player.start_position.x * cellSize;
-          const y = player.start_position.y * cellSize;
+          const point = mapPositionToProjected(mapProjection, player.start_position);
+          const { x, y } = point;
           context.strokeStyle = playerColors.get(player.number) ?? '#fff';
           context.lineWidth = 2;
           context.beginPath();
@@ -6970,6 +7421,12 @@
           .join(';');
         gameplayCanvas.dataset.visibleMovementPartyMembers = visibleMovementParties
           .reduce((sum, party) => sum + party.members.length, 0);
+        gameplayCanvas.dataset.individualUnitMarkerSource = gameplayTimelineUnits.length
+          ? 'gameplay-timeline-only'
+          : 'legacy-command-history-fallback';
+        gameplayCanvas.dataset.timelineUnits = String(gameplayTimelineUnits.length);
+        gameplayCanvas.dataset.timelinePositionedUnits = String(gameplayTimelinePositionedUnits.length);
+        gameplayCanvas.dataset.timelinePositionUnknownUnits = String(gameplayTimelinePositionUnknownUnits);
         gameplayCanvas.dataset.currentMappedActorAssignments = String(currentMappedAssignments.length);
         gameplayCanvas.dataset.currentMappedCrediblePositionAssignments = String(
           currentMappedAssignments.filter((assignment) =>
@@ -7190,6 +7647,9 @@
     function renderMap(map, gaia) {
       const cellSize = 6;
       const dimension = map.dimension;
+      const widthTiles = Math.max(1, Number(map.widthTiles ?? map.width ?? dimension) || dimension);
+      const heightTiles = Math.max(1, Number(map.heightTiles ?? map.height ?? dimension) || dimension);
+      const projection = createMapProjection(widthTiles, heightTiles, cellSize);
       const context = mapCanvas.getContext('2d');
       const terrainIds = [...new Set(map.tiles.map((tile) => tile.terrain))].sort((a, b) => a - b);
       const terrainTypes = new Map([
@@ -7233,64 +7693,73 @@
         .map((resource) => mapTileKeyForPosition(resource.position))
         .filter(Boolean));
 
-      mapCanvas.width = dimension * cellSize;
-      mapCanvas.height = dimension * cellSize;
+      sizeProjectedMapLayer(mapCanvas, projection);
       mapCanvas.dataset.tiles = map.tiles.length;
       mapCanvas.dataset.forestVisualStrategy = 'deterministic-floor-and-fallback-canopy';
       context.imageSmoothingEnabled = false;
+      context.fillStyle = '#101214';
+      context.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
 
       const forestTerrainTiles = [];
-      map.tiles.forEach((tile) => {
-        const left = tile.position.x * cellSize;
-        const top = tile.position.y * cellSize;
-        const terrain = terrainType(tile.terrain);
-        const isForestTerrain = terrain.role === 'trees';
-        context.fillStyle = isForestTerrain
-          ? elevateMapColor(mapTreeVisualStyleForTerrain(tile.terrain).floor, tile.elevation)
-          : terrain.color;
-        context.fillRect(left, top, cellSize, cellSize);
-        if (isForestTerrain) {
-          forestTerrainTiles.push(tile);
-          return;
-        }
-        if (tile.elevation > 0) {
-          const strength = Math.min(.42, tile.elevation * .18);
-          context.fillStyle = `rgba(255, 255, 255, ${strength})`;
+      drawInProjectedMapSpace(context, projection, () => {
+        map.tiles.forEach((tile) => {
+          const left = tile.position.x * cellSize;
+          const top = tile.position.y * cellSize;
+          const terrain = terrainType(tile.terrain);
+          const isForestTerrain = terrain.role === 'trees';
+          context.fillStyle = isForestTerrain
+            ? elevateMapColor(mapTreeVisualStyleForTerrain(tile.terrain).floor, tile.elevation)
+            : terrain.color;
           context.fillRect(left, top, cellSize, cellSize);
-          context.fillStyle = 'rgba(255, 255, 255, .28)';
-          context.fillRect(left, top, cellSize, 1);
-          context.fillStyle = 'rgba(0, 0, 0, .18)';
-          context.fillRect(left, top + cellSize - 1, cellSize, 1);
+          if (isForestTerrain) {
+            forestTerrainTiles.push(tile);
+            return;
+          }
+          if (tile.elevation > 0) {
+            const strength = Math.min(.42, tile.elevation * .18);
+            context.fillStyle = `rgba(255, 255, 255, ${strength})`;
+            context.fillRect(left, top, cellSize, cellSize);
+            context.fillStyle = 'rgba(255, 255, 255, .28)';
+            context.fillRect(left, top, cellSize, 1);
+            context.fillStyle = 'rgba(0, 0, 0, .18)';
+            context.fillRect(left, top + cellSize - 1, cellSize, 1);
+          }
+        });
+
+        const fallbackForestCanopies = forestTerrainTiles.filter((tile) =>
+          !treeResourceTileKeys.has(mapTileKeyForPosition(tile.position)));
+        fallbackForestCanopies.forEach((tile) => {
+          drawMapForestTerrainCanopy(
+            context,
+            tile.position.x * cellSize + cellSize / 2,
+            tile.position.y * cellSize + cellSize / 2,
+            cellSize,
+            tile.terrain,
+            tile.elevation,
+            [tile.position.x, tile.position.y, tile.terrain],
+          );
+        });
+
+        context.strokeStyle = 'rgba(0, 0, 0, .25)';
+        context.lineWidth = 1;
+        for (let point = 0; point <= widthTiles; point += 10) {
+          const offset = point * cellSize + .5;
+          context.beginPath();
+          context.moveTo(offset, 0);
+          context.lineTo(offset, heightTiles * cellSize);
+          context.stroke();
+        }
+        for (let point = 0; point <= heightTiles; point += 10) {
+          const offset = point * cellSize + .5;
+          context.beginPath();
+          context.moveTo(0, offset);
+          context.lineTo(widthTiles * cellSize, offset);
+          context.stroke();
         }
       });
 
       const fallbackForestCanopies = forestTerrainTiles.filter((tile) =>
         !treeResourceTileKeys.has(mapTileKeyForPosition(tile.position)));
-      fallbackForestCanopies.forEach((tile) => {
-        drawMapForestTerrainCanopy(
-          context,
-          tile.position.x * cellSize + cellSize / 2,
-          tile.position.y * cellSize + cellSize / 2,
-          cellSize,
-          tile.terrain,
-          tile.elevation,
-          [tile.position.x, tile.position.y, tile.terrain],
-        );
-      });
-
-      context.strokeStyle = 'rgba(0, 0, 0, .25)';
-      context.lineWidth = 1;
-      for (let point = 0; point <= dimension; point += 10) {
-        const offset = point * cellSize + .5;
-        context.beginPath();
-        context.moveTo(offset, 0);
-        context.lineTo(offset, mapCanvas.height);
-        context.stroke();
-        context.beginPath();
-        context.moveTo(0, offset);
-        context.lineTo(mapCanvas.width, offset);
-        context.stroke();
-      }
 
       mapLegend.replaceChildren();
       function createLegendGroup(title) {
@@ -7362,6 +7831,7 @@
         forestTerrainIds,
         forestTerrainTileCount,
         legendGroups,
+        projection,
       };
     }
 

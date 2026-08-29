@@ -51,7 +51,7 @@
       }
     </style>
     <script type="module" crossorigin src="./assets/limits-BIuC5h1x.js"></script>
-    <script type="module" crossorigin src="./assets/dataview-rb2ppqMm.js"></script>
+    <script type="module" crossorigin src="./assets/dataview-DwqH_ohe.js"></script>
   </head>
   <body data-viewer-page="./dataview-data-viewer.html" data-viewer-title="Generated AoE II schemas and parsed data">
     <main class="shell">
@@ -64,7 +64,7 @@
           <div class="upload-header">
             <div>
               <h1 id="page-heading">Schemas and complete parsed data</h1>
-              <p class="privacy">The sanitized Glade replay loads automatically and is parsed in this browser worker.</p>
+              <p class="privacy">Load the sanitized Glade replay when you want it. Other replay bytes stay in this browser worker.</p>
             </div>
             <nav aria-label="Related views">
               <a class="back-link" href="./dataview.html">Dataview</a>
@@ -80,19 +80,19 @@
             </label>
             <button id="choose-recording" type="button">Choose replay</button>
             <button id="cancel-recording" type="button" disabled>Cancel</button>
-            <button id="clear-recording" type="button">Default Glade</button>
+            <button id="clear-recording" type="button">Load Default Glade</button>
           </div>
 
-          <p id="status" aria-live="polite">Loading the sanitized Glade replay.</p>
-          <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress"></progress>
-          <ul id="progress-list" aria-label="Preprocessing stages"></ul>
+          <p id="status" aria-live="polite">Load the sanitized Glade recording or choose another .aoe2record.</p>
+          <progress id="progress" value="0" max="1" aria-label="Replay preprocessing progress" hidden></progress>
+          <ul id="progress-list" aria-label="Preprocessing stages" hidden></ul>
           <p id="error" role="alert" hidden></p>
           <dl id="output-summary" class="diagnostics"></dl>
         </div>
       </details>
 
       <section class="viewer-panel" aria-label="Generated schemas and parsed data">
-        <p id="viewer-empty">The sanitized Glade replay is loading.</p>
+        <p id="viewer-empty">Load the sanitized Glade recording or choose another .aoe2record.</p>
         <div id="viewer-host"></div>
       </section>
     </main>
