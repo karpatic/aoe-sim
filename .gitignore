@@ -5,4 +5,5 @@ dist/
 *.log
 *.aoe2record
 !public/glade-default.aoe2record
+!docs/glade-default.aoe2record
 /local-recordings
