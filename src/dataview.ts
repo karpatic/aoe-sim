@@ -37,7 +37,7 @@ interface PendingViewerTransfer {
 const fileInput = must<HTMLInputElement>("#recording-file");
 const chooseButton = must<HTMLButtonElement>("#choose-recording");
 const cancelButton = must<HTMLButtonElement>("#cancel-recording");
-const clearButton = must<HTMLButtonElement>("#clear-recording");
+const defaultLoadButton = must<HTMLButtonElement>("#clear-recording");
 const statusText = must<HTMLElement>("#status");
 const progressBar = must<HTMLProgressElement>("#progress");
 const progressList = must<HTMLUListElement>("#progress-list");
@@ -103,11 +103,10 @@ function initialize(): void {
   buildProgressList();
   chooseButton.addEventListener("click", () => fileInput.click());
   cancelButton.addEventListener("click", () => cancelActiveWork("Preprocessing cancelled."));
-  clearButton.addEventListener("click", () => void loadDefaultRecording());
+  defaultLoadButton.addEventListener("click", () => void loadDefaultRecording());
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     if (!file) {
-      void loadDefaultRecording();
       return;
     }
     startPrecompute(file).catch((error: unknown) => showError(error));
@@ -127,17 +126,19 @@ function initialize(): void {
     setBusy(false);
     fileInput.disabled = true;
     chooseButton.disabled = true;
+    defaultLoadButton.disabled = true;
     statusText.textContent = missingSupport;
     errorText.textContent = missingSupport;
     errorText.hidden = false;
     return;
   }
 
-  void loadDefaultRecording();
+  showIdlePrompt();
 }
 
 async function loadDefaultRecording(): Promise<void> {
   resetSelection("Loading the sanitized Glade replay.");
+  viewerEmpty.textContent = "The sanitized Glade recording is loading.";
   setBusy(true);
   const requestId = `dataview-default-${Date.now()}-${++requestOrdinal}`;
   activeRequestId = requestId;
@@ -185,6 +186,7 @@ async function startPrecompute(file: File): Promise<void> {
   uploadPanel.open = true;
   cancelActiveWork("Preparing local replay preprocessing.");
   resetViewer();
+  viewerEmpty.textContent = "Recording is preprocessing in this browser worker.";
   resetProgress();
   errorText.hidden = true;
   errorText.textContent = "";
@@ -521,11 +523,19 @@ function buildProgressList(): void {
   }
 }
 
+function showIdlePrompt(): void {
+  setBusy(false);
+  progressBar.hidden = true;
+  progressList.hidden = true;
+  statusText.textContent = "Load the sanitized Glade recording or choose another .aoe2record.";
+  viewerEmpty.textContent = "Load the sanitized Glade recording or choose another .aoe2record.";
+}
+
 function setBusy(isBusy: boolean): void {
   chooseButton.disabled = isBusy;
   fileInput.disabled = isBusy;
   cancelButton.disabled = !isBusy;
-  clearButton.disabled = isBusy && !activeWorker;
+  defaultLoadButton.disabled = isBusy;
 }
 
 function showError(error: unknown): void {
