@@ -15,6 +15,13 @@ interface DrawCanopyOptions {
 }
 
 const forestTerrainStyles = new Map<number, TreeCanopyStyle>([
+  [19, {
+    floor: "#304934",
+    shade: "#14301d",
+    canopy: "#245c35",
+    highlight: "#3f7d47",
+    trunk: "#6a5230"
+  }],
   [48, {
     floor: "#36513a",
     shade: "#143a24",
@@ -28,6 +35,13 @@ const forestTerrainStyles = new Map<number, TreeCanopyStyle>([
     canopy: "#6b8b43",
     highlight: "#82a35a",
     trunk: "#6a5730"
+  }],
+  [88, {
+    floor: "#3e5135",
+    shade: "#24381f",
+    canopy: "#5d7940",
+    highlight: "#7a9854",
+    trunk: "#6a5432"
   }],
   [112, {
     floor: "#36513a",
@@ -208,6 +222,12 @@ function treeStyleForName(name: string): TreeCanopyStyle {
   const normalized = name.toLowerCase();
   if (normalized.includes("palm")) {
     return forestTerrainStyles.get(112) ?? defaultTreeStyle;
+  }
+  if (normalized.includes("pine")) {
+    return forestTerrainStyles.get(19) ?? defaultTreeStyle;
+  }
+  if (normalized.includes("olive") || normalized.includes("mediterranean")) {
+    return forestTerrainStyles.get(88) ?? defaultTreeStyle;
   }
   if (normalized.includes("dragon")) {
     return forestTerrainStyles.get(48) ?? defaultTreeStyle;

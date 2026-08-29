@@ -684,11 +684,17 @@ function denseEntityColor(
 
 function terrainColor(terrainId: number, elevation: number): string {
   const palette = new Map([
+    [0, "#4f7a3c"],
+    [1, "#4d8dab"],
+    [2, "#c2ad74"],
     [3, "#536044"],
     [11, "#243b26"],
     [14, "#325b32"],
     [48, "#5d6647"],
     [89, "#2b4424"],
+    [22, "#1d4f73"],
+    [23, "#2d6f91"],
+    [76, "#85624b"],
     [112, "#394a2d"]
   ]);
   const base = palette.get(terrainId) ?? "#34412c";

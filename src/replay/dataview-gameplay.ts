@@ -231,6 +231,7 @@ const CAVALRY_UNIT_CLASS_IDS = [12, 47];
 const SUPPORT_UNIT_CLASS_IDS = [18, 43];
 const SIEGE_UNIT_CLASS_IDS = [13, 54, 55];
 const PACKED_SIEGE_UNIT_CLASS_IDS = [51];
+const CONTROLLABLE_FOOD_UNIT_CLASS_IDS = [58];
 
 export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelineInputs): JsonObject {
   const { game, lifetimes, economy, unitStats, ruleset, replaySha256, rulesetSha256 } = inputs;
@@ -1908,6 +1909,7 @@ function classifyUnitCategory({
 } = {}): string | null {
   const resolvedClassId = unitClassId(classId, stats);
   if (worker || unitNameMatches(name, /\bvillager\b/)) return "villagers";
+  if (unitClassIdMatches(resolvedClassId, CONTROLLABLE_FOOD_UNIT_CLASS_IDS)) return "controllableFood";
   if (unitClassIdMatches(resolvedClassId, NAVAL_UNIT_CLASS_IDS)
     || unitNameMatches(name, /\b(ship|galley|galleon|transport|cog|caravel|dromon|longboat|turtle ship)\b/)) return "naval";
   if (unitClassIdMatches(resolvedClassId, SUPPORT_UNIT_CLASS_IDS)
@@ -1951,6 +1953,10 @@ function resolveMapSpriteKey({
   const resolvedClassId = unitClassId(classId, stats);
   const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId });
   if (has(/\bvillager\b/)) return "villagers";
+  if (
+    resolvedCategory === "controllableFood"
+    || unitClassIdMatches(resolvedClassId, CONTROLLABLE_FOOD_UNIT_CLASS_IDS)
+  ) return "controllableFood";
   if (unitClassIdMatches(resolvedClassId, NAVAL_UNIT_CLASS_IDS)
     || has(/\b(ship|galley|galleon|transport|cog|caravel|dromon|longboat|turtle ship)\b/)) return "ship";
   if (resolvedCategory === "siege") {

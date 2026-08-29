@@ -671,6 +671,7 @@
       trebuchet: '<rect x="5" y="10" width="7" height="3" fill="#c8c8c8"/><rect x="5" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><path d="M8 4h1v1h1v1h1v1h1v1H9v2H7V8H5V7h2V5h1z" fill="#686868"/><rect x="11" y="3" width="4" height="1" fill="#111"/><rect x="14" y="2" width="1" height="2" fill="#f7f7f7"/>',
       bombardCannon: '<rect x="4" y="10" width="8" height="3" fill="#c8c8c8"/><rect x="4" y="13" width="2" height="2" fill="#111"/><rect x="10" y="13" width="2" height="2" fill="#111"/><rect x="7" y="7" width="7" height="2" fill="#111"/><rect x="12" y="6" width="3" height="1" fill="#f7f7f7"/><rect x="5" y="8" width="3" height="3" fill="#686868"/><rect x="2" y="9" width="3" height="1" fill="#686868"/>',
       ship: '<rect x="7" y="2" width="1" height="8" fill="#111"/><path d="M8 3h5v5H8z" fill="#f7f7f7"/><path d="M5 5h2v5H3z" fill="#c8c8c8"/><rect x="3" y="10" width="10" height="2" fill="#686868"/><path d="M4 12h8v2H5v-1H4z" fill="#111"/><rect x="2" y="14" width="12" height="1" fill="#c8c8c8"/>',
+      controllableFood: '<rect x="4" y="8" width="7" height="4" fill="#c8c8c8"/><rect x="10" y="6" width="3" height="3" fill="#f7f7f7"/><rect x="3" y="9" width="2" height="2" fill="#686868"/><rect x="5" y="12" width="1" height="2" fill="#111"/><rect x="9" y="12" width="1" height="2" fill="#111"/><rect x="12" y="8" width="1" height="1" fill="#111"/><rect x="11" y="5" width="1" height="1" fill="#686868"/>',
       unknown: '<path d="M5 3h6v2h2v3h-2v2H9V8h2V5H5v2H3V5h2z" fill="#c8c8c8"/><rect x="6" y="4" width="4" height="1" fill="#f7f7f7"/><rect x="7" y="11" width="2" height="2" fill="#111"/><rect x="6" y="14" width="4" height="1" fill="#686868"/>',
     });
     function generatedMapSpriteAsset(spriteKey, motion = 'walk') {
@@ -722,6 +723,7 @@
       { key: 'trebuchet', label: 'Trebuchets', symbol: 'Tb', asset: mapSpriteMoveAssets.trebuchet },
       { key: 'bombardCannon', label: 'Bombard cannons', symbol: 'Bc', asset: mapSpriteMoveAssets.bombardCannon },
       { key: 'ship', label: 'Ships / naval actors', symbol: 'Sh', asset: mapSpriteMoveAssets.ship },
+      { key: 'controllableFood', label: 'Controllable food', symbol: 'Fd', asset: mapSpriteMoveAssets.controllableFood },
       { key: 'unknown', label: 'Unknown fallback', symbol: '?', asset: mapSpriteMoveAssets.unknown },
     ]);
     const mapSpriteAliases = Object.freeze(new Map([
@@ -762,6 +764,7 @@
       ['trebuchet', 'siege'],
       ['bombardCannon', 'siege'],
       ['ship', 'naval'],
+      ['controllableFood', 'controllableFood'],
     ]));
     const villagerTaskDefinitions = Object.freeze({
       food: Object.freeze({ key: 'food', label: 'food gather' }),
@@ -813,6 +816,20 @@
         canopy: '#6b8b43',
         highlight: '#82a35a',
         trunk: '#6a5730',
+      })],
+      [19, Object.freeze({
+        floor: '#304934',
+        shade: '#14301d',
+        canopy: '#245c35',
+        highlight: '#3f7d47',
+        trunk: '#6a5230',
+      })],
+      [88, Object.freeze({
+        floor: '#3e5135',
+        shade: '#24381f',
+        canopy: '#5d7940',
+        highlight: '#7a9854',
+        trunk: '#6a5432',
       })],
       [112, Object.freeze({
         floor: '#36513a',
@@ -916,6 +933,8 @@
     function mapTreeVisualStyleForName(name) {
       const normalized = String(name ?? '').toLowerCase();
       if (normalized.includes('palm')) return mapTreeVisualStyleForTerrain(112);
+      if (normalized.includes('pine')) return mapTreeVisualStyleForTerrain(19);
+      if (normalized.includes('olive') || normalized.includes('mediterranean')) return mapTreeVisualStyleForTerrain(88);
       if (normalized.includes('dragon')) return mapTreeVisualStyleForTerrain(48);
       if (normalized.includes('bush')) return mapTreeVisualStyleForTerrain(89);
       return defaultMapTreeVisualStyle;
@@ -1291,6 +1310,7 @@
     const supportUnitClassIds = Object.freeze([18, 43]);
     const siegeUnitClassIds = Object.freeze([13, 54, 55]);
     const packedSiegeUnitClassIds = Object.freeze([51]);
+    const controllableFoodUnitClassIds = Object.freeze([58]);
 
     function unitClassMatches(classId, ids) {
       const id = numericId(classId);
@@ -1305,6 +1325,7 @@
     function classifyUnitCategory({ name = '', stats = null, classId = null, worker = false } = {}) {
       const resolvedClassId = classId ?? stats?.class_id ?? stats?.classId;
       if (worker || unitNameMatches(name, /\bvillager\b/)) return 'villagers';
+      if (unitClassMatches(resolvedClassId, controllableFoodUnitClassIds)) return 'controllableFood';
       if (unitClassHasNavalEvidence(resolvedClassId) || unitNameHasNavalEvidence(name)) {
         return 'naval';
       }
@@ -1341,6 +1362,10 @@
       const resolvedClassId = classId ?? stats?.class_id ?? stats?.classId;
       const resolvedCategory = category ?? classifyUnitCategory({ name, stats, classId, worker });
       if (worker || has(/\bvillager\b/)) return 'villagers';
+      if (
+        resolvedCategory === 'controllableFood'
+        || unitClassMatches(resolvedClassId, controllableFoodUnitClassIds)
+      ) return 'controllableFood';
       if (unitClassHasNavalEvidence(resolvedClassId) || unitNameHasNavalEvidence(name)) {
         return 'ship';
       }
@@ -7655,10 +7680,18 @@
       const context = mapCanvas.getContext('2d');
       const terrainIds = [...new Set(map.tiles.map((tile) => tile.terrain))].sort((a, b) => a - b);
       const terrainTypes = new Map([
+        [0, { name: 'Grass 1', role: 'walkable land', color: '#4f7a3c' }],
+        [1, { name: 'Water, Shallow', role: 'water', color: '#4d8dab' }],
+        [2, { name: 'Beach', role: 'shore', color: '#c2ad74' }],
         [3, { name: 'Dirt 3', role: 'starting areas', color: '#d7b56d' }],
         [11, { name: 'Dirt 2', role: 'walkable land', color: '#b98b58' }],
         [14, { name: 'Desert sand', role: 'walkable land', color: '#e3c27a' }],
+        [19, { name: 'Forest, Pine', role: 'trees', color: mapTreeVisualStyleForTerrain(19).canopy }],
+        [22, { name: 'Water, Deep', role: 'water', color: '#1d4f73' }],
+        [23, { name: 'Water, Medium', role: 'water', color: '#2d6f91' }],
         [48, { name: 'Dragon tree forest', role: 'trees', color: mapTreeVisualStyleForTerrain(48).canopy }],
+        [76, { name: 'Dirt, Mud', role: 'walkable land', color: '#85624b' }],
+        [88, { name: 'Forest, Mediterranean', role: 'trees', color: mapTreeVisualStyleForTerrain(88).canopy }],
         [89, { name: 'Bush forest', role: 'trees', color: mapTreeVisualStyleForTerrain(89).canopy }],
         [112, { name: 'Palm grass forest', role: 'trees', color: mapTreeVisualStyleForTerrain(112).canopy }],
       ]);
@@ -7676,14 +7709,31 @@
         ['Bush B', { label: 'Bush forest wood', color: mapTreeVisualStyleForName('bush').canopy }],
       ]);
       const treeResourceNames = new Set(treeResourceStyles.keys());
+      const controllableFoodNames = [
+        'Sheep',
+        'Llama A',
+        'Llama B',
+        'Cow A',
+        'Cow B',
+        'Cow C',
+        'Cow D',
+        'Turkey',
+        'Goat',
+        'Water Buffalo',
+        'Goose',
+        'Pig',
+        'Chicken A',
+        'Chicken B',
+        'Chicken C',
+      ];
       const animalStyles = new Map([
-        ['Sheep', { category: 'controllable', color: '#fff' }],
+        ...controllableFoodNames.map((name) => [name, { category: 'controllable', color: '#fff' }]),
         ['Wild Boar', { category: 'non-controllable', color: '#6b3f22' }],
         ['Ibex', { category: 'non-controllable', color: '#6b3f22' }],
         ['Forage Bush', { category: 'non-controllable', color: '#6b3f22' }],
         ['Fruit Bush', { category: 'non-controllable', color: '#6b3f22' }],
       ]);
-      const animalNames = new Set(['Sheep', 'Wild Boar', 'Ibex']);
+      const animalNames = new Set([...controllableFoodNames, 'Wild Boar', 'Ibex']);
       const isTreeResource = (object) => {
         const name = String(object?.name ?? '');
         return name.startsWith('Tree (') || treeResourceNames.has(name);

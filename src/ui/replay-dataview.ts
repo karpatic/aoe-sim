@@ -603,12 +603,24 @@ function colorForTerrain(terrain: number, elevation: number): readonly [number, 
 
 function terrainPalette(terrain: number): readonly [number, number, number] {
   switch (terrain) {
+    case 0:
+      return [79, 122, 60];
+    case 1:
+      return [77, 141, 171];
+    case 2:
+      return [194, 173, 116];
     case 3:
       return [91, 131, 74];
     case 11:
       return [71, 105, 67];
     case 14:
       return [92, 132, 157];
+    case 22:
+      return [29, 79, 115];
+    case 23:
+      return [45, 111, 145];
+    case 76:
+      return [133, 98, 75];
     case 48:
       return [139, 128, 92];
     case 89:
