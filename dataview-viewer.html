@@ -3050,6 +3050,9 @@
       const gameplayTimelineUnits = gameplayTimeline?.schema === 'aoe-sim.dataview-gameplay-timeline/v1'
         ? (gameplayTimeline.units ?? [])
         : [];
+      const gameplayTimelinePositionedUnits = gameplayTimelineUnits
+        .filter((unit) => mapPositionIsCredible(timelinePoint(unit.birth_position)));
+      const gameplayTimelinePositionUnknownUnits = gameplayTimelineUnits.length - gameplayTimelinePositionedUnits.length;
 
       const mapEvents = lifetimes.map_events;
       const buildingEvents = economy.building_placements;
@@ -3876,7 +3879,7 @@
       addTeamCommandLegend('→', 'Inferred straight-line visual direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Move, Attack, Gather, Build, and Repair selections share one actor position history; later commands replace prior visible command state. Individual unit markers are static generated silhouettes from the worker gameplay timeline; when two evidence-backed positions exist, their displayed position uses clearly labeled bounded straight-line visual interpolation and keeps exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Unsupported last-known non-villager positions expire after six minutes in legacy command diagnostics; timeline units without explicit death remain survival-unresolved.`;
+      movementNote.textContent = `Individual unit markers are static generated silhouettes from the worker gameplay timeline when it is available; legacy command-position actor history remains a fallback for older data and command diagnostics only. Timeline births require producer or spawn position evidence to render on the map, while position-unknown births remain in totals without fabricated coordinates. When two evidence-backed endpoints exist, displayed marker positions use clearly labeled bounded straight-line visual interpolation and keep exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -5634,56 +5637,6 @@
         };
       }
 
-      const commandMappedSupplementalCategoryKeys = new Set(categoryDefinitions.map((definition) => definition.key));
-
-      function assignmentSourceActorKey(assignment) {
-        const sourceActorId = numericId(assignment.sourceActorId ?? assignment.instanceId);
-        return sourceActorId === null ? '' : `${assignment.player}:${sourceActorId}`;
-      }
-
-      function shouldSupplementCommandMappedAssignment(assignment, representedActorKeys) {
-        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey);
-        const category = assignment.category ?? unitCategoryForMapSpriteKey(spriteKey);
-        return Boolean(
-          assignment.mapRendered
-            && assignment.positionCredible
-            && spriteKey
-            && spriteKey !== 'unknown'
-            && category
-            && category !== 'villagers'
-            && commandMappedSupplementalCategoryKeys.has(category)
-            && assignmentSourceActorKey(assignment)
-            && !representedActorKeys.has(assignmentSourceActorKey(assignment)),
-        );
-      }
-
-      function supplementCommandMappedAssignment(assignment) {
-        const sourceActorKey = assignmentSourceActorKey(assignment);
-        const stableId = assignment.stableId ?? sourceActorKey ?? `${assignment.player}:${assignment.instanceId}`;
-        const spriteKey = canonicalMapSpriteKey(assignment.spriteKey);
-        return Object.freeze({
-          ...assignment,
-          stableId,
-          markerKey: `command:${stableId}`,
-          spriteKey,
-          category: assignment.category ?? unitCategoryForMapSpriteKey(spriteKey),
-          supplementalSource: 'command-mapped-actor',
-          birthTime: Number.isFinite(assignment.partyTime) ? assignment.partyTime : 0,
-          birthEvidenceClass: 'simulated',
-          birthConfirmation: 'command-position-estimate',
-          producerId: null,
-          queueId: null,
-          reconciliationStatus: 'command-mapped-actor',
-          interpolationEvidenceClass: assignment.interpolationEvidenceClass ?? 'simulated',
-          interpolationKind: assignment.interpolationKind ?? 'legacy-command-segment',
-          interpolationTimeBound: assignment.interpolationTimeBound ?? 'command-bounded',
-          interpolationFromTime: assignment.interpolationFromTime ?? assignment.partyTime ?? null,
-          interpolationToTime: assignment.interpolationToTime ?? assignment.partyTime ?? null,
-          interpolationDistanceTiles: assignment.interpolationDistanceTiles ?? null,
-          interpolationTravelTimeSeconds: assignment.interpolationTravelTimeSeconds ?? null,
-        });
-      }
-
       function timelineIndividualUnitAssignments(seconds) {
         return Object.freeze(gameplayTimelineUnits.flatMap((unit) => {
           const interpolation = unitTimelineInterpolationState(unit, seconds);
@@ -5768,14 +5721,7 @@
 
       function activeIndividualUnitAssignments(seconds) {
         if (!gameplayTimelineUnits.length) return activeMappedActorAssignments(seconds);
-        const timelineAssignments = timelineIndividualUnitAssignments(seconds);
-        const representedActorKeys = new Set(
-          timelineAssignments.map(assignmentSourceActorKey).filter(Boolean),
-        );
-        const supplementalAssignments = activeMappedActorAssignments(seconds)
-          .filter((assignment) => shouldSupplementCommandMappedAssignment(assignment, representedActorKeys))
-          .map(supplementCommandMappedAssignment);
-        return Object.freeze([...timelineAssignments, ...supplementalAssignments]);
+        return Object.freeze(timelineIndividualUnitAssignments(seconds));
       }
 
       function partyComposition(members, villagerTaskAssignment = null, villagerTaskState = null) {
@@ -6272,7 +6218,7 @@
       function unitMarkerTitle(assignment) {
         const stackCount = Number(assignment.stackCount ?? 1);
         const stackTitle = stackCount > 1
-          ? `Stack: ${stackCount} same-category ${assignment.spriteCategory || assignment.category || 'unit'} markers at this position; members ${assignment.stackMemberIds.join(', ')}; evidence ${assignment.stackEvidenceSplit}.`
+          ? `Stack: ${stackCount} compatible ${assignment.unitName || assignment.spriteCategory || assignment.category || 'unit'} markers at this evidence position; members ${assignment.stackMemberIds.join(', ')}; evidence ${assignment.stackEvidenceSplit}.`
           : '';
         const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
         const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
@@ -6327,8 +6273,13 @@
         const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
         const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
         const interpolationProgress = assignment.interpolationProgress ?? 1;
-        marker.style.left = `${assignment.position.x * cellSize * scale.x}px`;
-        marker.style.top = `${assignment.position.y * cellSize * scale.y}px`;
+        const stackOffset = individualUnitStackLayoutOffset(
+          assignment.stackLayoutIndex ?? 0,
+          assignment.stackLayoutCount ?? 1,
+          uniformScale,
+        );
+        marker.style.left = `${assignment.position.x * cellSize * scale.x + stackOffset.x}px`;
+        marker.style.top = `${assignment.position.y * cellSize * scale.y + stackOffset.y}px`;
         marker.style.setProperty('--player-color', teamColor);
         marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
         marker.style.setProperty('--unit-marker-size', `${Math.max(22, 26 * uniformScale)}px`);
@@ -6372,6 +6323,12 @@
         marker.dataset.staticMapMarker = 'true';
         marker.dataset.animatedSpriteFrames = 'false';
         marker.dataset.stackCount = String(assignment.stackCount ?? 1);
+        marker.dataset.stackAnchorPosition = formatMapPosition(assignment.position);
+        marker.dataset.stackAnchorPositionKey = assignment.stackAnchorPositionKey ?? '';
+        marker.dataset.stackUnitTypeKey = assignment.stackUnitTypeKey ?? '';
+        marker.dataset.stackLayoutIndex = String(assignment.stackLayoutIndex ?? 0);
+        marker.dataset.stackLayoutCount = String(assignment.stackLayoutCount ?? 1);
+        marker.dataset.stackOffsetPx = `${formatStatNumber(stackOffset.x, 3)},${formatStatNumber(stackOffset.y, 3)}`;
         marker.dataset.stackMemberIds = assignment.stackMemberIds.join(',');
         marker.dataset.stackMemberKeys = assignment.stackMemberKeys.join(',');
         marker.dataset.stackEvidenceSplit = assignment.stackEvidenceSplit;
@@ -6458,6 +6415,19 @@
         return `${Number(position.x).toFixed(2)}:${Number(position.y).toFixed(2)}`;
       }
 
+      function individualUnitTypeStackKey(assignment, spriteKey) {
+        const unitId = numericId(assignment.resolvedUnitId ?? assignment.unitIdentity?.unit_id);
+        if (unitId !== null) return `unit:${unitId}`;
+        const name = normalizedLookupName(
+          assignment.unitName
+            || assignment.referenceUnitName
+            || assignment.unitIdentity?.name
+            || '',
+        );
+        if (name) return `name:${name}`;
+        return `sprite:${spriteKey}`;
+      }
+
       function individualUnitMarkerIdentityKey(assignment) {
         return String(
           assignment.markerKey
@@ -6472,25 +6442,58 @@
           || String(left.instanceId).localeCompare(String(right.instanceId));
       }
 
+      function individualUnitStackGroupSort(left, right) {
+        return Number(left.player) - Number(right.player)
+          || String(left.stackUnitTypeKey).localeCompare(String(right.stackUnitTypeKey), undefined, { numeric: true })
+          || String(left.spriteKey).localeCompare(String(right.spriteKey))
+          || String(left.category).localeCompare(String(right.category))
+          || String(left.markerKey).localeCompare(String(right.markerKey), undefined, { numeric: true });
+      }
+
+      function individualUnitStackLayoutOffset(index, count, uniformScale) {
+        if (count <= 1) return { x: 0, y: 0 };
+        const spacing = Math.max(24, 28 * uniformScale);
+        if (count <= 6) {
+          return {
+            x: (index - (count - 1) / 2) * spacing,
+            y: 0,
+          };
+        }
+        const columns = Math.min(4, Math.ceil(Math.sqrt(count)));
+        const rows = Math.ceil(count / columns);
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        return {
+          x: (column - (columns - 1) / 2) * spacing,
+          y: (row - (rows - 1) / 2) * spacing,
+        };
+      }
+
       function individualUnitStackGroups(assignments) {
         const groups = new Map();
         assignments.filter((assignment) => assignment.mapRendered).forEach((assignment) => {
           const spriteKey = canonicalMapSpriteKey(assignment.spriteKey) ?? 'unknown';
           const category = assignment.category ?? unitCategoryForMapSpriteKey(spriteKey) ?? 'unknown';
+          const positionKey = individualUnitStackPositionKey(assignment.position);
+          const unitTypeKey = individualUnitTypeStackKey(assignment, spriteKey);
           const key = [
             assignment.player,
+            unitTypeKey,
             category,
             spriteKey,
             assignment.villagerTaskAssignment ?? '',
-            individualUnitStackPositionKey(assignment.position),
+            positionKey,
           ].join(':');
           const group = groups.get(key) ?? [];
           group.push(assignment);
           groups.set(key, group);
         });
-        return [...groups.values()].map((group) => {
+        const stackGroups = [...groups.values()].map((group) => {
           const members = [...group].sort(individualUnitStackSort);
           const representative = members[0];
+          const spriteKey = canonicalMapSpriteKey(representative.spriteKey) ?? 'unknown';
+          const stackUnitTypeKey = individualUnitTypeStackKey(representative, spriteKey);
+          const stackAnchorPositionKey = individualUnitStackPositionKey(representative.position);
           const stackMemberKeys = members.map(individualUnitMarkerIdentityKey);
           const stackMemberIds = members.map((member) => String(member.instanceId));
           const evidenceCounts = new Map();
@@ -6501,6 +6504,8 @@
           return Object.freeze({
             ...representative,
             markerKey: members.length === 1 ? individualUnitMarkerIdentityKey(representative) : `stack:${stackMemberKeys.join('|')}`,
+            stackAnchorPositionKey,
+            stackUnitTypeKey,
             stackCount: members.length,
             stackMemberKeys,
             stackMemberIds,
@@ -6509,6 +6514,20 @@
               .map(([evidence, count]) => `${evidence}:${count}`)
               .join(','),
           });
+        });
+        const byPosition = new Map();
+        stackGroups.forEach((group) => {
+          const rows = byPosition.get(group.stackAnchorPositionKey) ?? [];
+          rows.push(group);
+          byPosition.set(group.stackAnchorPositionKey, rows);
+        });
+        return [...byPosition.values()].flatMap((groupsAtPosition) => {
+          const sorted = [...groupsAtPosition].sort(individualUnitStackGroupSort);
+          return sorted.map((group, index) => Object.freeze({
+            ...group,
+            stackLayoutIndex: index,
+            stackLayoutCount: sorted.length,
+          }));
         });
       }
 
@@ -6970,6 +6989,12 @@
           .join(';');
         gameplayCanvas.dataset.visibleMovementPartyMembers = visibleMovementParties
           .reduce((sum, party) => sum + party.members.length, 0);
+        gameplayCanvas.dataset.individualUnitMarkerSource = gameplayTimelineUnits.length
+          ? 'gameplay-timeline-only'
+          : 'legacy-command-history-fallback';
+        gameplayCanvas.dataset.timelineUnits = String(gameplayTimelineUnits.length);
+        gameplayCanvas.dataset.timelinePositionedUnits = String(gameplayTimelinePositionedUnits.length);
+        gameplayCanvas.dataset.timelinePositionUnknownUnits = String(gameplayTimelinePositionUnknownUnits);
         gameplayCanvas.dataset.currentMappedActorAssignments = String(currentMappedAssignments.length);
         gameplayCanvas.dataset.currentMappedCrediblePositionAssignments = String(
           currentMappedAssignments.filter((assignment) =>
