@@ -148,8 +148,8 @@ interface UnitTimelineRow {
   readonly birth_time: number;
   readonly birth_position: Point | null;
   readonly birth_evidence_class: "observed" | "simulated" | "reconciled";
-  readonly birth_kind: "starting_actor" | "queue_estimate";
-  readonly birth_confirmation: "parser_initial_actor" | "estimated_from_queue";
+  readonly birth_kind: "starting_actor" | "queue_estimate" | "observed_actor";
+  readonly birth_confirmation: "parser_initial_actor" | "estimated_from_queue" | "first_replay_actor_evidence";
   readonly producer_id: number | null;
   readonly queue_id: string | null;
   readonly estimated_completion_time: number | null;
@@ -283,6 +283,16 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
   const observationsByActor = actorObservationIndex(mapEvents, startingActorKeys);
   attachStartingObservations(units, observationsByActor);
   const reconciliation = reconcileEstimatedUnits(units, observationsByActor, lifetimesByActorKey);
+  const observedActorUnits = observedActorRows(
+    observationsByActor,
+    units,
+    lifetimesByActorKey,
+    unitStats,
+    rules,
+    terminalStates,
+    duration
+  );
+  units.push(...observedActorUnits);
   attachPositionRetirements(units, positionRetirements);
   finalizeUnitMotion(units, terminalStates, duration);
 
@@ -363,8 +373,8 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       builder_count_effect: "When selected builder IDs are available near a placement, duration uses baseBuildSeconds * 3 / (builderCount + 2), matching the project viewer's prior conservative multi-builder policy. Missing builder evidence falls back to one builder.",
       production_queue: "Queue and unqueue commands are replay-observed intent. Birth rows are simulated only after sequential per-producer availability and effective train time gates; queue intent is never promoted to a confirmed birth.",
       spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position stays position-unknown and produces no map marker.",
-      reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward only when one compatible unmatched estimate wins by owner, unit name/category, timing, and coarse spatial plausibility. Ambiguous and unmatched actor IDs are exposed instead of forced.",
-      motion: "Unit marker positions use deterministic bounded straight-line visual interpolation only while the previous position evidence is still fresh. Later command endpoints re-acquire the player-scoped actor identity, but long unsupported gaps become position-unknown until that endpoint time. Destination commands are replay evidence endpoints, not observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed.",
+      reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward to compatible unmatched estimates by owner, unit name/category, timing, and coarse spatial plausibility. Clearly separated matches are marked reconciled; close-score deterministic attachments stay ambiguous. Observed actors with no queue estimate are materialized as observed_actor rows so command-evidenced units can appear and disappear through the same lifecycle/position pipeline.",
+      motion: "Unit marker positions use deterministic bounded straight-line visual interpolation only while the previous position evidence is still fresh. Later command endpoints re-acquire the player-scoped actor identity, but long unsupported gaps become position-unknown until that endpoint time. Destination commands are replay evidence endpoints, not observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed. Render grouping is exact-type and presentation-only; individual IDs and evidence remain in the row data.",
       computation_boundary: "All rows in this artifact are produced in the browser worker after a local replay is loaded.",
     },
     policies: {
@@ -394,8 +404,12 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       reconciled_births: outputUnits.filter((row) => row.reconciliation.status === "matched").length,
       anonymous_births: outputUnits.filter((row) => row.reconciliation.status === "anonymous-estimate").length,
       ambiguous_births: outputUnits.filter((row) => row.reconciliation.status === "ambiguous-observed-actor").length,
+      observed_actor_births: observedActorUnits.length,
+      positioned_observed_actor_births: observedActorUnits.filter((unit) => unit.birth_position !== null).length,
+      position_unknown_observed_actor_births: observedActorUnits.filter((unit) => unit.birth_position === null).length,
       ambiguous_observed_actors: reconciliation.ambiguous_observed_actors.length,
       unmatched_observed_actors: reconciliation.unmatched_observed_actors.length,
+      timeline_units: outputUnits.length,
       motion_segments: outputUnits.reduce((sum, row) => sum + row.motion_segments.length, 0),
       bounded_interpolated_motion_segments: outputUnits.reduce((sum, row) =>
         sum + row.motion_segments.filter((segment) =>
@@ -450,6 +464,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
     diagnostics: [
       "Starting units keep parser-provided actor IDs and parser positions at time 0.",
       "Estimated units are born only at estimated_completion_time, never at queue time.",
+      "Observed actor rows are born at their first replay command position evidence when no estimated queue birth can own the actor ID.",
       "Queue births without producer-position evidence keep their production count but have birth_position null and no map marker.",
       "Static map markers consume these rows; animated GIF/WebP or animated SVG frame behavior is not part of this artifact.",
       "Motion segments are deterministic bounded straight-line visual interpolation rows with terrain_avoidance=false; replay command destinations remain evidence endpoints, not observed continuous paths.",
@@ -1211,17 +1226,20 @@ function reconcileEstimatedUnits(
           evidence: candidate.evidence,
         })),
       });
-      candidates.slice(0, 5).forEach((candidate) => {
-        if (candidate.unit.reconciliation.status === "anonymous-estimate") {
-          candidate.unit.reconciliation = {
-            status: "ambiguous-observed-actor",
-            actor_id: null,
-            matched_time: null,
-            confidence: "ambiguous",
-            evidence: `possible match for observed actor ${observed.actorId}, but deterministic scoring did not separate the best candidate`,
-          };
-        }
-      });
+      best.unit.id = `actor:${observed.player}:${observed.actorId}`;
+      best.unit.source_actor_id = observed.actorId;
+      best.unit.parser_instance_id = observed.actorId;
+      best.unit.reconciliation = {
+        status: "ambiguous-observed-actor",
+        actor_id: observed.actorId,
+        matched_time: cleanTime(observed.first.time),
+        confidence: "ambiguous",
+        evidence:
+          `deterministic closest estimated birth for observed actor ${observed.actorId}, but scoring did not ` +
+          `separate the best candidate from ${second.unit.stable_id}`,
+      };
+      best.unit.observations = [...observed.rows];
+      matched.add(best.unit);
       return;
     }
     best.unit.id = `actor:${observed.player}:${observed.actorId}`;
@@ -1257,6 +1275,99 @@ function reconcileEstimatedUnits(
     ambiguous_observed_actors: ambiguousObservedActors,
     unmatched_observed_actors: unmatchedObservedActors,
   };
+}
+
+function observedActorRows(
+  observationsByActor: ReadonlyMap<string, readonly ActorObservation[]>,
+  existingUnits: readonly UnitTimelineRow[],
+  lifetimesByActorKey: ReadonlyMap<string, JsonObject>,
+  unitStats: JsonObject,
+  rules: RulesIndex,
+  terminalStates: ReadonlyMap<string, TerminalState>,
+  duration: number
+): UnitTimelineRow[] {
+  const assignedActorKeys = new Set(existingUnits
+    .flatMap((unit) => unit.source_actor_id === null ? [] : [actorKey(unit.player, unit.source_actor_id)]));
+  return [...observationsByActor.entries()].flatMap(([key, observations]): readonly UnitTimelineRow[] => {
+    if (assignedActorKeys.has(key) || !observations.length) return [];
+    const [playerText, actorText] = key.split(":");
+    const player = Number(playerText);
+    const actorId = Number(actorText);
+    if (!Number.isInteger(player) || !Number.isInteger(actorId)) return [];
+    const firstPositionObservation = observations.find((row) => row.position !== null && row.position !== undefined);
+    const first = firstPositionObservation ?? observations[0];
+    if (!first) return [];
+    const birthTime = cleanTime(firstPositionObservation?.time ?? first.time);
+    const lifetime = lifetimesByActorKey.get(key) ?? {};
+    const sourceUnitId = integer(lifetime.object_id, integer(lifetime.unit_id, null));
+    const observedName = text(lifetime.name, labelObjectName(first.label));
+    const observedRule = observedName ? rules.ruleForName(observedName) : null;
+    if (observedRule && isBuildingRule(observedRule)) return [];
+    const identity = unitIdentity(player, sourceUnitId, observedName, birthTime, unitStats, rules);
+    const namedIdentity = observedName ? identity : {
+      ...identity,
+      sourceUnitId: null,
+      resolvedUnitId: null,
+      name: "Observed Unit",
+      normalizedName: normalizedLookupName("Observed Unit"),
+      category: null,
+      spriteKey: "unknown",
+    };
+    const terminal = terminalStates.get(key) ?? null;
+    const positionHorizon = positionHorizonSeconds(namedIdentity.category === "villagers");
+    const birthPosition = firstPositionObservation?.position ? cleanPoint(firstPositionObservation.position) : null;
+    return [{
+      id: `observed-actor:${player}:${actorId}`,
+      stable_id: `observed:${player}:${actorId}`,
+      player,
+      source_actor_id: actorId,
+      parser_instance_id: actorId,
+      unit_id: namedIdentity.sourceUnitId,
+      resolved_unit_id: namedIdentity.resolvedUnitId,
+      name: namedIdentity.name,
+      normalized_name: namedIdentity.normalizedName,
+      category: namedIdentity.category,
+      sprite_key: namedIdentity.spriteKey,
+      worker: namedIdentity.category === "villagers",
+      birth_time: birthTime,
+      birth_position: birthPosition,
+      birth_evidence_class: "observed",
+      birth_kind: "observed_actor",
+      birth_confirmation: "first_replay_actor_evidence",
+      producer_id: null,
+      queue_id: null,
+      estimated_completion_time: null,
+      spawn_method: null,
+      reconciliation: {
+        status: "unmatched-observed-actor",
+        actor_id: actorId,
+        matched_time: birthTime,
+        confidence: "unmatched",
+        evidence:
+          "actor ID appears in replay command evidence but did not match a queue estimate; command endpoints are " +
+          "position evidence points, not observed continuous movement",
+      },
+      observations: observations
+        .filter((row) => row.time >= birthTime - VISIBILITY_EPSILON)
+        .map((row) => ({ ...row, position: row.position ? cleanPoint(row.position) : null })),
+      position_retirements: [],
+      motion_segments: [],
+      position_horizon_seconds: positionHorizon,
+      position_valid_until: birthPosition
+        ? cleanTime(Math.min(terminal?.time ?? duration + VISIBILITY_EPSILON, birthTime + positionHorizon))
+        : birthTime,
+      position_end_reason: birthPosition
+        ? terminal?.reason ?? "position-horizon-expired; survival unresolved"
+        : "position-unknown",
+      visible_until: terminal?.time ?? duration + VISIBILITY_EPSILON,
+      end_reason: terminal?.reason ?? "observed-actor-survival-unresolved-through-replay-end",
+      speed: namedIdentity.speed,
+    }];
+  }).sort((a, b) => a.player - b.player || a.birth_time - b.birth_time || a.id.localeCompare(b.id));
+}
+
+function isBuildingRule(rule: JsonObject): boolean {
+  return integer(rule.type, null) === 80 || text(rule.typeName).toLowerCase() === "building";
 }
 
 function attachPositionRetirements(
@@ -1485,13 +1596,17 @@ function terminalStateIndex(lifetimes: JsonObject, duration: number): ReadonlyMa
   const rows = new Map<string, TerminalState>();
   array(lifetimes.lifecycle_events).map(object).forEach((event) => {
     const kind = text(event.kind);
-    if (!confirmedTerminalKind(kind)) return;
+    if (!supportedTerminalKind(kind)) return;
     const player = integer(event.player, integer(event.owner, null));
     const time = replayTime(event);
     if (player === null || time === null) return;
     uniqueNormalizedIds(array(event.object_ids)).forEach((actorId) => {
       const key = actorKey(player, actorId);
-      const reason = kind === "delete" ? "explicit-delete" : `${kind}-terminal`;
+      const reason = kind === "delete"
+        ? "explicit-delete"
+        : kind === "possible_loss"
+          ? "possible-loss-terminal"
+          : `${kind}-terminal`;
       const previous = rows.get(key);
       if (!previous || time < previous.time) rows.set(key, { time: cleanTime(Math.min(time, duration)), reason });
     });
@@ -1522,8 +1637,12 @@ function positionRetirementIndex(lifetimes: JsonObject, duration: number): Reado
   return rows;
 }
 
-function confirmedTerminalKind(kind: string): boolean {
-  return kind === "delete" || kind === "death" || kind === "combat_death" || kind === "simulated_death";
+function supportedTerminalKind(kind: string): boolean {
+  return kind === "delete"
+    || kind === "death"
+    || kind === "combat_death"
+    || kind === "simulated_death"
+    || kind === "possible_loss";
 }
 
 interface RulesIndex {

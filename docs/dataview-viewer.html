@@ -190,6 +190,7 @@
     </aside>
   </main>
   <noscript>This viewer requires JavaScript and a same-origin upload page data payload.</noscript>
+  <script src="./dataview-runtime/dataview-reconstruction.js"></script>
   <script>
     const main = document.querySelector('main');
     const viewerNotice = document.querySelector('#viewer-notice');
@@ -638,6 +639,10 @@
     const viewerOptionalOutputNames = Object.freeze([]);
     const viewerOutputNames = Object.freeze([...viewerRequiredOutputNames, ...viewerOptionalOutputNames]);
     const viewerHandshake = parseViewerHandshake();
+    const dataviewReconstruction = globalThis.DataviewReconstruction;
+    if (!dataviewReconstruction) {
+      throw new Error('Dataview reconstruction runtime did not load.');
+    }
     let shellScrollTop = 0;
     let shellScrollMax = 0;
     const maxViewerJsonBytes = 96 * 1024 * 1024;
@@ -6170,9 +6175,18 @@
           )));
       }
 
-      function activeIndividualUnitAssignments(seconds) {
-        const assignments = gameplayTimelineUnits.length
-          ? timelineIndividualUnitAssignments(seconds)
+      function reconstructionSnapshot(seconds) {
+        if (!gameplayTimelineUnits.length) return null;
+        return dataviewReconstruction.buildDataviewRenderSnapshot({
+          gameplayTimeline,
+          seconds,
+          dimension,
+        });
+      }
+
+      function activeIndividualUnitAssignments(seconds, snapshot = null) {
+        const assignments = snapshot
+          ? snapshot.assignments
           : activeMappedActorAssignments(seconds);
         return dedupeActiveIndividualUnitAssignments(assignments);
       }
@@ -6680,6 +6694,7 @@
           stackTitle,
           `Evidence: ${assignment.evidenceQuality}; reconciliation: ${assignment.reconciliationStatus || 'none'}.`,
           `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
+          `Activity: ${assignment.activityKind || 'unresolved'} at ${formatEstimatedTimelineTime(assignment.activityTime)} (${assignment.activityEvidenceClass || 'unclassified'}).`,
           assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
           `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(interpolationTo)}.`,
           `Position horizon: ${formatStatNumber(assignment.positionHorizonSeconds ?? 0)}s; final valid-until ${formatEstimatedTimelineTime(assignment.positionValidUntil)}; ${assignment.positionEndReason || 'position remains within current evidence horizon'}.`,
@@ -6737,8 +6752,8 @@
         marker.style.top = `${projectedPosition.y * scale.y + stackOffset.y}px`;
         marker.style.setProperty('--player-color', teamColor);
         marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
-        marker.style.setProperty('--unit-marker-size', `${Math.max(22, 26 * uniformScale)}px`);
-        marker.style.setProperty('--unit-marker-font-size', `${Math.max(7, 9 * uniformScale)}px`);
+        marker.style.setProperty('--unit-marker-size', `${Math.max(14, 18 * uniformScale)}px`);
+        marker.style.setProperty('--unit-marker-font-size', `${Math.max(6, 7 * uniformScale)}px`);
         marker.dataset.player = String(assignment.player);
         marker.dataset.unitName = assignment.unitName ?? '';
         marker.dataset.instanceId = String(assignment.instanceId);
@@ -6747,7 +6762,15 @@
         marker.dataset.spriteKey = assignment.spriteKey ?? '';
         marker.dataset.category = assignment.category ?? '';
         marker.dataset.evidenceClass = assignment.evidenceQuality ?? 'unclassified';
+        marker.dataset.provenanceEvidenceClass = assignment.evidenceClass ?? '';
         marker.dataset.reconciliationStatus = assignment.reconciliationStatus ?? '';
+        marker.dataset.activityKind = assignment.activityKind ?? '';
+        marker.dataset.activityLabel = assignment.activityLabel ?? '';
+        marker.dataset.activityTime = Number.isFinite(assignment.activityTime)
+          ? formatStatNumber(assignment.activityTime, 3)
+          : '';
+        marker.dataset.activityEvidenceClass = assignment.activityEvidenceClass ?? '';
+        marker.dataset.activitySource = assignment.activitySource ?? '';
         marker.dataset.birthTime = formatStatNumber(assignment.birthTime, 3);
         marker.dataset.birthEvidenceClass = assignment.birthEvidenceClass ?? '';
         marker.dataset.positionHorizonSeconds = formatStatNumber(assignment.positionHorizonSeconds ?? 0, 3);
@@ -6795,7 +6818,7 @@
         marker.dataset.stackEvidenceSplit = assignment.stackEvidenceSplit;
         const stackCountText = String(assignment.stackCount ?? 1);
         marker.style.setProperty('--unit-marker-count-digits', String(stackCountText.length));
-        marker.style.setProperty('--unit-marker-count-font-size', `${Math.max(7, 9 * uniformScale)}px`);
+        marker.style.setProperty('--unit-marker-count-font-size', `${Math.max(6, 7 * uniformScale)}px`);
         const record = individualUnitMarkerAssetRecord(assignment);
         const image = marker.querySelector('.unit-marker-image');
         const fallback = marker.querySelector('.unit-marker-fallback');
@@ -6912,22 +6935,7 @@
       }
 
       function individualUnitStackLayoutOffset(index, count, uniformScale) {
-        if (count <= 1) return { x: 0, y: 0 };
-        const spacing = Math.max(24, 28 * uniformScale);
-        if (count <= 6) {
-          return {
-            x: (index - (count - 1) / 2) * spacing,
-            y: 0,
-          };
-        }
-        const columns = Math.min(4, Math.ceil(Math.sqrt(count)));
-        const rows = Math.ceil(count / columns);
-        const column = index % columns;
-        const row = Math.floor(index / columns);
-        return {
-          x: (column - (columns - 1) / 2) * spacing,
-          y: (row - (rows - 1) / 2) * spacing,
-        };
+        return dataviewReconstruction.exactTypeStackPixelOffset(index, count, uniformScale);
       }
 
       function individualUnitStackGroups(assignments) {
@@ -6992,9 +7000,9 @@
         });
       }
 
-      function renderIndividualUnitMarkers(assignments) {
+      function renderIndividualUnitMarkers(assignments, snapshot = null) {
         const renderedAssignments = assignments.filter((assignment) => assignment.mapRendered);
-        const markerAssignments = individualUnitStackGroups(renderedAssignments);
+        const markerAssignments = snapshot?.markerGroups ?? individualUnitStackGroups(renderedAssignments);
         const visibleKeys = new Set();
         const scale = spriteOverlayScale();
         let reusedNodes = 0;
@@ -7076,6 +7084,31 @@
         gameplayCanvas.dataset.individualUnitMarkerStackEvidence = markerAssignments
           .filter((assignment) => (assignment.stackCount ?? 1) > 1)
           .map((assignment) => `${assignment.markerKey}:${assignment.stackCount}:${assignment.stackMemberIds.join('|')}`)
+          .join(';');
+        gameplayCanvas.dataset.reconstructionSnapshotChecksum = snapshot?.checksum ?? '';
+        gameplayCanvas.dataset.reconstructionSnapshotSchema = snapshot?.schema ?? '';
+        gameplayCanvas.dataset.reconstructionSnapshotAssignments = String(snapshot?.diagnostics?.assignments ?? assignments.length);
+        gameplayCanvas.dataset.reconstructionSnapshotMapRendered = String(
+          snapshot?.diagnostics?.mapRendered ?? renderedAssignments.length,
+        );
+        gameplayCanvas.dataset.reconstructionSnapshotLifecycleFiltered = String(
+          snapshot?.diagnostics?.lifecycleFiltered ?? 0,
+        );
+        gameplayCanvas.dataset.reconstructionSnapshotStalePositionFiltered = String(
+          snapshot?.diagnostics?.stalePositionFiltered ?? 0,
+        );
+        gameplayCanvas.dataset.reconstructionSnapshotDisappearedSupportedUnits = String(
+          snapshot?.diagnostics?.disappearedSupportedUnits ?? 0,
+        );
+        gameplayCanvas.dataset.reconstructionSnapshotActivityCounts = snapshot?.diagnostics?.activityCounts
+          ? Object.entries(snapshot.diagnostics.activityCounts).map(([key, count]) => `${key}:${count}`).join(',')
+          : '';
+        gameplayCanvas.dataset.exactTypeMarkerGroups = String(markerAssignments.length);
+        gameplayCanvas.dataset.exactTypeMixedPositionGroups = String(
+          snapshot?.diagnostics?.mixedPositionGroups ?? 0,
+        );
+        gameplayCanvas.dataset.exactTypeMarkerGroupKeys = (snapshot?.diagnostics?.exactTypeGroupKeys ?? [])
+          .slice(0, 120)
           .join(';');
         gameplayCanvas.dataset.partySpriteNodesActive = '0';
         gameplayCanvas.dataset.partySpriteNodesCreated = '0';
@@ -7377,8 +7410,9 @@
           visibleGatherByDestination.set(key, row);
         });
         const visibleGatherRows = [...visibleGatherByDestination.values()];
-        const visibleMovementParties = visibleMovementPartyRows(seconds);
-        const currentMappedAssignments = activeIndividualUnitAssignments(seconds);
+        const currentReconstructionSnapshot = reconstructionSnapshot(seconds);
+        const visibleMovementParties = gameplayTimelineUnits.length ? [] : visibleMovementPartyRows(seconds);
+        const currentMappedAssignments = activeIndividualUnitAssignments(seconds, currentReconstructionSnapshot);
         const mapRenderedCategorizedAssignments = currentMappedAssignments.filter((assignment) => assignment.mapRendered);
         const mapRenderedVillagerAssignments = mapRenderedCategorizedAssignments
           .filter((assignment) => assignment.worker);
@@ -7386,7 +7420,10 @@
           .filter((assignment) => assignment.supplementalSource === 'command-mapped-actor');
         visibleCommandArrows.forEach((row) => drawCommandArrow(row, seconds));
         visibleMovementParties.forEach(drawMovementParty);
-        const visibleIndividualMarkerInterpolations = renderIndividualUnitMarkers(currentMappedAssignments, seconds);
+        const visibleIndividualMarkerInterpolations = renderIndividualUnitMarkers(
+          currentMappedAssignments,
+          currentReconstructionSnapshot,
+        );
         const visibleEffectiveTaskRows = visibleMovementParties
           .map((party) => ({ party, taskState: effectiveVillagerTaskStateForParty(party, seconds) }));
         recentRows.filter((row) => !['move', 'attack'].includes(row.kind)).forEach((row) => drawRecentEvent(row, seconds));
@@ -7449,7 +7486,7 @@
         gameplayCanvas.dataset.visibleMovementPartyMembers = visibleMovementParties
           .reduce((sum, party) => sum + party.members.length, 0);
         gameplayCanvas.dataset.individualUnitMarkerSource = gameplayTimelineUnits.length
-          ? 'gameplay-timeline-only'
+          ? 'gameplay-timeline-reconstruction-snapshot'
           : 'legacy-command-history-fallback';
         gameplayCanvas.dataset.timelineUnits = String(gameplayTimelineUnits.length);
         gameplayCanvas.dataset.timelinePositionedUnits = String(gameplayTimelinePositionedUnits.length);

@@ -14,7 +14,19 @@ The worker emits generated UTF-8 JSON buffers only:
 - `unit_stats.json`, calculated for every selected replay from its players, civilizations, produced units, and reconstructed research timeline
 - `gameplay_timeline.json`, calculated in the same worker from `game.json`, `lifetimes.json`, `economy.json`,
   `resource_estimates.json`, `unit_stats.json`, and the pinned ruleset; it estimates building availability, producer
-  queues, produced-unit birth points, whole-replay backward actor reconciliation, and straight-line motion segments
+  queues, produced-unit birth points, whole-replay backward actor reconciliation, observed actor materialization, bounded
+  lifecycle disappearance, and straight-line motion segments
+
+`src/replay/dataview-reconstruction.ts` is the environment-neutral reconstruction boundary consumed by both the browser
+viewer and the Node diagnostic harness. It turns `gameplay_timeline.json` into immutable per-timestamp render snapshots:
+active unit identity, evidence class, interpolated position, activity state, lifecycle/stale-position filtering, exact-type
+marker groups, and deterministic seek checksums. The checked-in browser shim
+`public/dataview-runtime/dataview-reconstruction.js` is generated from that TypeScript module by
+`npm run build:dataview-reconstruction-runtime`.
+
+For development, `npm run dataview:diagnostics -- --check` runs the same pure TypeScript unit-stat, gameplay, and render
+snapshot logic in Node against the bundled Glade replay, emitting compact JSON diagnostics. The companion Python validator
+only audits that machine-readable output; it does not parse replays or duplicate lifecycle/position inference.
 
 The viewer iframe does not fetch private/static sidecars. Each selection creates a fresh `allow-scripts`-only sandboxed
 iframe with an opaque origin. A nonce-bound ready/transfer handshake validates the exact iframe window, parent origin,
