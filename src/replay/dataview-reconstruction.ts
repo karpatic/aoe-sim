@@ -5,6 +5,43 @@ export interface DataviewPoint {
   readonly y: number;
 }
 
+export interface DataviewMarkerRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface DataviewMarkerStackLayoutInput {
+  readonly stackCount?: number;
+}
+
+export interface DataviewMarkerStackLayoutMetrics {
+  readonly markerBoxSizePx: number;
+  readonly spriteSizePx: number;
+  readonly countFontSizePx: number;
+  readonly countGapPx: number;
+  readonly itemGapPx: number;
+  readonly countDigitWidthPx: number;
+  readonly countPaddingPx: number;
+}
+
+export interface DataviewMarkerStackLayoutItem {
+  readonly index: number;
+  readonly stackCount: number;
+  readonly countText: string;
+  readonly countDigits: number;
+  readonly countWidthPx: number;
+  readonly offset: DataviewPoint;
+  readonly spriteRect: DataviewMarkerRect;
+  readonly countRect: DataviewMarkerRect | null;
+  readonly footprintRect: DataviewMarkerRect;
+  readonly metrics: DataviewMarkerStackLayoutMetrics;
+  readonly rowWidthPx: number;
+}
+
 export interface DataviewMotionSegment {
   readonly from_time?: number;
   readonly to_time?: number;
@@ -178,6 +215,7 @@ export interface DataviewUnitAssignment {
   readonly stackEvidenceSplit: string;
   readonly stackLayoutIndex: number;
   readonly stackLayoutCount: number;
+  readonly stackLayoutItemCounts: readonly number[];
 }
 
 export interface DataviewRenderSnapshot {
@@ -235,6 +273,14 @@ export interface DataviewDiagnosticCheck {
 }
 
 const VISIBILITY_EPSILON = 0.001;
+const UNIT_MARKER_BASE_SIZE_PX = 15;
+const UNIT_MARKER_MIN_SIZE_PX = 11;
+const UNIT_MARKER_BASE_COUNT_FONT_SIZE_PX = 8;
+const UNIT_MARKER_MIN_COUNT_FONT_SIZE_PX = 7;
+const UNIT_MARKER_COUNT_GAP_PX = 2;
+const UNIT_MARKER_ROW_GAP_PX = 3;
+const UNIT_MARKER_COUNT_DIGIT_EM = 0.72;
+const UNIT_MARKER_COUNT_PADDING_PX = 1;
 const SPRITE_KEYS = Object.freeze([
   "villagers",
   "archer",
@@ -765,21 +811,109 @@ export function groupExactTypeMarkers(assignments: readonly DataviewUnitAssignme
   });
   return Object.freeze([...byPosition.values()].flatMap((groupsAtPosition) => {
     const sorted = [...groupsAtPosition].sort(individualUnitStackGroupSort);
+    const stackLayoutItemCounts = Object.freeze(sorted.map((group) => group.stackCount));
     return sorted.map((group, index) => freezeAssignment({
       ...group,
       stackLayoutIndex: index,
       stackLayoutCount: sorted.length,
+      stackLayoutItemCounts,
     }));
   }));
 }
 
-export function exactTypeStackPixelOffset(index: number, count: number, uniformScale: number): DataviewPoint {
-  if (count <= 1) return Object.freeze({ x: 0, y: 0 });
-  const spacing = Math.max(17, 21 * Math.max(0.1, uniformScale || 1));
+export function exactTypeStackLayoutMetrics(uniformScale: number): DataviewMarkerStackLayoutMetrics {
+  const scale = Math.max(0.1, Number.isFinite(uniformScale) ? uniformScale : 1);
+  const markerBoxSizePx = cleanNumber(Math.max(UNIT_MARKER_MIN_SIZE_PX, UNIT_MARKER_BASE_SIZE_PX * scale));
+  const spriteSizePx = cleanNumber(Math.max(9, markerBoxSizePx - 1));
+  const countFontSizePx = cleanNumber(
+    Math.max(UNIT_MARKER_MIN_COUNT_FONT_SIZE_PX, UNIT_MARKER_BASE_COUNT_FONT_SIZE_PX * scale),
+  );
   return Object.freeze({
-    x: (index - (count - 1) / 2) * spacing,
-    y: 0,
+    markerBoxSizePx,
+    spriteSizePx,
+    countFontSizePx,
+    countGapPx: cleanNumber(Math.max(1.5, UNIT_MARKER_COUNT_GAP_PX * scale)),
+    itemGapPx: cleanNumber(Math.max(3, UNIT_MARKER_ROW_GAP_PX * scale)),
+    countDigitWidthPx: cleanNumber(Math.max(4.8, countFontSizePx * UNIT_MARKER_COUNT_DIGIT_EM)),
+    countPaddingPx: cleanNumber(UNIT_MARKER_COUNT_PADDING_PX),
   });
+}
+
+export function exactTypeStackPixelLayout(
+  items: readonly DataviewMarkerStackLayoutInput[],
+  uniformScale: number,
+): readonly DataviewMarkerStackLayoutItem[] {
+  const metrics = exactTypeStackLayoutMetrics(uniformScale);
+  const stackCounts = items.length ? items.map((item) => positiveStackCount(item.stackCount)) : [1];
+  const widths = stackCounts.map((stackCount) => {
+    const countDigits = exactTypeStackCountText(stackCount).length;
+    const countWidthPx = countDigits
+      ? cleanNumber(countDigits * metrics.countDigitWidthPx + metrics.countPaddingPx)
+      : 0;
+    const countPartWidth = countDigits ? metrics.markerBoxSizePx / 2 + metrics.countGapPx + countWidthPx : 0;
+    return cleanNumber(metrics.spriteSizePx / 2 + Math.max(metrics.spriteSizePx / 2, countPartWidth));
+  });
+  const rowWidthPx = cleanNumber(
+    widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * metrics.itemGapPx,
+  );
+  let cursor = -rowWidthPx / 2;
+  return Object.freeze(stackCounts.map((stackCount, index) => {
+    const countText = exactTypeStackCountText(stackCount);
+    const countDigits = countText.length;
+    const countWidthPx = countDigits
+      ? cleanNumber(countDigits * metrics.countDigitWidthPx + metrics.countPaddingPx)
+      : 0;
+    const footprintLeft = cursor;
+    const markerCenterX = cleanNumber(footprintLeft + metrics.spriteSizePx / 2);
+    const offset = freezePoint({ x: markerCenterX, y: 0 });
+    const spriteRect = freezeRect({
+      left: markerCenterX - metrics.spriteSizePx / 2,
+      top: -metrics.spriteSizePx / 2,
+      right: markerCenterX + metrics.spriteSizePx / 2,
+      bottom: metrics.spriteSizePx / 2,
+    });
+    const countRect = countDigits
+      ? freezeRect({
+          left: markerCenterX + metrics.markerBoxSizePx / 2 + metrics.countGapPx,
+          top: -metrics.countFontSizePx / 2,
+          right: markerCenterX + metrics.markerBoxSizePx / 2 + metrics.countGapPx + countWidthPx,
+          bottom: metrics.countFontSizePx / 2,
+        })
+      : null;
+    const footprintRect = unionMarkerRects(countRect ? [spriteRect, countRect] : [spriteRect]);
+    cursor += (widths[index] ?? 0) + metrics.itemGapPx;
+    return Object.freeze({
+      index,
+      stackCount,
+      countText,
+      countDigits,
+      countWidthPx,
+      offset,
+      spriteRect,
+      countRect,
+      footprintRect,
+      metrics,
+      rowWidthPx,
+    });
+  }));
+}
+
+export function exactTypeStackPixelOffset(index: number, count: number, uniformScale: number): DataviewPoint {
+  const itemCount = Math.max(1, Math.floor(count));
+  const layout = exactTypeStackPixelLayout(Array.from({ length: itemCount }, () => ({ stackCount: 1 })), uniformScale);
+  return layout[Math.max(0, Math.min(layout.length - 1, index))]?.offset ?? Object.freeze({ x: 0, y: 0 });
+}
+
+export function markerRectsIntersect(
+  left: DataviewMarkerRect | null | undefined,
+  right: DataviewMarkerRect | null | undefined,
+  epsilon = 0,
+): boolean {
+  if (!left || !right) return false;
+  return left.left < right.right - epsilon
+    && right.left < left.right - epsilon
+    && left.top < right.bottom - epsilon
+    && right.top < left.bottom - epsilon;
 }
 
 function timelineUnits(gameplayTimeline: DataviewGameplayTimeline | null | undefined): readonly DataviewTimelineUnit[] {
@@ -878,6 +1012,7 @@ function timelineUnitAssignment(
     stackEvidenceSplit: `${evidenceQuality}:1`,
     stackLayoutIndex: 0,
     stackLayoutCount: 1,
+    stackLayoutItemCounts: [1],
   });
   return [assignment];
 }
@@ -892,6 +1027,7 @@ function freezeAssignment(assignment: DataviewUnitAssignment): DataviewUnitAssig
     unitIdentity: Object.freeze({ ...assignment.unitIdentity }),
     stackMemberKeys: Object.freeze([...assignment.stackMemberKeys]),
     stackMemberIds: Object.freeze([...assignment.stackMemberIds]),
+    stackLayoutItemCounts: Object.freeze([...assignment.stackLayoutItemCounts]),
   });
 }
 
@@ -907,6 +1043,31 @@ function freezeInterpolation(interpolation: DataviewInterpolationState): Datavie
 
 function freezePoint(point: DataviewPoint): DataviewPoint {
   return Object.freeze({ x: cleanNumber(point.x), y: cleanNumber(point.y) });
+}
+
+function freezeRect(rect: Pick<DataviewMarkerRect, "left" | "top" | "right" | "bottom">): DataviewMarkerRect {
+  const left = cleanNumber(Math.min(rect.left, rect.right));
+  const right = cleanNumber(Math.max(rect.left, rect.right));
+  const top = cleanNumber(Math.min(rect.top, rect.bottom));
+  const bottom = cleanNumber(Math.max(rect.top, rect.bottom));
+  return Object.freeze({
+    left,
+    top,
+    right,
+    bottom,
+    width: cleanNumber(right - left),
+    height: cleanNumber(bottom - top),
+  });
+}
+
+function unionMarkerRects(rects: readonly DataviewMarkerRect[]): DataviewMarkerRect {
+  if (!rects.length) return freezeRect({ left: 0, top: 0, right: 0, bottom: 0 });
+  return freezeRect({
+    left: Math.min(...rects.map((rect) => rect.left)),
+    top: Math.min(...rects.map((rect) => rect.top)),
+    right: Math.max(...rects.map((rect) => rect.right)),
+    bottom: Math.max(...rects.map((rect) => rect.bottom)),
+  });
 }
 
 function unitTimelineActivityState(unit: DataviewTimelineUnit, seconds: number): DataviewActivityState {
@@ -1052,6 +1213,15 @@ function dedupeActiveIndividualUnitAssignments(
 
 function individualUnitStackPositionKey(position: DataviewPoint): string {
   return `${Number(position.x).toFixed(2)}:${Number(position.y).toFixed(2)}`;
+}
+
+function positiveStackCount(value: unknown): number {
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count > 0 ? count : 1;
+}
+
+function exactTypeStackCountText(stackCount: number): string {
+  return stackCount > 1 ? String(stackCount) : "";
 }
 
 function individualUnitTypeStackKey(assignment: DataviewUnitAssignment, spriteKey: string): string {
@@ -1224,6 +1394,7 @@ function snapshotChecksum(
       group.stackCount,
       group.stackLayoutIndex,
       group.stackLayoutCount,
+      group.stackLayoutItemCounts.join("+"),
       group.stackMemberKeys.join("+"),
     ].join("/"))
     .join("|");

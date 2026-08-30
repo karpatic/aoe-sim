@@ -16,7 +16,10 @@ const exportedNames = [
   "timelinePoint",
   "unitTimelineInterpolationState",
   "groupExactTypeMarkers",
+  "exactTypeStackLayoutMetrics",
+  "exactTypeStackPixelLayout",
   "exactTypeStackPixelOffset",
+  "markerRectsIntersect",
 ];
 
 const source = await readFile(sourcePath, "utf8");

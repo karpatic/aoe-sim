@@ -9,7 +9,9 @@ import { generateDataviewGameplayTimeline } from "../src/replay/dataview-gamepla
 import {
   buildDataviewDiagnostics,
   buildDataviewRenderSnapshot,
+  exactTypeStackPixelLayout,
   exactTypeStackPixelOffset,
+  markerRectsIntersect,
 } from "../src/replay/dataview-reconstruction.ts";
 import { generateUnitStatsForReplay } from "../src/replay/unit-stats.ts";
 
@@ -462,10 +464,54 @@ function compactSnapshot(snapshot) {
       stack_unit_type_key: group.stackUnitTypeKey,
       stack_layout_index: group.stackLayoutIndex,
       stack_layout_count: group.stackLayoutCount,
-      offset_at_fit_scale: exactTypeStackPixelOffset(group.stackLayoutIndex, group.stackLayoutCount, 1),
+      stack_layout_item_counts: group.stackLayoutItemCounts,
+      layout_at_fit_scale: layoutDiagnosticForGroup(group, 1),
       evidence_split: group.stackEvidenceSplit,
     })),
   };
+}
+
+function layoutDiagnosticForGroup(group, uniformScale) {
+  const layout = exactTypeStackPixelLayout(
+    asArray(group.stackLayoutItemCounts).map((stackCount) => ({ stackCount })),
+    uniformScale,
+  );
+  const item = layout[group.stackLayoutIndex] ?? exactTypeStackPixelLayout([{ stackCount: group.stackCount }], uniformScale)[0];
+  return compactLayoutItem(item ?? {
+    offset: exactTypeStackPixelOffset(group.stackLayoutIndex, group.stackLayoutCount, uniformScale),
+    spriteRect: null,
+    countRect: null,
+    footprintRect: null,
+  });
+}
+
+function compactLayoutItem(item) {
+  return {
+    offset: item.offset,
+    sprite_rect: compactRect(item.spriteRect),
+    count_rect: compactRect(item.countRect),
+    footprint_rect: compactRect(item.footprintRect),
+    count_text: item.countText ?? "",
+    count_digits: item.countDigits ?? 0,
+    count_width_px: number(item.countWidthPx, 0),
+    row_width_px: number(item.rowWidthPx, 0),
+    marker_box_size_px: number(item.metrics?.markerBoxSizePx, 0),
+    sprite_size_px: number(item.metrics?.spriteSizePx, 0),
+    count_font_size_px: number(item.metrics?.countFontSizePx, 0),
+    count_gap_px: number(item.metrics?.countGapPx, 0),
+    item_gap_px: number(item.metrics?.itemGapPx, 0),
+  };
+}
+
+function compactRect(rect) {
+  return rect ? {
+    left: number(rect.left, 0),
+    top: number(rect.top, 0),
+    right: number(rect.right, 0),
+    bottom: number(rect.bottom, 0),
+    width: number(rect.width, 0),
+    height: number(rect.height, 0),
+  } : null;
 }
 
 function compactParity(parity) {
@@ -489,39 +535,54 @@ function compactParity(parity) {
 }
 
 function exactTypeSyntheticDiagnostic() {
+  const expectedCounts = [7, 12, 123];
   const gameplayTimeline = {
     schema: "aoe-sim.dataview-gameplay-timeline/v1",
     units: [
-      syntheticUnit("archer-a", 4, "Archer", "ranged", "archer", 1),
-      syntheticUnit("archer-b", 4, "Archer", "ranged", "archer", 1),
-      syntheticUnit("spear-a", 93, "Spearman", "infantry", "spear", 1),
+      ...syntheticStack("archer", expectedCounts[0], 4, "Archer", "ranged", "archer", 1),
+      ...syntheticStack("spear", expectedCounts[1], 93, "Spearman", "infantry", "spear", 1),
+      ...syntheticStack("knight", expectedCounts[2], 38, "Knight", "cavalry", "knight", 1),
     ],
   };
   const snapshot = buildDataviewRenderSnapshot({ gameplayTimeline, seconds: 10, dimension: 120 });
-  const archer = snapshot.markerGroups.find((group) => group.spriteKey === "archer");
-  const spear = snapshot.markerGroups.find((group) => group.spriteKey === "spear");
+  const groups = snapshot.markerGroups.slice().sort((a, b) => a.stackLayoutIndex - b.stackLayoutIndex);
+  const layout = exactTypeStackPixelLayout(groups.map((group) => ({ stackCount: group.stackCount })), 1);
+  const intersections = layoutIntersections(layout);
+  const observedCounts = groups.map((group) => group.stackCount);
+  const observedCountSet = new Set(observedCounts);
+  const observedDigits = layout.map((item) => item.countDigits).filter((digits) => digits > 0);
   return {
     schema: "aoe-sim.dataview-exact-type-synthetic/v1",
     seconds: snapshot.seconds,
     checksum: snapshot.checksum,
     assignments: snapshot.assignments.length,
-    marker_groups: snapshot.markerGroups.map((group) => ({
+    expected_stack_counts: expectedCounts,
+    marker_groups: groups.map((group) => ({
       marker_key: group.markerKey,
       sprite_key: group.spriteKey,
       stack_count: group.stackCount,
       stack_unit_type_key: group.stackUnitTypeKey,
       stack_layout_index: group.stackLayoutIndex,
       stack_layout_count: group.stackLayoutCount,
-      offset_at_fit_scale: exactTypeStackPixelOffset(group.stackLayoutIndex, group.stackLayoutCount, 1),
+      stack_layout_item_counts: group.stackLayoutItemCounts,
+      layout_at_fit_scale: layoutDiagnosticForGroup(group, 1),
     })),
+    layout_items_at_fit_scale: layout.map(compactLayoutItem),
+    footprint_intersections: intersections,
+    footprint_intersection_count: intersections.length,
     passed:
-      snapshot.assignments.length === 3
-      && snapshot.markerGroups.length === 2
+      snapshot.assignments.length === expectedCounts.reduce((sum, count) => sum + count, 0)
+      && snapshot.markerGroups.length === expectedCounts.length
       && snapshot.diagnostics.mixedPositionGroups === 1
-      && archer?.stackCount === 2
-      && spear?.stackCount === 1
-      && new Set(snapshot.markerGroups.map((group) => group.stackLayoutIndex)).size === 2,
+      && expectedCounts.every((count) => observedCountSet.has(count))
+      && [1, 2, 3].every((digits) => observedDigits.includes(digits))
+      && intersections.length === 0,
   };
+}
+
+function syntheticStack(prefix, amount, unitId, name, category, spriteKey, player) {
+  return Array.from({ length: amount }, (_, index) =>
+    syntheticUnit(`${prefix}-${String(index + 1).padStart(3, "0")}`, unitId, name, category, spriteKey, player));
 }
 
 function syntheticUnit(id, unitId, name, category, spriteKey, player) {
@@ -552,6 +613,24 @@ function syntheticUnit(id, unitId, name, category, spriteKey, player) {
     end_reason: "synthetic",
     speed: 1,
   };
+}
+
+function layoutIntersections(layout) {
+  const intersections = [];
+  for (let leftIndex = 0; leftIndex < layout.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < layout.length; rightIndex += 1) {
+      const left = layout[leftIndex];
+      const right = layout[rightIndex];
+      if (!left || !right || !markerRectsIntersect(left.footprintRect, right.footprintRect)) continue;
+      intersections.push({
+        left_index: leftIndex,
+        right_index: rightIndex,
+        left_rect: compactRect(left.footprintRect),
+        right_rect: compactRect(right.footprintRect),
+      });
+    }
+  }
+  return intersections;
 }
 
 function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTimeline, dimension }) {
@@ -633,8 +712,9 @@ function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTi
   pushCheck(checks, "exact-type mixed grouping",
     synthetic.passed
       && allGroups.every((group) => group.stack_layout_count >= 1)
-      && allGroups.every((group) => group.stack_count >= 1),
-    `synthetic=${synthetic.passed}, real_mixed_positions=${snapshots.map((snapshot) => `${snapshot.seconds}:${snapshot.diagnostics.mixedPositionGroups}`).join(";")}`);
+      && allGroups.every((group) => group.stack_count >= 1)
+      && allGroups.every((group) => asArray(group.stack_layout_item_counts).length === group.stack_layout_count),
+    `synthetic=${synthetic.passed}, synthetic_footprint_intersections=${synthetic.footprint_intersection_count}, real_mixed_positions=${snapshots.map((snapshot) => `${snapshot.seconds}:${snapshot.diagnostics.mixedPositionGroups}`).join(";")}`);
   pushCheck(checks, "map-position bounds",
     invalidMapPositions.length === 0,
     `${invalidMapPositions.length} invalid rendered positions`);

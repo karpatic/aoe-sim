@@ -96,6 +96,15 @@ def main() -> int:
                 errors.append(f"t={seconds}: stack member count mismatch")
             if row.get("stack_layout_count", 0) <= 0:
                 errors.append(f"t={seconds}: invalid stack layout count")
+            if len(list_value(row.get("stack_layout_item_counts"))) != row.get("stack_layout_count", 0):
+                errors.append(f"t={seconds}: stack layout item counts do not cover the row")
+            layout = record(row.get("layout_at_fit_scale"))
+            if not rect_is_valid(record(layout.get("sprite_rect"))):
+                errors.append(f"t={seconds}: invalid stack sprite rectangle")
+            if row.get("stack_count", 0) > 1 and not rect_is_valid(record(layout.get("count_rect"))):
+                errors.append(f"t={seconds}: stacked marker is missing a count rectangle")
+            if not rect_is_valid(record(layout.get("footprint_rect"))):
+                errors.append(f"t={seconds}: invalid stack footprint rectangle")
 
         if diagnostics.get("lifecycleFiltered", 0) < last_lifecycle_filtered:
             errors.append(f"t={seconds}: lifecycleFiltered decreased across sorted snapshots")
@@ -133,11 +142,21 @@ def main() -> int:
     if not synthetic.get("passed"):
         errors.append("synthetic exact-type grouping fixture failed")
     synthetic_groups = list_value(synthetic.get("marker_groups"))
-    if len(synthetic_groups) != 2:
-        errors.append("synthetic mixed grouping did not produce two exact-type markers")
-    offsets = {number(record(record(group).get("offset_at_fit_scale")).get("x")) for group in synthetic_groups}
-    if len(offsets) != len(synthetic_groups):
-        errors.append("synthetic mixed grouping offsets are not side-by-side")
+    if len(synthetic_groups) != 3:
+        errors.append("synthetic mixed grouping did not produce three exact-type markers")
+    if synthetic.get("expected_stack_counts") != [7, 12, 123]:
+        errors.append("synthetic mixed grouping did not cover one-, two-, and three-digit counts")
+    if synthetic.get("footprint_intersection_count") != 0:
+        errors.append("synthetic mixed grouping footprints intersect")
+    layout_items = [record(item) for item in list_value(synthetic.get("layout_items_at_fit_scale"))]
+    if sorted(record(item).get("count_digits", 0) for item in layout_items) != [1, 2, 3]:
+        errors.append("synthetic mixed grouping count digits are not 1, 2, and 3")
+    for left_index in range(len(layout_items)):
+        for right_index in range(left_index + 1, len(layout_items)):
+            left = record(layout_items[left_index].get("footprint_rect"))
+            right = record(layout_items[right_index].get("footprint_rect"))
+            if rects_intersect(left, right):
+                errors.append(f"synthetic footprints intersect: {left_index}/{right_index}")
 
     if errors:
         for error in errors:
@@ -162,6 +181,38 @@ def list_value(value):
 
 def number(value, fallback=0):
     return value if isinstance(value, (int, float)) and math.isfinite(value) else fallback
+
+
+def rect_is_valid(rect) -> bool:
+    width = number(rect.get("width"), math.nan)
+    height = number(rect.get("height"), math.nan)
+    left = number(rect.get("left"), math.nan)
+    right = number(rect.get("right"), math.nan)
+    top = number(rect.get("top"), math.nan)
+    bottom = number(rect.get("bottom"), math.nan)
+    return (
+        math.isfinite(width)
+        and math.isfinite(height)
+        and math.isfinite(left)
+        and math.isfinite(right)
+        and math.isfinite(top)
+        and math.isfinite(bottom)
+        and width > 0
+        and height > 0
+        and left <= right
+        and top <= bottom
+    )
+
+
+def rects_intersect(left, right) -> bool:
+    return (
+        rect_is_valid(left)
+        and rect_is_valid(right)
+        and left["left"] < right["right"]
+        and right["left"] < left["right"]
+        and left["top"] < right["bottom"]
+        and right["top"] < left["bottom"]
+    )
 
 
 if __name__ == "__main__":
