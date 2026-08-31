@@ -6781,6 +6781,17 @@
           `Evidence: ${assignment.evidenceQuality}; reconciliation: ${assignment.reconciliationStatus || 'none'}.`,
           `Birth: ${formatDuration(assignment.birthTime)} (${assignment.birthConfirmation}).`,
           `Activity: ${assignment.activityKind || 'unresolved'} at ${formatEstimatedTimelineTime(assignment.activityTime)} (${assignment.activityEvidenceClass || 'unclassified'}).`,
+          assignment.worker
+            ? [
+                `Worker task: ${assignment.villagerTaskAssignment || 'Other'}`,
+                assignment.villagerTaskPhase ? `phase ${assignment.villagerTaskPhase}` : '',
+                `command ${assignment.villagerTaskCommandKind || assignment.partyKind || 'unresolved'}`,
+                Number.isFinite(assignment.villagerTaskTime)
+                  ? `at ${formatDuration(assignment.villagerTaskTime)}`
+                  : '',
+                `evidence ${assignment.villagerTaskEvidenceClass || 'unclassified'}`,
+              ].filter(Boolean).join('; ') + '.'
+            : '',
           assignment.producerId === null ? '' : `Producer: ${assignment.producerId}.`,
           `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(interpolationTo)}.`,
           `Position horizon: ${formatStatNumber(assignment.positionHorizonSeconds ?? 0)}s; final valid-until ${formatEstimatedTimelineTime(assignment.positionValidUntil)}; ${assignment.positionEndReason || 'position remains within current evidence horizon'}.`,

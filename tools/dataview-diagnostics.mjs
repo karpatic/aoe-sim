@@ -167,6 +167,7 @@ async function main(cliOptions) {
     paritySequence: paritySequenceFor(sampleTimes),
   });
   const synthetic = exactTypeSyntheticDiagnostic();
+  const syntheticTask = workerTaskSyntheticDiagnostic();
   const parser = parserDiagnostics({ game, lifetimes, economy, resourceEstimates });
   const gameplay = gameplayDiagnostics(gameplayTimeline);
   const reconstruction = {
@@ -183,6 +184,7 @@ async function main(cliOptions) {
       gameplay,
       reconstruction,
       synthetic,
+      syntheticTask,
       gameplayTimeline,
       dimension,
     }),
@@ -215,6 +217,7 @@ async function main(cliOptions) {
     gameplay,
     reconstruction,
     synthetic,
+    synthetic_task: syntheticTask,
     checks,
   };
 }
@@ -406,6 +409,7 @@ function parserDiagnostics({ game, lifetimes, economy, resourceEstimates }) {
 
 function gameplayDiagnostics(gameplayTimeline) {
   const units = asArray(gameplayTimeline.units);
+  const workerTaskTimeline = asArray(gameplayTimeline.worker_task_timeline).map(asRecord);
   return {
     schema: String(gameplayTimeline.schema ?? ""),
     counts: asRecord(gameplayTimeline.counts),
@@ -420,6 +424,11 @@ function gameplayDiagnostics(gameplayTimeline) {
     stale_position_supported_units: units.filter((unit) =>
       number(asRecord(unit).position_valid_until, Number.POSITIVE_INFINITY) < Number.POSITIVE_INFINITY
       && String(asRecord(unit).position_end_reason ?? "").includes("expired")).length,
+    worker_task_events: workerTaskTimeline.length,
+    worker_task_command_kinds: countBy(workerTaskTimeline.map((row) => row.command_kind)),
+    worker_task_assignments: countBy(workerTaskTimeline.map((row) => row.task_assignment ?? "unassigned")),
+    worker_post_build_assignments: countBy(workerTaskTimeline.map((row) =>
+      row.post_build_task_assignment ?? "none")),
   };
 }
 
@@ -442,6 +451,11 @@ function compactSnapshot(snapshot) {
       evidence_quality: assignment.evidenceQuality,
       activity_kind: assignment.activityKind,
       activity_time: assignment.activityTime,
+      villager_task_assignment: assignment.villagerTaskAssignment,
+      indexed_villager_task_assignment: assignment.indexedVillagerTaskAssignment,
+      villager_task_phase: assignment.villagerTaskPhase,
+      villager_task_time: assignment.villagerTaskTime,
+      villager_task_command_kind: assignment.villagerTaskCommandKind,
       position: assignment.position,
       destination: assignment.commandDestination,
       interpolation_status: assignment.interpolationStatus,
@@ -463,6 +477,8 @@ function compactSnapshot(snapshot) {
       stack_count: group.stackCount,
       stack_member_ids: group.stackMemberIds,
       stack_unit_type_key: group.stackUnitTypeKey,
+      villager_task_assignment: group.villagerTaskAssignment,
+      villager_task_phase: group.villagerTaskPhase,
       stack_layout_index: group.stackLayoutIndex,
       stack_layout_count: group.stackLayoutCount,
       stack_layout_item_counts: group.stackLayoutItemCounts,
@@ -534,10 +550,26 @@ function compactParity(parity) {
       worker_totals_by_player: snapshot.population.workerTotalsByPlayer,
       map_positioned_workers_by_player: snapshot.population.mapPositionedWorkersByPlayer,
       position_unknown_workers_by_player: snapshot.population.positionUnknownWorkersByPlayer,
+      worker_resource_counts_by_player: workerResourceCountsByPlayer(snapshot.population),
+      worker_assignment_counts_by_player: workerAssignmentCountsByPlayer(snapshot.population),
       activity_counts: snapshot.diagnostics.activityCounts,
       sprite_counts: snapshot.diagnostics.spriteCounts,
     })),
   };
+}
+
+function workerResourceCountsByPlayer(population) {
+  return Object.fromEntries(asArray(population?.players)
+    .map(asRecord)
+    .map((row) => [String(row.player), asRecord(asRecord(row.workers).resourceCounts)])
+    .sort((a, b) => Number(a[0]) - Number(b[0])));
+}
+
+function workerAssignmentCountsByPlayer(population) {
+  return Object.fromEntries(asArray(population?.players)
+    .map(asRecord)
+    .map((row) => [String(row.player), asRecord(asRecord(row.workers).assignmentCounts)])
+    .sort((a, b) => Number(a[0]) - Number(b[0])));
 }
 
 function exactTypeSyntheticDiagnostic() {
@@ -589,6 +621,130 @@ function exactTypeSyntheticDiagnostic() {
       && [1, 2, 3].every((digits) => observedDigits.includes(digits))
       && vertical
       && intersections.length === 0,
+  };
+}
+
+function workerTaskSyntheticDiagnostic() {
+  const gameplayTimeline = {
+    schema: "aoe-sim.dataview-gameplay-timeline/v1",
+    units: [
+      syntheticWorkerUnit("worker-a", 1, { x: 10, y: 10 }),
+      syntheticWorkerUnit("worker-b", 2, null),
+      syntheticWorkerUnit("worker-c", 3, { x: 12, y: 10 }),
+    ],
+    worker_task_timeline: [
+      syntheticWorkerTask(1, 1, 0, "gather", "food"),
+      syntheticWorkerTask(1, 2, 0, "gather", "wood"),
+      syntheticWorkerTask(1, 3, 5, "build", "build", {
+        estimated_completion_time: 15,
+        post_build_task_assignment: "food",
+        post_build_resource_family: "food",
+        post_build_resource_status: "resolved",
+        post_build_evidence: "synthetic Farm build post-build assignment",
+      }),
+      syntheticWorkerTask(1, 1, 20, "move", null),
+      syntheticWorkerTask(1, 2, 25, "gather", "gold"),
+      syntheticWorkerTask(1, 3, 35, "repair", "repair"),
+    ],
+  };
+  const sampleTimes = [10, 18, 22, 30, 40];
+  const diagnostics = buildDataviewDiagnostics({
+    gameplayTimeline,
+    dimension: 120,
+    sampleTimes,
+    paritySequence: [10, 30, 40, 30, 10, 30],
+  });
+  const expected = new Map([
+    [10, { Food: 1, Wood: 1, Gold: 0, Stone: 0, Other: 1 }],
+    [18, { Food: 2, Wood: 1, Gold: 0, Stone: 0, Other: 0 }],
+    [22, { Food: 1, Wood: 1, Gold: 0, Stone: 0, Other: 1 }],
+    [30, { Food: 1, Wood: 0, Gold: 1, Stone: 0, Other: 1 }],
+    [40, { Food: 0, Wood: 0, Gold: 1, Stone: 0, Other: 2 }],
+  ]);
+  const snapshots = diagnostics.snapshots.map((snapshot) => {
+    const workers = snapshot.population.players[0]?.workers ?? {};
+    return {
+      seconds: snapshot.seconds,
+      checksum: snapshot.checksum,
+      resource_counts: workers.resourceCounts ?? {},
+      assignment_counts: workers.assignmentCounts ?? {},
+      total: workers.total ?? 0,
+      resource_total: workers.resourceTotal ?? 0,
+      other: workers.other ?? 0,
+      equation_matches_total: Boolean(workers.equationMatchesTotal),
+      map_positioned: workers.mapPositioned ?? 0,
+      position_unknown: workers.positionUnknown ?? 0,
+    };
+  });
+  const passed = snapshots.every((snapshot) => {
+    const counts = expected.get(snapshot.seconds);
+    if (!counts) return false;
+    return ["Food", "Wood", "Gold", "Stone", "Other"].every((key) =>
+      number(snapshot.resource_counts[key], 0) === counts[key])
+      && snapshot.total === 3
+      && snapshot.equation_matches_total
+      && snapshot.position_unknown === 1;
+  });
+  return {
+    schema: "aoe-sim.dataview-worker-task-synthetic/v1",
+    sample_times: sampleTimes,
+    snapshots,
+    parity: compactParity(diagnostics.parity),
+    passed: passed && diagnostics.parity.deterministic,
+  };
+}
+
+function syntheticWorkerTask(player, actorId, time, commandKind, taskAssignment, extra = {}) {
+  return {
+    player,
+    actor_id: actorId,
+    time,
+    event_index: time * 1000 + actorId,
+    command_kind: commandKind,
+    label: commandKind,
+    position: null,
+    target_id: null,
+    task_assignment: taskAssignment,
+    indexed_task_assignment: taskAssignment,
+    estimated_completion_time: null,
+    post_build_task_assignment: null,
+    post_build_resource_family: null,
+    post_build_resource_status: null,
+    evidence_class: "observed",
+    post_build_evidence_class: extra.post_build_task_assignment ? "simulated" : null,
+    evidence: `synthetic selected-worker ${commandKind}`,
+    post_build_evidence: null,
+    ...extra,
+  };
+}
+
+function syntheticWorkerUnit(id, actorId, position) {
+  return {
+    id,
+    stable_id: id,
+    player: 1,
+    source_actor_id: actorId,
+    unit_id: 83,
+    resolved_unit_id: 83,
+    name: "Villager",
+    normalized_name: "villager",
+    category: "villagers",
+    sprite_key: "villagers",
+    worker: true,
+    birth_time: 0,
+    birth_position: position,
+    birth_evidence_class: "observed",
+    birth_kind: "observed_actor",
+    birth_confirmation: "first_replay_actor_evidence",
+    observations: [],
+    position_retirements: [],
+    motion_segments: [],
+    position_horizon_seconds: 100,
+    position_valid_until: position ? 100 : 0,
+    position_end_reason: position ? "synthetic" : "position-unknown",
+    visible_until: 100,
+    end_reason: "synthetic",
+    speed: 1,
   };
 }
 
@@ -645,7 +801,7 @@ function layoutIntersections(layout) {
   return intersections;
 }
 
-function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTimeline, dimension }) {
+function focusedChecks({ parser, gameplay, reconstruction, synthetic, syntheticTask, gameplayTimeline, dimension }) {
   const checks = [];
   const count = (key) => number(asRecord(gameplay.counts)[key], 0);
   const snapshots = reconstruction.snapshots;
@@ -665,6 +821,29 @@ function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTi
     const totals = asRecord(snapshot.population?.workerTotalsByPlayer);
     return Object.values(totals).reduce((sum, count) => sum + number(count, 0), 0);
   });
+  const workerRowsBySnapshot = snapshots.map((snapshot) => ({
+    seconds: snapshot.seconds,
+    players: asArray(snapshot.population?.players).map(asRecord).map((row) => ({
+      player: row.player,
+      workers: asRecord(row.workers),
+    })),
+  }));
+  const invalidWorkerResourceEquations = workerRowsBySnapshot.flatMap((snapshot) =>
+    snapshot.players.filter(({ workers }) => !workers.equationMatchesTotal)
+      .map(({ player, workers }) => ({
+        seconds: snapshot.seconds,
+        player,
+        total: workers.total,
+        counts: workers.resourceCounts,
+      })));
+  const workerResourceSignals = workerRowsBySnapshot.map((snapshot) => `${snapshot.seconds}:${
+    snapshot.players.map(({ player, workers }) => {
+      const counts = asRecord(workers.resourceCounts);
+      return `p${player}=F${number(counts.Food)} W${number(counts.Wood)} G${number(counts.Gold)} S${number(counts.Stone)} O${number(counts.Other)} T${number(workers.total)}`;
+    }).join("|")
+  }`);
+  const snapshotsWithResourceAssignments = workerRowsBySnapshot.filter((snapshot) =>
+    snapshot.players.some(({ workers }) => number(workers.resourceTotal) > 0));
   const battleSnapshot = snapshots
     .slice()
     .sort((left, right) =>
@@ -750,6 +929,20 @@ function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTi
         return JSON.stringify(populationTotals) === JSON.stringify(diagnosticTotals);
       }),
     `worker_rows=${activeWorkerRows.length}, totals=${playerWorkerTotals.join(";")}`);
+  pushCheck(checks, "worker resource equations",
+    invalidWorkerResourceEquations.length === 0,
+    invalidWorkerResourceEquations.length
+      ? JSON.stringify(invalidWorkerResourceEquations.slice(0, 5))
+      : workerResourceSignals.join(";"));
+  pushCheck(checks, "worker task evidence applied",
+    number(gameplay.worker_task_events) > 0
+      && number(asRecord(gameplay.counts).worker_resource_task_events) > 0
+      && snapshotsWithResourceAssignments.length > 0,
+    `events=${number(gameplay.worker_task_events)}, resource_events=${number(asRecord(gameplay.counts).worker_resource_task_events)}, snapshots=${workerResourceSignals.join(";")}`);
+  pushCheck(checks, "synthetic worker task transitions",
+    syntheticTask.passed,
+    `snapshots=${syntheticTask.snapshots.map((snapshot) =>
+      `${snapshot.seconds}:${JSON.stringify(snapshot.resource_counts)}:unknown=${snapshot.position_unknown}`).join(";")}`);
   pushCheck(checks, "map-position bounds",
     invalidMapPositions.length === 0,
     `${invalidMapPositions.length} invalid rendered positions`);

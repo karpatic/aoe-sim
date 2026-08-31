@@ -252,10 +252,11 @@ const NAVAL_UNIT_CLASS_IDS = Object.freeze([
 function buildDataviewRenderSnapshot(options) {
     const seconds = cleanTime(options.seconds);
     const units = timelineUnits(options.gameplayTimeline);
-    const rawAssignments = units.flatMap((unit)=>timelineUnitAssignment(unit, seconds, options.dimension));
+    const workerTaskStates = activeWorkerTaskStates(units, workerTaskTimeline(options.gameplayTimeline), seconds);
+    const rawAssignments = units.flatMap((unit)=>timelineUnitAssignment(unit, seconds, options.dimension, workerTaskStates.get(timelineUnitIdentityKey(unit))));
     const assignments = dedupeActiveIndividualUnitAssignments(rawAssignments).map((assignment)=>freezeAssignment(assignment));
     const markerGroups = groupExactTypeMarkers(assignments).map((assignment)=>freezeAssignment(assignment));
-    const population = buildPopulationSummary(units, assignments, seconds);
+    const population = buildPopulationSummary(units, assignments, seconds, workerTaskStates);
     const diagnostics = renderDiagnostics(units, assignments, markerGroups, seconds, population);
     const checksum = snapshotChecksum(seconds, assignments, markerGroups, population, diagnostics);
     return Object.freeze({
@@ -741,7 +742,104 @@ function timelineUnits(gameplayTimeline) {
         ...gameplayTimeline.units ?? []
     ]) : Object.freeze([]);
 }
-function timelineUnitAssignment(unit, seconds, dimension) {
+function workerTaskTimeline(gameplayTimeline) {
+    return gameplayTimeline?.schema === "aoe-sim.dataview-gameplay-timeline/v1" ? Object.freeze([
+        ...gameplayTimeline.worker_task_timeline ?? []
+    ]) : Object.freeze([]);
+}
+function activeWorkerTaskStates(units, taskTimeline, seconds) {
+    if (!taskTimeline.length) return Object.freeze(new Map());
+    const taskRowsByActor = new Map();
+    taskTimeline.forEach((row)=>{
+        const player = numericId(row.player);
+        const actorId = numericId(row.actor_id ?? row.source_actor_id);
+        const time = finiteNumber(row.time, Number.NaN);
+        if (player === null || actorId === null || !Number.isFinite(time)) return;
+        const key = `actor:${player}:${actorId}`;
+        const rows = taskRowsByActor.get(key) ?? [];
+        rows.push(row);
+        taskRowsByActor.set(key, rows);
+    });
+    taskRowsByActor.forEach((rows)=>rows.sort(workerTaskTimelineSort));
+    const states = new Map();
+    units.filter(timelineUnitIsWorker).forEach((unit)=>{
+        const player = timelineUnitPlayer(unit);
+        const actorId = numericId(unit.source_actor_id);
+        const birthTime = finiteNumber(unit.birth_time, Number.NaN);
+        if (player <= 0 || actorId === null || !Number.isFinite(birthTime)) return;
+        const rows = taskRowsByActor.get(`actor:${player}:${actorId}`) ?? [];
+        let latest = null;
+        for (const row of rows){
+            const time = finiteNumber(row.time, Number.NaN);
+            if (!Number.isFinite(time) || time + VISIBILITY_EPSILON < birthTime) continue;
+            if (time > seconds + VISIBILITY_EPSILON) break;
+            latest = row;
+        }
+        if (latest) states.set(timelineUnitIdentityKey(unit), effectiveWorkerTaskState(latest, seconds));
+    });
+    return Object.freeze(states);
+}
+function workerTaskTimelineSort(left, right) {
+    return finiteNumber(left.time, Number.NaN) - finiteNumber(right.time, Number.NaN) || finiteNumber(left.event_index) - finiteNumber(right.event_index) || String(left.command_kind ?? "").localeCompare(String(right.command_kind ?? ""));
+}
+function effectiveWorkerTaskState(row, seconds) {
+    const indexedTaskAssignment = workerTaskAssignmentKey(row.indexed_task_assignment ?? row.task_assignment);
+    let taskAssignment = workerTaskAssignmentKey(row.task_assignment);
+    let phase = "";
+    let evidenceClass = workerTaskEvidenceClass(row.evidence_class);
+    let evidence = String(row.evidence ?? "");
+    const completion = finiteNumber(row.estimated_completion_time, Number.NaN);
+    const commandKind = normalizedLookupName(row.command_kind);
+    const postBuildStatus = normalizedLookupName(row.post_build_resource_status);
+    if (commandKind === "build" && Number.isFinite(completion)) {
+        if (seconds + VISIBILITY_EPSILON >= completion) {
+            const postBuildTaskAssignment = workerResourceTaskAssignmentKey(row.post_build_task_assignment);
+            if (postBuildTaskAssignment) {
+                taskAssignment = postBuildTaskAssignment;
+                phase = "post-build";
+                evidenceClass = workerTaskEvidenceClass(row.post_build_evidence_class, "simulated");
+                evidence = row.post_build_evidence ? String(row.post_build_evidence) : evidence;
+            } else {
+                taskAssignment = indexedTaskAssignment ?? taskAssignment;
+                phase = "post-build-resource-unresolved";
+                if (row.post_build_evidence_class) {
+                    evidenceClass = workerTaskEvidenceClass(row.post_build_evidence_class, "simulated");
+                    evidence = row.post_build_evidence ? String(row.post_build_evidence) : evidence;
+                }
+            }
+        } else {
+            taskAssignment = indexedTaskAssignment ?? taskAssignment ?? "build";
+            phase = "construction";
+        }
+    }
+    return Object.freeze({
+        taskAssignment,
+        indexedTaskAssignment,
+        phase,
+        time: cleanTime(finiteNumber(row.time)),
+        eventIndex: finiteNumber(row.event_index),
+        commandKind: commandKind || "command",
+        evidenceClass,
+        evidence,
+        postBuildResourceStatus: postBuildStatus
+    });
+}
+function workerTaskAssignmentKey(value) {
+    const key = normalizedLookupName(value);
+    if (key === "food" || key === "wood" || key === "gold" || key === "stone" || key === "gather" || key === "build" || key === "repair") return key;
+    return null;
+}
+function workerResourceTaskAssignmentKey(value) {
+    const key = normalizedLookupName(value);
+    if (key === "food" || key === "wood" || key === "gold" || key === "stone") return key;
+    return null;
+}
+function workerTaskEvidenceClass(value, fallback = "observed") {
+    const key = normalizedLookupName(value);
+    if (key === "observed" || key === "simulated" || key === "reconciled") return key;
+    return fallback;
+}
+function timelineUnitAssignment(unit, seconds, dimension, workerTaskState) {
     const interpolation = unitTimelineInterpolationState(unit, seconds);
     if (!interpolation) return [];
     const spriteKey = canonicalMapSpriteKey(unit.sprite_key ?? resolveMapSpriteKey({
@@ -775,9 +873,13 @@ function timelineUnitAssignment(unit, seconds, dimension) {
         activityTime: activity.time,
         activityEvidenceClass: activity.evidenceClass,
         activitySource: activity.source,
-        villagerTaskAssignment: null,
-        indexedVillagerTaskAssignment: null,
-        villagerTaskPhase: "",
+        villagerTaskAssignment: workerTaskState?.taskAssignment ?? null,
+        indexedVillagerTaskAssignment: workerTaskState?.indexedTaskAssignment ?? null,
+        villagerTaskPhase: workerTaskState?.phase ?? "",
+        villagerTaskTime: workerTaskState?.time ?? null,
+        villagerTaskCommandKind: workerTaskState?.commandKind ?? "",
+        villagerTaskEvidenceClass: workerTaskState?.evidenceClass ?? "",
+        villagerTaskEvidence: workerTaskState?.evidence ?? "",
         position: freezePoint(interpolation.current),
         commandDestination: freezePoint(interpolation.destination),
         interpolationFrom: freezePoint(interpolation.from),
@@ -1050,7 +1152,7 @@ function unitCategoryForMapSpriteKey(spriteKey, category = null) {
     const key = canonicalMapSpriteKey(spriteKey) ?? spriteKey;
     return category ?? SPRITE_CATEGORIES.get(key) ?? null;
 }
-function buildPopulationSummary(units, assignments, seconds) {
+function buildPopulationSummary(units, assignments, seconds, workerTaskStates) {
     const players = [
         ...new Set([
             ...units.map((unit)=>numericId(unit.player) ?? 0),
@@ -1059,7 +1161,7 @@ function buildPopulationSummary(units, assignments, seconds) {
     ].filter((player)=>player > 0).sort((a, b)=>a - b);
     const playerSummaries = players.map((player)=>Object.freeze({
             player,
-            workers: buildWorkerPopulationSummary(player, units, assignments, seconds)
+            workers: buildWorkerPopulationSummary(player, units, assignments, seconds, workerTaskStates)
         }));
     const workerTotalsByPlayer = freezeCountObject(Object.fromEntries(playerSummaries.map((row)=>[
             String(row.player),
@@ -1083,7 +1185,7 @@ function buildPopulationSummary(units, assignments, seconds) {
         totalWorkers: playerSummaries.reduce((sum, row)=>sum + row.workers.total, 0)
     });
 }
-function buildWorkerPopulationSummary(player, units, assignments, seconds) {
+function buildWorkerPopulationSummary(player, units, assignments, seconds, workerTaskStates) {
     const playerWorkers = units.filter((unit)=>timelineUnitPlayer(unit) === player && timelineUnitIsWorker(unit));
     const activeWorkers = playerWorkers.filter((unit)=>timelineUnitActiveAt(unit, seconds));
     const lifecycleFiltered = playerWorkers.filter((unit)=>timelineUnitLifecycleFilteredAt(unit, seconds));
@@ -1096,8 +1198,10 @@ function buildWorkerPopulationSummary(player, units, assignments, seconds) {
         ]));
     const resourceCounts = emptyWorkerResourceCounts();
     activeWorkers.forEach((unit)=>{
-        const assignment = assignmentByKey.get(timelineUnitIdentityKey(unit));
-        const resource = workerResourceCountKey(assignment?.villagerTaskAssignment);
+        const identityKey = timelineUnitIdentityKey(unit);
+        const assignment = assignmentByKey.get(identityKey);
+        const taskState = workerTaskStates.get(identityKey);
+        const resource = workerResourceCountKey(taskState?.taskAssignment ?? assignment?.villagerTaskAssignment);
         resourceCounts[resource ?? "Other"] = (resourceCounts[resource ?? "Other"] ?? 0) + 1;
     });
     const resourceTotal = WORKER_RESOURCE_COUNT_KEYS.reduce((sum, resource)=>sum + (resourceCounts[resource] ?? 0), 0);
@@ -1105,8 +1209,13 @@ function buildWorkerPopulationSummary(player, units, assignments, seconds) {
     const evidenceQualityCounts = countRecord(activeWorkers.map((unit)=>unitTimelineEvidenceQuality(unit)));
     const birthKindCounts = countRecord(activeWorkers.map((unit)=>unit.birth_kind ?? "unknown"));
     const assignmentCounts = countRecord(activeWorkers.map((unit)=>{
-        const assignment = assignmentByKey.get(timelineUnitIdentityKey(unit));
-        return workerResourceCountKey(assignment?.villagerTaskAssignment) ?? "position-unknown-or-unassigned";
+        const identityKey = timelineUnitIdentityKey(unit);
+        const assignment = assignmentByKey.get(identityKey);
+        const taskState = workerTaskStates.get(identityKey);
+        if (taskState) {
+            return taskState.taskAssignment ?? `unassigned-${taskState.commandKind || "task"}`;
+        }
+        return assignment?.villagerTaskAssignment ?? "position-unknown-or-unassigned";
     }));
     return Object.freeze({
         total: activeWorkers.length,
@@ -1261,6 +1370,9 @@ function snapshotChecksum(seconds, assignments, markerGroups, population, diagno
             assignment.evidenceClass,
             assignment.evidenceQuality,
             assignment.activityKind,
+            assignment.villagerTaskAssignment ?? "",
+            assignment.indexedVillagerTaskAssignment ?? "",
+            assignment.villagerTaskPhase ?? "",
             assignment.position.x.toFixed(3),
             assignment.position.y.toFixed(3),
             assignment.interpolationStatus,
@@ -1287,7 +1399,12 @@ function snapshotChecksum(seconds, assignments, markerGroups, population, diagno
         diagnostics.stalePositionFiltered,
         JSON.stringify(population.workerTotalsByPlayer),
         JSON.stringify(population.mapPositionedWorkersByPlayer),
-        JSON.stringify(population.positionUnknownWorkersByPlayer)
+        JSON.stringify(population.positionUnknownWorkersByPlayer),
+        JSON.stringify(population.players.map((row)=>[
+                row.player,
+                row.workers.resourceCounts,
+                row.workers.assignmentCounts
+            ]))
     ].join("||"));
 }
 function freezeCountObject(record) {

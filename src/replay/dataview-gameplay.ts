@@ -125,6 +125,50 @@ interface MotionSegment {
   readonly source_observation_kind: string;
 }
 
+type WorkerTaskAssignmentKey = "food" | "wood" | "gold" | "stone" | "gather" | "build" | "repair";
+
+interface WorkerTaskTimelineRow {
+  readonly player: number;
+  readonly actor_id: number;
+  readonly time: number;
+  readonly event_index: number;
+  readonly command_kind: string;
+  readonly label: string;
+  readonly position: Point | null;
+  readonly target_id: number | null;
+  readonly task_assignment: WorkerTaskAssignmentKey | null;
+  readonly indexed_task_assignment: WorkerTaskAssignmentKey | null;
+  readonly estimated_completion_time: number | null;
+  readonly post_build_task_assignment: "food" | "wood" | "gold" | "stone" | null;
+  readonly post_build_resource_family: string | null;
+  readonly post_build_resource_status: string | null;
+  readonly evidence_class: "observed";
+  readonly post_build_evidence_class: "simulated" | null;
+  readonly evidence: string;
+  readonly post_build_evidence: string | null;
+}
+
+interface WorkerTaskCommandRow {
+  readonly index: number;
+  readonly time: number;
+  readonly player: number;
+  readonly kind: string;
+  readonly label: string;
+  readonly position: Point | null;
+  readonly targetId: number | null;
+  readonly actorIds: readonly number[];
+  readonly source: string;
+}
+
+interface TaskTargetReference {
+  readonly name: string;
+  readonly owner: number | null;
+  readonly resourceFamily: "food" | "wood" | "gold" | "stone" | null;
+  readonly building: boolean;
+  readonly combatTargetedTimes: readonly number[];
+  readonly source: string;
+}
+
 interface PositionRetirement {
   readonly time: number;
   readonly kind: "possible_loss";
@@ -232,9 +276,44 @@ const SUPPORT_UNIT_CLASS_IDS = [18, 43];
 const SIEGE_UNIT_CLASS_IDS = [13, 54, 55];
 const PACKED_SIEGE_UNIT_CLASS_IDS = [51];
 const CONTROLLABLE_FOOD_UNIT_CLASS_IDS = [58];
+const FOOD_TASK_LABELS = Object.freeze([
+  "farm",
+  "sheep",
+  "wild boar",
+  "fruit bush",
+  "forage bush",
+  "berry",
+  "berries",
+  "deer",
+  "boar",
+  "ibex",
+  "javelina",
+  "goat",
+  "turkey",
+  "cow",
+  "pig",
+  "llama",
+  "water buffalo",
+  "rhinoceros",
+  "rhino",
+  "elephant",
+  "zebra",
+  "ostrich",
+  "shore fish",
+  "deep fish",
+  "fish",
+  "food",
+]);
+const WORKER_TASK_MAP_EVENT_KINDS = new Set(["attack", "build", "gather", "move", "order", "repair", "target"]);
+const WORKER_TASK_CLEAR_INPUT_TYPES = new Set([
+  "back to work",
+  "garrison",
+  "stop",
+  "ungarrison",
+]);
 
 export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelineInputs): JsonObject {
-  const { game, lifetimes, economy, unitStats, ruleset, replaySha256, rulesetSha256 } = inputs;
+  const { game, lifetimes, economy, resourceEstimates, unitStats, ruleset, replaySha256, rulesetSha256 } = inputs;
   const match = object(game.match);
   const summary = object(game.summary);
   const duration = cleanTime(number(summary.duration_seconds));
@@ -295,6 +374,16 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
   units.push(...observedActorUnits);
   attachPositionRetirements(units, positionRetirements);
   finalizeUnitMotion(units, terminalStates, duration);
+  const workerTaskTimeline = buildWorkerTaskTimeline({
+    inputRows,
+    mapEvents,
+    lifetimeObjects,
+    resourceEstimates,
+    buildingTimeline,
+    units,
+    rules,
+    duration,
+  });
 
   const visibleSampleTimes = representativeSampleTimes(duration, units, reconciliation.matched_observed_actors.length);
   const outputUnits = units
@@ -375,6 +464,7 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       spawn_point: "Produced-unit spawn positions are deterministic producer-edge estimates directed toward the latest known rally/gather point before the train start. Missing rally data uses the producer's east edge. Missing producer position stays position-unknown and produces no map marker.",
       reconciliation: "The whole replay is scanned after estimating births. Later observed actor IDs match backward to compatible unmatched estimates by owner, unit name/category, timing, and coarse spatial plausibility. Clearly separated matches are marked reconciled; close-score deterministic attachments stay ambiguous. Observed actors with no queue estimate are materialized as observed_actor rows so command-evidenced units can appear and disappear through the same lifecycle/position pipeline.",
       motion: "Unit marker positions use deterministic bounded straight-line visual interpolation only while the previous position evidence is still fresh. Later command endpoints re-acquire the player-scoped actor identity, but long unsupported gaps become position-unknown until that endpoint time. Destination commands are replay evidence endpoints, not observed continuous paths; no terrain avoidance, collision, obstruction, or pathfinding is claimed. Render grouping is exact-type and presentation-only; individual IDs and evidence remain in the row data.",
+      worker_task_timeline: "Selected-worker command rows are indexed by replay actor ID and timestamp. Resource assignments use explicit gather target/label resource families, plus Farm=>food and Lumber Camp=>wood post-build estimates. Mining Camp remains resource-unresolved until later Gold/Stone target evidence; move, attack, build, repair, generic gather, and unresolved commands supersede earlier resource assignments without fabricating a resource.",
       computation_boundary: "All rows in this artifact are produced in the browser worker after a local replay is loaded.",
     },
     policies: {
@@ -422,6 +512,13 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
       position_retirements: outputUnits.reduce((sum, row) => sum + row.position_retirements.length, 0),
       current_position_expired_before_replay_end: outputUnits.filter((row) =>
         row.birth_position !== null && row.position_valid_until < duration).length,
+      worker_task_events: workerTaskTimeline.length,
+      worker_resource_task_events: workerTaskTimeline.filter((row) =>
+        row.task_assignment === "food"
+          || row.task_assignment === "wood"
+          || row.task_assignment === "gold"
+          || row.task_assignment === "stone"
+          || row.post_build_task_assignment !== null).length,
     },
     sample_times: visibleSampleTimes,
     building_timeline: buildingTimeline.map((row) => ({
@@ -458,6 +555,14 @@ export function generateDataviewGameplayTimeline(inputs: DataviewGameplayTimelin
             rally_position: row.spawn.rally_position ? cleanPoint(row.spawn.rally_position) : null,
           }
         : null,
+    })),
+    worker_task_timeline: workerTaskTimeline.map((row) => ({
+      ...row,
+      time: cleanTime(row.time),
+      position: row.position ? cleanPoint(row.position) : null,
+      estimated_completion_time: row.estimated_completion_time === null
+        ? null
+        : cleanTime(row.estimated_completion_time),
     })),
     units: outputUnits,
     reconciliation,
@@ -778,6 +883,355 @@ function indexedGatherPointRows(
       }));
     })
     .sort((a, b) => a.player - b.player || a.sourceId - b.sourceId || a.time - b.time);
+}
+
+function buildWorkerTaskTimeline({
+  inputRows,
+  mapEvents,
+  lifetimeObjects,
+  resourceEstimates,
+  buildingTimeline,
+  units,
+  rules,
+  duration,
+}: {
+  readonly inputRows: readonly IndexedInputRow[];
+  readonly mapEvents: readonly JsonObject[];
+  readonly lifetimeObjects: readonly JsonObject[];
+  readonly resourceEstimates: JsonObject;
+  readonly buildingTimeline: readonly BuildingTimelineRow[];
+  readonly units: readonly UnitTimelineRow[];
+  readonly rules: RulesIndex;
+  readonly duration: number;
+}): readonly WorkerTaskTimelineRow[] {
+  const workerActorKeys = new Set(units
+    .filter((unit) => unit.worker && unit.source_actor_id !== null)
+    .map((unit) => actorKey(unit.player, unit.source_actor_id ?? 0)));
+  if (!workerActorKeys.size) return [];
+
+  const targetReferences = taskTargetReferenceIndex(lifetimeObjects, resourceEstimates, buildingTimeline, rules);
+  const commandRows = [
+    ...workerTaskCommandsFromMapEvents(mapEvents),
+    ...workerTaskClearCommandsFromInputs(inputRows),
+  ].sort((a, b) => a.time - b.time || a.index - b.index || a.kind.localeCompare(b.kind));
+  const rows = commandRows.flatMap((command): readonly WorkerTaskTimelineRow[] => {
+    const target = taskTargetReference(command, targetReferences);
+    const kind = effectiveWorkerTaskCommandKind(command, target);
+    const assignment = workerTaskAssignmentForCommand(command, kind, target);
+    const postBuild = kind === "build"
+      ? postBuildWorkerTaskAssignment(command, assignment, buildingTimeline, rules)
+      : null;
+    return command.actorIds.flatMap((actorId): readonly WorkerTaskTimelineRow[] => {
+      if (!workerActorKeys.has(actorKey(command.player, actorId))) return [];
+      return [{
+        player: command.player,
+        actor_id: actorId,
+        time: cleanTime(Math.min(command.time, duration + VISIBILITY_EPSILON)),
+        event_index: command.index,
+        command_kind: kind,
+        label: command.label,
+        position: command.position ? cleanPoint(command.position) : null,
+        target_id: command.targetId,
+        task_assignment: assignment,
+        indexed_task_assignment: assignment,
+        estimated_completion_time: postBuild?.estimatedCompletionTime ?? null,
+        post_build_task_assignment: postBuild?.taskAssignment ?? null,
+        post_build_resource_family: postBuild?.resourceFamily ?? null,
+        post_build_resource_status: postBuild?.resourceStatus ?? null,
+        evidence_class: "observed",
+        post_build_evidence_class: postBuild ? "simulated" : null,
+        evidence: workerTaskEvidence(command, kind, assignment, target),
+        post_build_evidence: postBuild?.evidence ?? null,
+      }];
+    });
+  });
+  return [...dedupeWorkerTaskTimeline(rows)]
+    .sort((a, b) =>
+      a.player - b.player
+        || a.actor_id - b.actor_id
+        || a.time - b.time
+        || a.event_index - b.event_index
+        || a.command_kind.localeCompare(b.command_kind));
+}
+
+function workerTaskCommandsFromMapEvents(mapEvents: readonly JsonObject[]): readonly WorkerTaskCommandRow[] {
+  return mapEvents.flatMap((value): readonly WorkerTaskCommandRow[] => {
+    const row = object(value);
+    const time = replayTime(row);
+    const player = integer(row.player, integer(row.owner, null));
+    const kind = normalizedLookupName(text(row.kind, text(row.type)));
+    const actorIds = uniqueNormalizedIds(array(row.object_ids));
+    if (time === null || player === null || !actorIds.length || !WORKER_TASK_MAP_EVENT_KINDS.has(kind)) return [];
+    return [{
+      index: integer(row.__index, 0) ?? 0,
+      time,
+      player,
+      kind,
+      label: text(row.label, text(row.name, kind)),
+      position: point(row.position),
+      targetId: integer(row.target_id, null),
+      actorIds,
+      source: "lifetimes.map_events",
+    }];
+  });
+}
+
+function workerTaskClearCommandsFromInputs(inputRows: readonly IndexedInputRow[]): readonly WorkerTaskCommandRow[] {
+  return inputRows.flatMap((row): readonly WorkerTaskCommandRow[] => {
+    const kind = normalizedLookupName(row.type);
+    if (!WORKER_TASK_CLEAR_INPUT_TYPES.has(kind) || !row.sourceIds.length) return [];
+    return [{
+      index: row.index + 1_000_000,
+      time: row.time,
+      player: row.player,
+      kind,
+      label: row.type,
+      position: row.position,
+      targetId: integer(row.payload.target_id, integer(row.payload.target, null)),
+      actorIds: row.sourceIds,
+      source: "game.match.inputs",
+    }];
+  });
+}
+
+function taskTargetReferenceIndex(
+  lifetimeObjects: readonly JsonObject[],
+  resourceEstimates: JsonObject,
+  buildingTimeline: readonly BuildingTimelineRow[],
+  rules: RulesIndex
+): ReadonlyMap<number, TaskTargetReference> {
+  const references = new Map<number, TaskTargetReference>();
+  array(resourceEstimates.resource_nodes).map(object).forEach((row) => {
+    const id = integer(row.instance_id, null);
+    const family = resourceFamilyKey(row.family) ?? resourceFamilyForName(text(row.name));
+    if (id === null || family === null) return;
+    references.set(id, {
+      name: text(row.name, String(row.family ?? "")),
+      owner: null,
+      resourceFamily: family,
+      building: false,
+      combatTargetedTimes: [],
+      source: "resource_estimates.resource_nodes",
+    });
+  });
+  buildingTimeline.forEach((building) => {
+    if (building.instance_id === null || references.has(building.instance_id)) return;
+    references.set(building.instance_id, {
+      name: building.name,
+      owner: building.player,
+      resourceFamily: resourceFamilyForName(building.name),
+      building: true,
+      combatTargetedTimes: [],
+      source: "gameplay.building_timeline",
+    });
+  });
+  lifetimeObjects.forEach((row) => {
+    const id = integer(row.instance_id, null);
+    if (id === null) return;
+    const name = text(row.name);
+    const rule = name ? rules.ruleForName(name) : null;
+    const combatTargetedTimes = array(row.combat_targeted)
+      .map((time) => number(time, Number.NaN))
+      .filter(Number.isFinite);
+    const existing = references.get(id);
+    if (existing) {
+      references.set(id, {
+        ...existing,
+        owner: existing.owner ?? integer(row.owner, integer(row.player, null)),
+        combatTargetedTimes: [...existing.combatTargetedTimes, ...combatTargetedTimes]
+          .sort((a, b) => a - b),
+      });
+      return;
+    }
+    references.set(id, {
+      name,
+      owner: integer(row.owner, integer(row.player, null)),
+      resourceFamily: resourceFamilyForName(name),
+      building: Boolean(rule && isBuildingRule(rule)),
+      combatTargetedTimes,
+      source: "lifetimes.objects",
+    });
+  });
+  return Object.freeze(references);
+}
+
+function taskTargetReference(
+  command: WorkerTaskCommandRow,
+  references: ReadonlyMap<number, TaskTargetReference>
+): TaskTargetReference | null {
+  const direct = command.targetId === null ? null : references.get(command.targetId) ?? null;
+  if (direct) return direct;
+  const labelName = commandAssignmentLabel(command.label);
+  const family = resourceFamilyForName(labelName);
+  if (family) {
+    return {
+      name: labelName,
+      owner: null,
+      resourceFamily: family,
+      building: normalizedLookupName(labelName) === "farm",
+      combatTargetedTimes: [],
+      source: "command.label",
+    };
+  }
+  return null;
+}
+
+function effectiveWorkerTaskCommandKind(
+  command: WorkerTaskCommandRow,
+  target: TaskTargetReference | null
+): string {
+  if (command.kind === "target" || command.kind === "order") {
+    if (target?.resourceFamily) return "gather";
+    if (target?.building && target.owner !== null && target.owner !== command.player) return "attack";
+    if (target?.building && target.combatTargetedTimes.some((time) =>
+      time <= command.time + VISIBILITY_EPSILON && command.time - time <= 120)) return "repair";
+    if (target?.building) return "build";
+    return "unresolved";
+  }
+  if (command.kind === "attack" || command.kind === "build" || command.kind === "gather"
+    || command.kind === "move" || command.kind === "repair") return command.kind;
+  return "unresolved";
+}
+
+function workerTaskAssignmentForCommand(
+  command: WorkerTaskCommandRow,
+  kind: string,
+  target: TaskTargetReference | null
+): WorkerTaskAssignmentKey | null {
+  if (kind === "build") return "build";
+  if (kind === "repair") return "repair";
+  if (kind !== "gather") return null;
+  return target?.resourceFamily ?? resourceFamilyForName(commandAssignmentLabel(command.label)) ?? "gather";
+}
+
+function workerTaskEvidence(
+  command: WorkerTaskCommandRow,
+  kind: string,
+  assignment: WorkerTaskAssignmentKey | null,
+  target: TaskTargetReference | null
+): string {
+  return [
+    `${command.source} selected-worker ${command.kind} command at ${cleanTime(command.time)}s`,
+    `effective=${kind}`,
+    assignment ? `assignment=${assignment}` : "assignment=none",
+    target ? `target=${target.name || "unknown"} from ${target.source}` : "",
+  ].filter(Boolean).join("; ");
+}
+
+function postBuildWorkerTaskAssignment(
+  command: WorkerTaskCommandRow,
+  assignment: WorkerTaskAssignmentKey | null,
+  buildingTimeline: readonly BuildingTimelineRow[],
+  rules: RulesIndex
+): {
+  readonly estimatedCompletionTime: number;
+  readonly taskAssignment: "food" | "wood" | "gold" | "stone" | null;
+  readonly resourceFamily: string | null;
+  readonly resourceStatus: string;
+  readonly evidence: string;
+} | null {
+  if (assignment !== "build") return null;
+  const targetName = postBuildTargetName(commandAssignmentLabel(command.label));
+  if (!targetName) return null;
+  const building = nearestTaskBuilding(command, targetName, buildingTimeline);
+  const baseBuildSeconds = building?.base_build_seconds ?? baseBuildSecondsFor(targetName, rules.ruleForName(targetName));
+  const builderCount = Math.max(1, command.actorIds.length);
+  const constructionSeconds = building?.construction_seconds
+    ?? estimatedConstructionDurationSeconds(baseBuildSeconds, builderCount);
+  const estimatedCompletionTime = building?.estimated_completion_time
+    ?? cleanTime(command.time + constructionSeconds);
+  if (targetName === "Farm") {
+    return {
+      estimatedCompletionTime,
+      taskAssignment: "food",
+      resourceFamily: "food",
+      resourceStatus: "resolved",
+      evidence: "Farm build target implies simulated post-build food assignment",
+    };
+  }
+  if (targetName === "Lumber Camp") {
+    return {
+      estimatedCompletionTime,
+      taskAssignment: "wood",
+      resourceFamily: "wood",
+      resourceStatus: "resolved",
+      evidence: "Lumber Camp build target implies simulated post-build wood assignment",
+    };
+  }
+  return {
+    estimatedCompletionTime,
+    taskAssignment: null,
+    resourceFamily: null,
+    resourceStatus: "resource-family-unresolved",
+    evidence: "Mining Camp build target implies simulated post-build gather state, but no Gold/Stone assignment without later resource-target command evidence",
+  };
+}
+
+function nearestTaskBuilding(
+  command: WorkerTaskCommandRow,
+  targetName: string,
+  buildingTimeline: readonly BuildingTimelineRow[]
+): BuildingTimelineRow | null {
+  const position = command.position;
+  if (!position) return null;
+  return buildingTimeline
+    .filter((building) =>
+      building.player === command.player
+        && namesCompatible(building.name, targetName)
+        && Math.abs(building.placed_time - command.time) <= 45
+        && distance(building.position, position) <= 2.5)
+    .sort((a, b) =>
+      distance(a.position, position) - distance(b.position, position)
+        || Math.abs(a.placed_time - command.time) - Math.abs(b.placed_time - command.time)
+        || a.id.localeCompare(b.id))[0] ?? null;
+}
+
+function dedupeWorkerTaskTimeline(rows: readonly WorkerTaskTimelineRow[]): readonly WorkerTaskTimelineRow[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = [
+      row.player,
+      row.actor_id,
+      row.time,
+      row.event_index,
+      row.command_kind,
+      row.task_assignment ?? "",
+      row.post_build_task_assignment ?? "",
+    ].join(":");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function commandAssignmentLabel(value: unknown): string {
+  return String(value ?? "")
+    .replace(/^(?:Gather|Build|Repair|Attack|Target|Order):?\s*/i, "")
+    .trim();
+}
+
+function postBuildTargetName(value: unknown): "Farm" | "Lumber Camp" | "Mining Camp" | null {
+  const normalized = normalizedLookupName(value);
+  if (normalized === "farm") return "Farm";
+  if (normalized === "lumber camp") return "Lumber Camp";
+  if (normalized === "mining camp") return "Mining Camp";
+  return null;
+}
+
+function resourceFamilyKey(value: unknown): "food" | "wood" | "gold" | "stone" | null {
+  const key = normalizedLookupName(value);
+  if (key === "food" || key === "wood" || key === "gold" || key === "stone") return key;
+  return null;
+}
+
+function resourceFamilyForName(value: unknown): "food" | "wood" | "gold" | "stone" | null {
+  const normalized = normalizedLookupName(value);
+  if (!normalized) return null;
+  if (normalized === "gold" || normalized.includes("gold mine")) return "gold";
+  if (normalized === "stone" || normalized.includes("stone mine")) return "stone";
+  if (normalized === "wood" || normalized.startsWith("tree")
+    || normalized.includes("palm") || normalized.includes("dragon") || normalized.includes("bush b")) return "wood";
+  return FOOD_TASK_LABELS.some((label) => normalized.includes(label)) ? "food" : null;
 }
 
 function buildQueueTimeline(

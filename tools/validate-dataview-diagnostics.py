@@ -25,6 +25,7 @@ def main() -> int:
     gameplay = record(data.get("gameplay"))
     reconstruction = record(data.get("reconstruction"))
     synthetic = record(data.get("synthetic"))
+    synthetic_task = record(data.get("synthetic_task"))
     snapshots = list_value(reconstruction.get("snapshots"))
     checks = list_value(data.get("checks"))
 
@@ -76,6 +77,17 @@ def main() -> int:
             errors.append(f"t={seconds}: population summary missing")
         if record(population.get("workerTotalsByPlayer")) != record(diagnostics.get("workerTotalsByPlayer")):
             errors.append(f"t={seconds}: worker population/diagnostic totals differ")
+        for player_row in list_value(population.get("players")):
+            worker_row = record(record(player_row).get("workers"))
+            counts_row = record(worker_row.get("resourceCounts"))
+            resource_total = sum(number(counts_row.get(key)) for key in ("Food", "Wood", "Gold", "Stone"))
+            total_with_other = resource_total + number(counts_row.get("Other"))
+            if resource_total != number(worker_row.get("resourceTotal")):
+                errors.append(f"t={seconds}: worker resourceTotal mismatch for player {record(player_row).get('player')}")
+            if total_with_other != number(worker_row.get("total")):
+                errors.append(f"t={seconds}: worker resource equation mismatch for player {record(player_row).get('player')}")
+            if not worker_row.get("equationMatchesTotal"):
+                errors.append(f"t={seconds}: worker equation flag is false for player {record(player_row).get('player')}")
 
         for assignment in assignments:
             row = record(assignment)
@@ -157,6 +169,8 @@ def main() -> int:
         errors.append("synthetic mixed grouping footprints intersect")
     if synthetic.get("layout_direction") != "vertical":
         errors.append("synthetic mixed grouping layout is not vertical")
+    if not synthetic_task.get("passed"):
+        errors.append("synthetic worker task fixture failed")
     layout_items = [record(item) for item in list_value(synthetic.get("layout_items_at_fit_scale"))]
     if sorted(record(item).get("count_digits", 0) for item in layout_items) != [1, 2, 3]:
         errors.append("synthetic mixed grouping count digits are not 1, 2, and 3")

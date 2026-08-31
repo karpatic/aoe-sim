@@ -116,9 +116,29 @@ export interface DataviewTimelineUnit {
   readonly speed?: number;
 }
 
+export interface DataviewWorkerTaskTimelineEvent {
+  readonly player?: number;
+  readonly actor_id?: number | null;
+  readonly source_actor_id?: number | null;
+  readonly time?: number;
+  readonly event_index?: number;
+  readonly command_kind?: string;
+  readonly task_assignment?: string | null;
+  readonly indexed_task_assignment?: string | null;
+  readonly estimated_completion_time?: number | null;
+  readonly post_build_task_assignment?: string | null;
+  readonly post_build_resource_family?: string | null;
+  readonly post_build_resource_status?: string | null;
+  readonly evidence_class?: string;
+  readonly post_build_evidence_class?: string;
+  readonly evidence?: string;
+  readonly post_build_evidence?: string;
+}
+
 export interface DataviewGameplayTimeline {
   readonly schema?: string;
   readonly units?: readonly DataviewTimelineUnit[];
+  readonly worker_task_timeline?: readonly DataviewWorkerTaskTimelineEvent[];
   readonly counts?: Record<string, unknown>;
   readonly sample_times?: Record<string, unknown>;
 }
@@ -147,6 +167,18 @@ export interface DataviewActivityState {
   readonly source: string;
 }
 
+export interface DataviewWorkerTaskState {
+  readonly taskAssignment: string | null;
+  readonly indexedTaskAssignment: string | null;
+  readonly phase: string;
+  readonly time: number;
+  readonly eventIndex: number;
+  readonly commandKind: string;
+  readonly evidenceClass: string;
+  readonly evidence: string;
+  readonly postBuildResourceStatus: string;
+}
+
 export interface DataviewUnitIdentity {
   readonly quality: string;
   readonly unit_id: number | null;
@@ -173,6 +205,10 @@ export interface DataviewUnitAssignment {
   readonly villagerTaskAssignment: string | null;
   readonly indexedVillagerTaskAssignment: string | null;
   readonly villagerTaskPhase: string;
+  readonly villagerTaskTime: number | null;
+  readonly villagerTaskCommandKind: string;
+  readonly villagerTaskEvidenceClass: string;
+  readonly villagerTaskEvidence: string;
   readonly position: DataviewPoint;
   readonly commandDestination: DataviewPoint;
   readonly interpolationFrom: DataviewPoint;
@@ -412,11 +448,13 @@ export function buildDataviewRenderSnapshot(options: {
 }): DataviewRenderSnapshot {
   const seconds = cleanTime(options.seconds);
   const units = timelineUnits(options.gameplayTimeline);
-  const rawAssignments = units.flatMap((unit) => timelineUnitAssignment(unit, seconds, options.dimension));
+  const workerTaskStates = activeWorkerTaskStates(units, workerTaskTimeline(options.gameplayTimeline), seconds);
+  const rawAssignments = units.flatMap((unit) =>
+    timelineUnitAssignment(unit, seconds, options.dimension, workerTaskStates.get(timelineUnitIdentityKey(unit))));
   const assignments = dedupeActiveIndividualUnitAssignments(rawAssignments)
     .map((assignment) => freezeAssignment(assignment));
   const markerGroups = groupExactTypeMarkers(assignments).map((assignment) => freezeAssignment(assignment));
-  const population = buildPopulationSummary(units, assignments, seconds);
+  const population = buildPopulationSummary(units, assignments, seconds, workerTaskStates);
   const diagnostics = renderDiagnostics(units, assignments, markerGroups, seconds, population);
   const checksum = snapshotChecksum(seconds, assignments, markerGroups, population, diagnostics);
   return Object.freeze({
@@ -972,10 +1010,135 @@ function timelineUnits(gameplayTimeline: DataviewGameplayTimeline | null | undef
     : Object.freeze([]);
 }
 
+function workerTaskTimeline(
+  gameplayTimeline: DataviewGameplayTimeline | null | undefined
+): readonly DataviewWorkerTaskTimelineEvent[] {
+  return gameplayTimeline?.schema === "aoe-sim.dataview-gameplay-timeline/v1"
+    ? Object.freeze([...(gameplayTimeline.worker_task_timeline ?? [])])
+    : Object.freeze([]);
+}
+
+function activeWorkerTaskStates(
+  units: readonly DataviewTimelineUnit[],
+  taskTimeline: readonly DataviewWorkerTaskTimelineEvent[],
+  seconds: number
+): ReadonlyMap<string, DataviewWorkerTaskState> {
+  if (!taskTimeline.length) return Object.freeze(new Map());
+  const taskRowsByActor = new Map<string, DataviewWorkerTaskTimelineEvent[]>();
+  taskTimeline.forEach((row) => {
+    const player = numericId(row.player);
+    const actorId = numericId(row.actor_id ?? row.source_actor_id);
+    const time = finiteNumber(row.time, Number.NaN);
+    if (player === null || actorId === null || !Number.isFinite(time)) return;
+    const key = `actor:${player}:${actorId}`;
+    const rows = taskRowsByActor.get(key) ?? [];
+    rows.push(row);
+    taskRowsByActor.set(key, rows);
+  });
+  taskRowsByActor.forEach((rows) => rows.sort(workerTaskTimelineSort));
+
+  const states = new Map<string, DataviewWorkerTaskState>();
+  units.filter(timelineUnitIsWorker).forEach((unit) => {
+    const player = timelineUnitPlayer(unit);
+    const actorId = numericId(unit.source_actor_id);
+    const birthTime = finiteNumber(unit.birth_time, Number.NaN);
+    if (player <= 0 || actorId === null || !Number.isFinite(birthTime)) return;
+    const rows = taskRowsByActor.get(`actor:${player}:${actorId}`) ?? [];
+    let latest: DataviewWorkerTaskTimelineEvent | null = null;
+    for (const row of rows) {
+      const time = finiteNumber(row.time, Number.NaN);
+      if (!Number.isFinite(time) || time + VISIBILITY_EPSILON < birthTime) continue;
+      if (time > seconds + VISIBILITY_EPSILON) break;
+      latest = row;
+    }
+    if (latest) states.set(timelineUnitIdentityKey(unit), effectiveWorkerTaskState(latest, seconds));
+  });
+  return Object.freeze(states);
+}
+
+function workerTaskTimelineSort(
+  left: DataviewWorkerTaskTimelineEvent,
+  right: DataviewWorkerTaskTimelineEvent
+): number {
+  return finiteNumber(left.time, Number.NaN) - finiteNumber(right.time, Number.NaN)
+    || finiteNumber(left.event_index) - finiteNumber(right.event_index)
+    || String(left.command_kind ?? "").localeCompare(String(right.command_kind ?? ""));
+}
+
+function effectiveWorkerTaskState(
+  row: DataviewWorkerTaskTimelineEvent,
+  seconds: number
+): DataviewWorkerTaskState {
+  const indexedTaskAssignment = workerTaskAssignmentKey(row.indexed_task_assignment ?? row.task_assignment);
+  let taskAssignment = workerTaskAssignmentKey(row.task_assignment);
+  let phase = "";
+  let evidenceClass = workerTaskEvidenceClass(row.evidence_class);
+  let evidence = String(row.evidence ?? "");
+  const completion = finiteNumber(row.estimated_completion_time, Number.NaN);
+  const commandKind = normalizedLookupName(row.command_kind);
+  const postBuildStatus = normalizedLookupName(row.post_build_resource_status);
+  if (commandKind === "build" && Number.isFinite(completion)) {
+    if (seconds + VISIBILITY_EPSILON >= completion) {
+      const postBuildTaskAssignment = workerResourceTaskAssignmentKey(row.post_build_task_assignment);
+      if (postBuildTaskAssignment) {
+        taskAssignment = postBuildTaskAssignment;
+        phase = "post-build";
+        evidenceClass = workerTaskEvidenceClass(row.post_build_evidence_class, "simulated");
+        evidence = row.post_build_evidence
+          ? String(row.post_build_evidence)
+          : evidence;
+      } else {
+        taskAssignment = indexedTaskAssignment ?? taskAssignment;
+        phase = "post-build-resource-unresolved";
+        if (row.post_build_evidence_class) {
+          evidenceClass = workerTaskEvidenceClass(row.post_build_evidence_class, "simulated");
+          evidence = row.post_build_evidence
+            ? String(row.post_build_evidence)
+            : evidence;
+        }
+      }
+    } else {
+      taskAssignment = indexedTaskAssignment ?? taskAssignment ?? "build";
+      phase = "construction";
+    }
+  }
+  return Object.freeze({
+    taskAssignment,
+    indexedTaskAssignment,
+    phase,
+    time: cleanTime(finiteNumber(row.time)),
+    eventIndex: finiteNumber(row.event_index),
+    commandKind: commandKind || "command",
+    evidenceClass,
+    evidence,
+    postBuildResourceStatus: postBuildStatus,
+  });
+}
+
+function workerTaskAssignmentKey(value: unknown): string | null {
+  const key = normalizedLookupName(value);
+  if (key === "food" || key === "wood" || key === "gold" || key === "stone"
+    || key === "gather" || key === "build" || key === "repair") return key;
+  return null;
+}
+
+function workerResourceTaskAssignmentKey(value: unknown): "food" | "wood" | "gold" | "stone" | null {
+  const key = normalizedLookupName(value);
+  if (key === "food" || key === "wood" || key === "gold" || key === "stone") return key;
+  return null;
+}
+
+function workerTaskEvidenceClass(value: unknown, fallback = "observed"): string {
+  const key = normalizedLookupName(value);
+  if (key === "observed" || key === "simulated" || key === "reconciled") return key;
+  return fallback;
+}
+
 function timelineUnitAssignment(
   unit: DataviewTimelineUnit,
   seconds: number,
-  dimension: number
+  dimension: number,
+  workerTaskState: DataviewWorkerTaskState | undefined
 ): readonly DataviewUnitAssignment[] {
   const interpolation = unitTimelineInterpolationState(unit, seconds);
   if (!interpolation) return [];
@@ -1010,9 +1173,13 @@ function timelineUnitAssignment(
     activityTime: activity.time,
     activityEvidenceClass: activity.evidenceClass,
     activitySource: activity.source,
-    villagerTaskAssignment: null,
-    indexedVillagerTaskAssignment: null,
-    villagerTaskPhase: "",
+    villagerTaskAssignment: workerTaskState?.taskAssignment ?? null,
+    indexedVillagerTaskAssignment: workerTaskState?.indexedTaskAssignment ?? null,
+    villagerTaskPhase: workerTaskState?.phase ?? "",
+    villagerTaskTime: workerTaskState?.time ?? null,
+    villagerTaskCommandKind: workerTaskState?.commandKind ?? "",
+    villagerTaskEvidenceClass: workerTaskState?.evidenceClass ?? "",
+    villagerTaskEvidence: workerTaskState?.evidence ?? "",
     position: freezePoint(interpolation.current),
     commandDestination: freezePoint(interpolation.destination),
     interpolationFrom: freezePoint(interpolation.from),
@@ -1317,7 +1484,8 @@ function unitCategoryForMapSpriteKey(spriteKey: string, category: string | null 
 function buildPopulationSummary(
   units: readonly DataviewTimelineUnit[],
   assignments: readonly DataviewUnitAssignment[],
-  seconds: number
+  seconds: number,
+  workerTaskStates: ReadonlyMap<string, DataviewWorkerTaskState>
 ): DataviewPopulationSummary {
   const players = [...new Set([
     ...units.map((unit) => numericId(unit.player) ?? 0),
@@ -1325,7 +1493,7 @@ function buildPopulationSummary(
   ])].filter((player) => player > 0).sort((a, b) => a - b);
   const playerSummaries = players.map((player) => Object.freeze({
     player,
-    workers: buildWorkerPopulationSummary(player, units, assignments, seconds),
+    workers: buildWorkerPopulationSummary(player, units, assignments, seconds, workerTaskStates),
   }));
   const workerTotalsByPlayer = freezeCountObject(Object.fromEntries(
     playerSummaries.map((row) => [String(row.player), row.workers.total]),
@@ -1351,7 +1519,8 @@ function buildWorkerPopulationSummary(
   player: number,
   units: readonly DataviewTimelineUnit[],
   assignments: readonly DataviewUnitAssignment[],
-  seconds: number
+  seconds: number,
+  workerTaskStates: ReadonlyMap<string, DataviewWorkerTaskState>
 ): DataviewWorkerPopulationSummary {
   const playerWorkers = units.filter((unit) => timelineUnitPlayer(unit) === player && timelineUnitIsWorker(unit));
   const activeWorkers = playerWorkers.filter((unit) => timelineUnitActiveAt(unit, seconds));
@@ -1369,8 +1538,10 @@ function buildWorkerPopulationSummary(
   ]));
   const resourceCounts = emptyWorkerResourceCounts();
   activeWorkers.forEach((unit) => {
-    const assignment = assignmentByKey.get(timelineUnitIdentityKey(unit));
-    const resource = workerResourceCountKey(assignment?.villagerTaskAssignment);
+    const identityKey = timelineUnitIdentityKey(unit);
+    const assignment = assignmentByKey.get(identityKey);
+    const taskState = workerTaskStates.get(identityKey);
+    const resource = workerResourceCountKey(taskState?.taskAssignment ?? assignment?.villagerTaskAssignment);
     resourceCounts[resource ?? "Other"] = (resourceCounts[resource ?? "Other"] ?? 0) + 1;
   });
   const resourceTotal = WORKER_RESOURCE_COUNT_KEYS.reduce((sum, resource) => sum + (resourceCounts[resource] ?? 0), 0);
@@ -1378,8 +1549,13 @@ function buildWorkerPopulationSummary(
   const evidenceQualityCounts = countRecord(activeWorkers.map((unit) => unitTimelineEvidenceQuality(unit)));
   const birthKindCounts = countRecord(activeWorkers.map((unit) => unit.birth_kind ?? "unknown"));
   const assignmentCounts = countRecord(activeWorkers.map((unit) => {
-    const assignment = assignmentByKey.get(timelineUnitIdentityKey(unit));
-    return workerResourceCountKey(assignment?.villagerTaskAssignment) ?? "position-unknown-or-unassigned";
+    const identityKey = timelineUnitIdentityKey(unit);
+    const assignment = assignmentByKey.get(identityKey);
+    const taskState = workerTaskStates.get(identityKey);
+    if (taskState) {
+      return taskState.taskAssignment ?? `unassigned-${taskState.commandKind || "task"}`;
+    }
+    return assignment?.villagerTaskAssignment ?? "position-unknown-or-unassigned";
   }));
   return Object.freeze({
     total: activeWorkers.length,
@@ -1574,6 +1750,9 @@ function snapshotChecksum(
       assignment.evidenceClass,
       assignment.evidenceQuality,
       assignment.activityKind,
+      assignment.villagerTaskAssignment ?? "",
+      assignment.indexedVillagerTaskAssignment ?? "",
+      assignment.villagerTaskPhase ?? "",
       assignment.position.x.toFixed(3),
       assignment.position.y.toFixed(3),
       assignment.interpolationStatus,
@@ -1604,6 +1783,11 @@ function snapshotChecksum(
     JSON.stringify(population.workerTotalsByPlayer),
     JSON.stringify(population.mapPositionedWorkersByPlayer),
     JSON.stringify(population.positionUnknownWorkersByPlayer),
+    JSON.stringify(population.players.map((row) => [
+      row.player,
+      row.workers.resourceCounts,
+      row.workers.assignmentCounts,
+    ])),
   ].join("||"));
 }
 
