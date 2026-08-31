@@ -68,6 +68,14 @@ export interface DataviewErrorMessage {
   readonly requestId: string;
   readonly message: string;
   readonly stage?: DataviewProgressStage;
+  readonly error?: DataviewSerializedError;
+}
+
+export interface DataviewSerializedError {
+  readonly name?: string;
+  readonly message: string;
+  readonly stack?: string;
+  readonly cause?: DataviewSerializedError;
 }
 
 export interface DataviewGeneratedOutput {

@@ -8,10 +8,12 @@ import {
   DATAVIEW_VIEWER_SHELL_SCROLL_STATE_TYPE,
   DATAVIEW_WORKER_REQUEST_TYPE,
   type DataviewDoneMessage,
+  type DataviewErrorMessage,
   type DataviewGeneratedOutput,
   type DataviewPrecomputeRequest,
   type DataviewProgressMessage,
   type DataviewProgressStage,
+  type DataviewSerializedError,
   type DataviewViewerRenderStateMessage,
   type DataviewViewerReadyMessage,
   type DataviewViewerShellScrollRequest,
@@ -981,7 +983,8 @@ function handleWorkerMessage(message: DataviewWorkerToClient): void {
       updateProgress(message);
       return;
     case "error":
-      showError(new Error(message.message));
+      markStageFailed(message);
+      showError(errorFromWorkerMessage(message));
       return;
     case "done":
       finishPrecompute(message);
@@ -1010,6 +1013,37 @@ function updateProgress(message: DataviewProgressMessage): void {
       prior.element.textContent = `${prior.label}: complete`;
     }
   }
+}
+
+function markStageFailed(message: DataviewErrorMessage): void {
+  if (!message.stage) {
+    return;
+  }
+  const state = stageStates.get(message.stage);
+  if (!state) {
+    return;
+  }
+  state.element.dataset.state = "failed";
+  state.element.textContent = `${state.label}: ${message.message}`;
+}
+
+function errorFromWorkerMessage(message: DataviewErrorMessage): Error {
+  return deserializeWorkerError(message.error) ?? new Error(message.message || "Dataview worker failed.");
+}
+
+function deserializeWorkerError(detail: DataviewSerializedError | undefined): Error | undefined {
+  if (!detail) {
+    return undefined;
+  }
+  const cause = deserializeWorkerError(detail.cause);
+  const error = cause
+    ? new Error(detail.message, { cause })
+    : new Error(detail.message);
+  error.name = detail.name || "DataviewWorkerError";
+  if (detail.stack) {
+    error.stack = detail.stack;
+  }
+  return error;
 }
 
 function finishPrecompute(message: DataviewDoneMessage): void {

@@ -8,6 +8,7 @@ import {
   type DataviewOutputName,
   type DataviewPrecomputeRequest,
   type DataviewProgressStage,
+  type DataviewSerializedError,
   type DataviewStageTiming,
   type DataviewWorkerToClient
 } from "../dataview-protocol";
@@ -41,12 +42,26 @@ interface RuntimeAsset {
   readonly maxBytes: number;
 }
 
+interface FetchVerifiedOptions {
+  readonly addHashQuery?: boolean;
+}
+
 interface PipelineStage {
   readonly stage: DataviewProgressStage;
   readonly message: string;
   readonly script: string;
   readonly args: readonly string[];
   readonly sanitizer?: string;
+}
+
+class DataviewStageError extends Error {
+  readonly stage: DataviewProgressStage;
+
+  constructor(stage: DataviewProgressStage, message: string, cause: unknown) {
+    super(`${message}: ${formatThrownValue(cause)}`, { cause });
+    this.name = "DataviewStageError";
+    this.stage = stage;
+  }
 }
 
 const workerScope = self as DataviewWorkerScope;
@@ -104,10 +119,13 @@ const RUNTIME_ASSETS: readonly RuntimeAsset[] = [
 
 workerScope.onmessage = (event: MessageEvent<DataviewPrecomputeRequest>) => {
   handleMessage(event.data).catch((error: unknown) => {
+    const detail = serializeThrownValue(error);
     const message: DataviewErrorMessage = {
       type: "error",
       requestId: event.data.requestId,
-      message: error instanceof Error ? error.message : String(error)
+      message: detail.message,
+      error: detail,
+      ...(error instanceof DataviewStageError ? { stage: error.stage } : {})
     };
     workerScope.postMessage(message);
   });
@@ -140,7 +158,7 @@ async function handleMessage(message: DataviewPrecomputeRequest): Promise<void> 
 
   await recordStage(timings, "verifying-runtime", "Verifying pinned Pyodide runtime files", 3, TOTAL_PROGRESS_STAGES, async () => {
     for (const asset of RUNTIME_ASSETS) {
-      await fetchVerified(runtimeBaseUrl, asset.path, asset.sha256, asset.maxBytes);
+      await fetchVerified(runtimeBaseUrl, asset.path, asset.sha256, asset.maxBytes, { addHashQuery: false });
     }
   }, message.requestId);
 
@@ -531,15 +549,29 @@ async function loadPyodideFromRuntime(runtimeBaseUrl: string): Promise<PyodideIn
   if (moduleUrl.origin !== location.origin) {
     throw new Error("Pyodide loader must be served from this origin.");
   }
-  const pyodideModule = await import(/* @vite-ignore */ moduleUrl.href) as PyodideRuntimeModule;
+  let pyodideModule: PyodideRuntimeModule;
+  try {
+    pyodideModule = await import(/* @vite-ignore */ moduleUrl.href) as PyodideRuntimeModule;
+  } catch (error: unknown) {
+    throw new Error(`Failed to import pinned Pyodide loader from ${moduleUrl.href}: ${formatThrownValue(error)}`, {
+      cause: error
+    });
+  }
   if (pyodideModule.version !== "0.28.3") {
     throw new Error(`Unexpected Pyodide loader version: ${pyodideModule.version}.`);
   }
-  return pyodideModule.loadPyodide({
-    indexURL: new URL("pyodide/", runtimeBaseUrl).href,
-    stdout: () => undefined,
-    stderr: () => undefined
-  });
+  const indexURL = new URL("pyodide/", runtimeBaseUrl).href;
+  try {
+    return await pyodideModule.loadPyodide({
+      indexURL,
+      stdout: () => undefined,
+      stderr: () => undefined
+    });
+  } catch (error: unknown) {
+    throw new Error(`Pyodide 0.28.3 initialization failed from ${indexURL}: ${formatThrownValue(error)}`, {
+      cause: error
+    });
+  }
 }
 
 async function recordStage<T>(
@@ -553,10 +585,14 @@ async function recordStage<T>(
 ): Promise<T> {
   progress(requestId, stage, message, Math.max(0, completed - 1), total);
   const started = performance.now();
-  const result = await task();
-  timings.push({ stage, elapsedMs: Math.round(performance.now() - started) });
-  progress(requestId, stage, message, completed, total);
-  return result;
+  try {
+    const result = await task();
+    timings.push({ stage, elapsedMs: Math.round(performance.now() - started) });
+    progress(requestId, stage, message, completed, total);
+    return result;
+  } catch (error: unknown) {
+    throw new DataviewStageError(stage, message, error);
+  }
 }
 
 function progress(
@@ -580,16 +616,24 @@ async function fetchVerified(
   baseUrl: string,
   path: string,
   expectedSha256: string,
-  maxBytes: number
+  maxBytes: number,
+  options: FetchVerifiedOptions = {}
 ): Promise<ArrayBuffer> {
   const url = new URL(path, baseUrl);
   if (url.origin !== location.origin) {
     throw new Error(`Runtime asset must be same-origin: ${path}`);
   }
-  url.searchParams.set("sha256", expectedSha256);
-  const response = await fetch(url.href, { cache: "force-cache" });
+  if (options.addHashQuery !== false) {
+    url.searchParams.set("sha256", expectedSha256);
+  }
+  let response: Response;
+  try {
+    response = await fetch(url.href, { cache: "force-cache" });
+  } catch (error: unknown) {
+    throw new Error(`${path}: failed to fetch ${url.href}: ${formatThrownValue(error)}`, { cause: error });
+  }
   if (!response.ok) {
-    throw new Error(`${path}: HTTP ${response.status}`);
+    throw new Error(`${path}: HTTP ${response.status} from ${url.href}.`);
   }
   const contentLength = Number(response.headers.get("content-length") ?? 0);
   if (contentLength > maxBytes) {
@@ -616,6 +660,71 @@ function exactBuffer(bytes: Uint8Array): ArrayBuffer {
     return bytes.buffer as ArrayBuffer;
   }
   return bytes.slice().buffer as ArrayBuffer;
+}
+
+function serializeThrownValue(value: unknown, depth = 0): DataviewSerializedError {
+  if (value instanceof Error) {
+    const detail: { name?: string; message: string; stack?: string; cause?: DataviewSerializedError } = {
+      message: value.message || value.name || "Unknown error"
+    };
+    if (value.name) {
+      detail.name = value.name;
+    }
+    if (value.stack) {
+      detail.stack = value.stack;
+    }
+    if (value.cause !== undefined && depth < 4) {
+      detail.cause = serializeThrownValue(value.cause, depth + 1);
+    }
+    return detail;
+  }
+
+  const detail: { name?: string; message: string; stack?: string; cause?: DataviewSerializedError } = {
+    name: "NonErrorThrown",
+    message: formatThrownValue(value)
+  };
+  if (hasStringProperty(value, "stack")) {
+    detail.stack = value.stack;
+  }
+  if (hasProperty(value, "cause") && depth < 4) {
+    detail.cause = serializeThrownValue(value.cause, depth + 1);
+  }
+  return detail;
+}
+
+function formatThrownValue(value: unknown): string {
+  if (value instanceof Error) {
+    return value.message || value.name || "Unknown error";
+  }
+  if (hasStringProperty(value, "message") && value.message) {
+    return value.message;
+  }
+  if (typeof value === "string") {
+    return value || "Unknown error";
+  }
+  try {
+    const json = JSON.stringify(value);
+    if (json) {
+      return json.slice(0, 2000);
+    }
+  } catch {
+    // Fall through to String(value), which is still better than losing the thrown value.
+  }
+  return String(value);
+}
+
+function hasStringProperty<T extends string>(
+  value: unknown,
+  key: T
+): value is Record<T, string> {
+  return hasProperty(value, key) && typeof value[key] === "string";
+}
+
+function hasProperty<T extends string>(
+  value: unknown,
+  key: T
+): value is Record<T, unknown> {
+  return Boolean(value && typeof value === "object" && key in value);
 }
 
 function normalizeRuntimeBaseUrl(value: string): string {
