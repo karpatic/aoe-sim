@@ -61,6 +61,7 @@ def main() -> int:
     for snapshot in sorted(snapshots, key=lambda row: row.get("seconds", 0)):
         seconds = number(snapshot.get("seconds"))
         diagnostics = record(snapshot.get("diagnostics"))
+        population = record(snapshot.get("population"))
         assignments = list_value(snapshot.get("assignments"))
         marker_groups = list_value(snapshot.get("marker_groups"))
         rendered_assignments = [record(row) for row in assignments if record(row).get("map_rendered")]
@@ -71,6 +72,10 @@ def main() -> int:
             errors.append(f"t={seconds}: mapRendered count mismatch")
         if diagnostics.get("markerGroups") != len(marker_groups):
             errors.append(f"t={seconds}: markerGroups count mismatch")
+        if population.get("schema") != "aoe-sim.dataview-population-summary/v1":
+            errors.append(f"t={seconds}: population summary missing")
+        if record(population.get("workerTotalsByPlayer")) != record(diagnostics.get("workerTotalsByPlayer")):
+            errors.append(f"t={seconds}: worker population/diagnostic totals differ")
 
         for assignment in assignments:
             row = record(assignment)
@@ -105,6 +110,8 @@ def main() -> int:
                 errors.append(f"t={seconds}: stacked marker is missing a count rectangle")
             if not rect_is_valid(record(layout.get("footprint_rect"))):
                 errors.append(f"t={seconds}: invalid stack footprint rectangle")
+            if row.get("stack_layout_count", 0) > 1 and layout.get("layout_direction") != "vertical":
+                errors.append(f"t={seconds}: mixed stack layout is not vertical")
 
         if diagnostics.get("lifecycleFiltered", 0) < last_lifecycle_filtered:
             errors.append(f"t={seconds}: lifecycleFiltered decreased across sorted snapshots")
@@ -148,9 +155,18 @@ def main() -> int:
         errors.append("synthetic mixed grouping did not cover one-, two-, and three-digit counts")
     if synthetic.get("footprint_intersection_count") != 0:
         errors.append("synthetic mixed grouping footprints intersect")
+    if synthetic.get("layout_direction") != "vertical":
+        errors.append("synthetic mixed grouping layout is not vertical")
     layout_items = [record(item) for item in list_value(synthetic.get("layout_items_at_fit_scale"))]
     if sorted(record(item).get("count_digits", 0) for item in layout_items) != [1, 2, 3]:
         errors.append("synthetic mixed grouping count digits are not 1, 2, and 3")
+    for top_index in range(1, len(layout_items)):
+        previous = record(layout_items[top_index - 1].get("offset"))
+        current = record(layout_items[top_index].get("offset"))
+        if number(current.get("y"), -math.inf) <= number(previous.get("y"), math.inf):
+            errors.append(f"synthetic mixed grouping is not top-to-bottom at {top_index - 1}/{top_index}")
+        if number(current.get("x"), math.nan) != number(previous.get("x"), math.nan):
+            errors.append(f"synthetic mixed grouping column x changed at {top_index - 1}/{top_index}")
     for left_index in range(len(layout_items)):
         for right_index in range(left_index + 1, len(layout_items)):
             left = record(layout_items[left_index].get("footprint_rect"))

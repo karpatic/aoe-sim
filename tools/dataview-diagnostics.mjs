@@ -428,6 +428,7 @@ function compactSnapshot(snapshot) {
     schema: snapshot.schema,
     seconds: snapshot.seconds,
     checksum: snapshot.checksum,
+    population: snapshot.population,
     diagnostics: snapshot.diagnostics,
     assignments: snapshot.assignments.map((assignment) => ({
       stable_id: assignment.stableId,
@@ -495,6 +496,8 @@ function compactLayoutItem(item) {
     count_digits: item.countDigits ?? 0,
     count_width_px: number(item.countWidthPx, 0),
     row_width_px: number(item.rowWidthPx, 0),
+    column_height_px: number(item.columnHeightPx, 0),
+    layout_direction: item.layoutDirection ?? "",
     marker_box_size_px: number(item.metrics?.markerBoxSizePx, 0),
     sprite_size_px: number(item.metrics?.spriteSizePx, 0),
     count_font_size_px: number(item.metrics?.countFontSizePx, 0),
@@ -528,6 +531,9 @@ function compactParity(parity) {
       marker_groups: snapshot.diagnostics.markerGroups,
       lifecycle_filtered: snapshot.diagnostics.lifecycleFiltered,
       stale_position_filtered: snapshot.diagnostics.stalePositionFiltered,
+      worker_totals_by_player: snapshot.population.workerTotalsByPlayer,
+      map_positioned_workers_by_player: snapshot.population.mapPositionedWorkersByPlayer,
+      position_unknown_workers_by_player: snapshot.population.positionUnknownWorkersByPlayer,
       activity_counts: snapshot.diagnostics.activityCounts,
       sprite_counts: snapshot.diagnostics.spriteCounts,
     })),
@@ -551,6 +557,10 @@ function exactTypeSyntheticDiagnostic() {
   const observedCounts = groups.map((group) => group.stackCount);
   const observedCountSet = new Set(observedCounts);
   const observedDigits = layout.map((item) => item.countDigits).filter((digits) => digits > 0);
+  const vertical = layout.every((item, index) =>
+    item.layoutDirection === "vertical"
+      && (index === 0 || item.offset.y > layout[index - 1].offset.y)
+      && item.offset.x === layout[0].offset.x);
   return {
     schema: "aoe-sim.dataview-exact-type-synthetic/v1",
     seconds: snapshot.seconds,
@@ -570,12 +580,14 @@ function exactTypeSyntheticDiagnostic() {
     layout_items_at_fit_scale: layout.map(compactLayoutItem),
     footprint_intersections: intersections,
     footprint_intersection_count: intersections.length,
+    layout_direction: vertical ? "vertical" : "unexpected",
     passed:
       snapshot.assignments.length === expectedCounts.reduce((sum, count) => sum + count, 0)
       && snapshot.markerGroups.length === expectedCounts.length
       && snapshot.diagnostics.mixedPositionGroups === 1
       && expectedCounts.every((count) => observedCountSet.has(count))
       && [1, 2, 3].every((digits) => observedDigits.includes(digits))
+      && vertical
       && intersections.length === 0,
   };
 }
@@ -639,6 +651,20 @@ function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTi
   const snapshots = reconstruction.snapshots;
   const allAssignments = snapshots.flatMap((snapshot) => snapshot.assignments);
   const allGroups = snapshots.flatMap((snapshot) => snapshot.marker_groups);
+  const playerWorkerTotals = snapshots.map((snapshot) => {
+    const totals = asRecord(snapshot.population?.workerTotalsByPlayer);
+    return `${snapshot.seconds}:${Object.entries(totals)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([player, count]) => `${player}:${count}`)
+      .join(",")}`;
+  });
+  const activeWorkerRows = asArray(gameplayTimeline.units)
+    .map(asRecord)
+    .filter((unit) => (unit.worker || unit.category === "villagers"));
+  const activeWorkerSnapshots = snapshots.map((snapshot) => {
+    const totals = asRecord(snapshot.population?.workerTotalsByPlayer);
+    return Object.values(totals).reduce((sum, count) => sum + number(count, 0), 0);
+  });
   const battleSnapshot = snapshots
     .slice()
     .sort((left, right) =>
@@ -714,7 +740,16 @@ function focusedChecks({ parser, gameplay, reconstruction, synthetic, gameplayTi
       && allGroups.every((group) => group.stack_layout_count >= 1)
       && allGroups.every((group) => group.stack_count >= 1)
       && allGroups.every((group) => asArray(group.stack_layout_item_counts).length === group.stack_layout_count),
-    `synthetic=${synthetic.passed}, synthetic_footprint_intersections=${synthetic.footprint_intersection_count}, real_mixed_positions=${snapshots.map((snapshot) => `${snapshot.seconds}:${snapshot.diagnostics.mixedPositionGroups}`).join(";")}`);
+    `synthetic=${synthetic.passed}, synthetic_direction=${synthetic.layout_direction}, synthetic_footprint_intersections=${synthetic.footprint_intersection_count}, real_mixed_positions=${snapshots.map((snapshot) => `${snapshot.seconds}:${snapshot.diagnostics.mixedPositionGroups}`).join(";")}`);
+  pushCheck(checks, "worker totals from reconstruction",
+    activeWorkerRows.length > 0
+      && activeWorkerSnapshots.some((count) => count > 0)
+      && snapshots.every((snapshot) => {
+        const populationTotals = asRecord(snapshot.population?.workerTotalsByPlayer);
+        const diagnosticTotals = asRecord(snapshot.diagnostics.workerTotalsByPlayer);
+        return JSON.stringify(populationTotals) === JSON.stringify(diagnosticTotals);
+      }),
+    `worker_rows=${activeWorkerRows.length}, totals=${playerWorkerTotals.join(";")}`);
   pushCheck(checks, "map-position bounds",
     invalidMapPositions.length === 0,
     `${invalidMapPositions.length} invalid rendered positions`);

@@ -2388,8 +2388,65 @@
           total: mappedWorkers.length,
           other: counts.Other,
           equationMatchesTotal: resourceTotal + counts.Other === mappedWorkers.length,
+          mapPositioned: mappedWorkers.length,
+          positionKnown: mappedWorkers.length,
+          positionUnknown: 0,
+          lifecycleFiltered: 0,
+          starting: 0,
+          queueEstimated: 0,
+          observedActor: 0,
+          sourceActorWorkers: mappedWorkers.length,
+          replayEndSurvivalUnresolved: 0,
+          evidenceCounts: {},
+          evidenceQualityCounts: {},
+          birthKindCounts: {},
+          assignmentCounts: {},
+          source: 'map-rendered-fallback',
           taskAssignments: compactCountSummary(mappedWorkers.map((assignment) =>
             assignment.villagerTaskAssignment ?? 'unresolved')),
+        };
+      }
+
+      function workerPopulationForPlayer(populationSummary, player) {
+        if (populationSummary?.schema !== 'aoe-sim.dataview-population-summary/v1') return null;
+        return (populationSummary.players ?? []).find((row) => row.player === player)?.workers ?? null;
+      }
+
+      function normalizedWorkerResourceCounts(counts) {
+        return {
+          Food: Number(counts?.Food) || 0,
+          Wood: Number(counts?.Wood) || 0,
+          Gold: Number(counts?.Gold) || 0,
+          Stone: Number(counts?.Stone) || 0,
+          Other: Number(counts?.Other) || 0,
+        };
+      }
+
+      function workerSummaryForPlayer(player, populationSummary, assignments) {
+        const workers = workerPopulationForPlayer(populationSummary, player);
+        if (!workers) return currentMappedWorkerSummaryForPlayer(assignments);
+        const counts = normalizedWorkerResourceCounts(workers.resourceCounts);
+        return {
+          counts,
+          resourceTotal: Number(workers.resourceTotal) || 0,
+          total: Number(workers.total) || 0,
+          other: Number(workers.other) || 0,
+          equationMatchesTotal: Boolean(workers.equationMatchesTotal),
+          mapPositioned: Number(workers.mapPositioned) || 0,
+          positionKnown: Number(workers.positionKnown) || 0,
+          positionUnknown: Number(workers.positionUnknown) || 0,
+          lifecycleFiltered: Number(workers.lifecycleFiltered) || 0,
+          starting: Number(workers.starting) || 0,
+          queueEstimated: Number(workers.queueEstimated) || 0,
+          observedActor: Number(workers.observedActor) || 0,
+          sourceActorWorkers: Number(workers.sourceActorWorkers) || 0,
+          replayEndSurvivalUnresolved: Number(workers.replayEndSurvivalUnresolved) || 0,
+          evidenceCounts: workers.evidenceCounts ?? {},
+          evidenceQualityCounts: workers.evidenceQualityCounts ?? {},
+          birthKindCounts: workers.birthKindCounts ?? {},
+          assignmentCounts: workers.assignmentCounts ?? {},
+          source: workers.source ?? 'gameplay-timeline-active-workers',
+          taskAssignments: countRecordSummary(workers.assignmentCounts),
         };
       }
 
@@ -2398,19 +2455,43 @@
           `${resource} ${summary.counts[resource]}`).join(' + ')} + Other ${summary.other} = Total ${summary.total}`;
       }
 
+      function countRecordSummary(counts) {
+        return Object.entries(counts ?? {})
+          .filter(([, count]) => Number(count) > 0)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([key, count]) => `${key}:${count}`)
+          .join(',');
+      }
+
       function mappedWorkerTitle(summary, availableVillagers, startingVillagers, trainedVillagers) {
         return [
-          `Current map-position worker estimate: ${mappedWorkerEquation(summary)}.`,
-          'Food, Wood, Gold, and Stone count only currently mapped Villagers whose effective assignment is exactly that resource.',
-          'Other counts currently mapped Villagers assigned to build, repair, attack, generic gather, move, unresolved, or any non-resource task.',
-          `Available Villager upper-bound evidence: ${availableVillagers} (${startingVillagers} starting + ${trainedVillagers} trained); this is not displayed as current field state.`,
-          'Counts come from activeIndividualUnitAssignments(seconds) with map-rendered filtering, so sparse replay positions can be incomplete and missing positions are position-unknown, not confirmed dead.',
+          `Current reconstructed worker total: ${mappedWorkerEquation(summary)}.`,
+          'Food, Wood, Gold, and Stone count active reconstructed Villagers only when the current reconstruction has that exact assignment evidence.',
+          'Other includes active reconstructed Villagers assigned to build, repair, attack, generic gather, move, unresolved tasks, or position-unknown workers with no current resource assignment evidence.',
+          `Worker row evidence: ${summary.starting} starting + ${summary.queueEstimated} queue-estimated + ${summary.observedActor} observed actor = ${summary.total}.`,
+          `Map-positioned worker subset: ${summary.mapPositioned}; position-unknown or unpositioned active workers: ${summary.positionUnknown}.`,
+          `Queue-derived comparison: ${availableVillagers} (${startingVillagers} starting + ${trainedVillagers} trained); observed actor materializations are counted by the reconstruction when active.`,
+          `Source: ${summary.source}.`,
           summary.taskAssignments ? `Effective worker assignments: ${summary.taskAssignments}.` : '',
         ].filter(Boolean).join(' ');
       }
 
       function applyMappedWorkerDatasets(element, summary, availableVillagers, startingVillagers, trainedVillagers) {
-        element.dataset.mappedWorkerTotal = String(summary.total);
+        element.dataset.workerTotal = String(summary.total);
+        element.dataset.workerTotalSource = summary.source;
+        element.dataset.workerMapPositioned = String(summary.mapPositioned);
+        element.dataset.workerPositionKnown = String(summary.positionKnown);
+        element.dataset.workerPositionUnknown = String(summary.positionUnknown);
+        element.dataset.workerLifecycleFiltered = String(summary.lifecycleFiltered);
+        element.dataset.workerStarting = String(summary.starting);
+        element.dataset.workerQueueEstimated = String(summary.queueEstimated);
+        element.dataset.workerObservedActor = String(summary.observedActor);
+        element.dataset.workerSourceActorRows = String(summary.sourceActorWorkers);
+        element.dataset.workerReplayEndSurvivalUnresolved = String(summary.replayEndSurvivalUnresolved);
+        element.dataset.workerEvidenceCounts = countRecordSummary(summary.evidenceCounts);
+        element.dataset.workerEvidenceQualityCounts = countRecordSummary(summary.evidenceQualityCounts);
+        element.dataset.workerBirthKindCounts = countRecordSummary(summary.birthKindCounts);
+        element.dataset.mappedWorkerTotal = String(summary.mapPositioned);
         resourceOrder.forEach((resource) => {
           element.dataset[`mappedWorker${resource}`] = String(summary.counts[resource]);
         });
@@ -2833,7 +2914,7 @@
         const workersLabel = document.createElement('th');
         workersLabel.scope = 'row';
         workersLabel.textContent = '# workers';
-        workersLabel.title = 'Current map-position worker estimate from map-rendered individual Villager markers.';
+        workersLabel.title = 'Current reconstructed worker total; map-positioned workers are tracked as a separate subset.';
         workersLabel.setAttribute('aria-label', workersLabel.title);
         workersRow.append(workersLabel);
         const workerCells = {};
@@ -2853,7 +2934,7 @@
         workerTotalOther.className = 'worker-total-other';
         workerTotalOther.hidden = true;
         workerTotalCell.append(workerTotalCurrent, workerTotalOther);
-        workerTotalCell.title = 'Current map-position worker estimate: Food 0 + Wood 0 + Gold 0 + Stone 0 + Other 0 = Total 0. Available Villager upper-bound evidence: 0 (0 starting + 0 trained); this is not displayed as current field state.';
+        workerTotalCell.title = 'Current reconstructed worker total: Food 0 + Wood 0 + Gold 0 + Stone 0 + Other 0 = Total 0.';
         workerTotalCell.setAttribute('aria-label', workerTotalCell.title);
         workersRow.append(workerTotalCell);
         resourceBody.append(spentRow, stockpileRow, workersRow);
@@ -2967,6 +3048,7 @@
             : typeof updateGameplay.activeMappedActorAssignments === 'function'
               ? updateGameplay.activeMappedActorAssignments(bounded)
               : [];
+        const currentPopulationSummary = gameplayFrame?.populationSummary ?? null;
         const currentMappedAssignmentsByPlayer = activeMappedAssignmentsByPlayer(currentMappedAssignments);
         timelineSlider.value = String(bounded);
         timelineTime.value = `${formatDuration(bounded)} / ${formatDuration(duration)}`;
@@ -3034,7 +3116,11 @@
             .reduce((sum, event) => sum + (Number(event.count) || 1), 0);
           const availableVillagers = state.startingVillagers + trainedVillagers;
           const playerCurrentMappedAssignments = currentMappedAssignmentsByPlayer.get(state.player.number) ?? [];
-          const mappedWorkerSummary = currentMappedWorkerSummaryForPlayer(playerCurrentMappedAssignments);
+          const mappedWorkerSummary = workerSummaryForPlayer(
+            state.player.number,
+            currentPopulationSummary,
+            playerCurrentMappedAssignments,
+          );
           const mappedWorkerDescription = mappedWorkerTitle(
             mappedWorkerSummary,
             availableVillagers,
@@ -3057,7 +3143,7 @@
             const count = mappedWorkerSummary.counts[resource];
             cell.textContent = String(count);
             cell.title = [
-              `${resource} currently mapped Villagers with effective assignment exactly ${resource.toLowerCase()}: ${count}.`,
+              `${resource} active reconstructed Villagers with supported ${resource.toLowerCase()} assignment: ${count}.`,
               mappedWorkerDescription,
             ].join(' ');
             cell.setAttribute('aria-label', cell.title);
@@ -3157,8 +3243,8 @@
             .reduce((sum, unit) => sum + unit.currentMapEstimate, 0);
           const currentMappedWorkerTotal = currentMapSummary.diagnostics.mapRenderedWorkers;
           const currentMappedWorkerUnitsParity = currentMappedVillagerUnitTotal === currentMappedWorkerTotal;
-          const currentMappedWorkerResourcesParity = mappedWorkerSummary.total === currentMappedWorkerTotal;
-          const currentMappedWorkerVisibleParity = currentMappedVillagerUnitTotal === mappedWorkerSummary.total;
+          const currentMappedWorkerResourcesParity = mappedWorkerSummary.mapPositioned === currentMappedWorkerTotal;
+          const currentMappedWorkerVisibleParity = currentMappedVillagerUnitTotal === mappedWorkerSummary.mapPositioned;
           [state.workersRow, state.workerTotalCell].forEach((element) => {
             element.dataset.unitsCurrentMappedVillagerTotal = String(currentMappedVillagerUnitTotal);
             element.dataset.currentMappedWorkerTotal = String(currentMappedWorkerTotal);
@@ -6743,12 +6829,18 @@
         const interpolationFrom = assignment.interpolationFrom ?? assignment.position;
         const interpolationTo = assignment.interpolationTo ?? assignment.commandDestination;
         const interpolationProgress = assignment.interpolationProgress ?? 1;
-        const stackLayoutItem = individualUnitStackLayoutItem(assignment, uniformScale);
+        const stackLayout = individualUnitStackPixelLayout(assignment, uniformScale);
+        const stackLayoutItem = stackLayout[
+          Math.max(0, Math.min(stackLayout.length - 1, Number(assignment.stackLayoutIndex ?? 0) || 0))
+        ] ?? individualUnitStackLayoutItem(assignment, uniformScale);
         const stackOffset = stackLayoutItem?.offset ?? individualUnitStackLayoutOffset(assignment, uniformScale);
         const stackLayoutMetrics = stackLayoutItem?.metrics
           ?? dataviewReconstruction.exactTypeStackLayoutMetrics(uniformScale);
-        marker.style.left = `${projectedPosition.x * scale.x + stackOffset.x}px`;
-        marker.style.top = `${projectedPosition.y * scale.y + stackOffset.y}px`;
+        const anchorX = projectedPosition.x * scale.x;
+        const anchorY = projectedPosition.y * scale.y;
+        const stackShift = clampedStackLayoutShift(anchorX, anchorY, stackLayout);
+        marker.style.left = `${anchorX + stackOffset.x + stackShift.x}px`;
+        marker.style.top = `${anchorY + stackOffset.y + stackShift.y}px`;
         marker.style.setProperty('--player-color', teamColor);
         marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
         marker.style.setProperty('--unit-marker-size', `${stackLayoutMetrics.markerBoxSizePx}px`);
@@ -6815,7 +6907,10 @@
         marker.dataset.stackLayoutCount = String(assignment.stackLayoutCount ?? 1);
         marker.dataset.stackLayoutItemCounts = (assignment.stackLayoutItemCounts ?? [assignment.stackCount ?? 1]).join(',');
         marker.dataset.stackOffsetPx = `${formatStatNumber(stackOffset.x, 3)},${formatStatNumber(stackOffset.y, 3)}`;
+        marker.dataset.stackClampedShiftPx = `${formatStatNumber(stackShift.x, 3)},${formatStatNumber(stackShift.y, 3)}`;
         marker.dataset.stackRowWidthPx = formatStatNumber(stackLayoutItem?.rowWidthPx ?? 0, 3);
+        marker.dataset.stackColumnHeightPx = formatStatNumber(stackLayoutItem?.columnHeightPx ?? 0, 3);
+        marker.dataset.stackLayoutDirection = stackLayoutItem?.layoutDirection ?? '';
         marker.dataset.stackMarkerBoxSizePx = formatStatNumber(stackLayoutMetrics.markerBoxSizePx, 3);
         marker.dataset.stackSpriteSizePx = formatStatNumber(stackLayoutMetrics.spriteSizePx, 3);
         marker.dataset.stackCountFontSizePx = formatStatNumber(stackLayoutMetrics.countFontSizePx, 3);
@@ -7025,6 +7120,17 @@
               ? Math.max(...items.map((item) => item.footprintRect?.right ?? 0))
                 - Math.min(...items.map((item) => item.footprintRect?.left ?? 0))
               : 0,
+            columnHeightPx: items.length
+              ? Math.max(...items.map((item) => item.footprintRect?.bottom ?? 0))
+                - Math.min(...items.map((item) => item.footprintRect?.top ?? 0))
+              : 0,
+            layoutDirection: items.every((item, index) =>
+              item.footprintRect
+                && (index === 0
+                  || !items[index - 1].footprintRect
+                  || item.footprintRect.top >= items[index - 1].footprintRect.top))
+              ? 'vertical'
+              : 'unexpected',
             items,
           });
         });
@@ -7070,17 +7176,21 @@
           || String(left.markerKey).localeCompare(String(right.markerKey), undefined, { numeric: true });
       }
 
-      function individualUnitStackLayoutItem(assignment, uniformScale) {
+      function individualUnitStackPixelLayout(assignment, uniformScale) {
         const stackLayoutCount = Math.max(1, Number(assignment.stackLayoutCount ?? 1) || 1);
         const rawCounts = Array.isArray(assignment.stackLayoutItemCounts)
           && assignment.stackLayoutItemCounts.length === stackLayoutCount
           ? assignment.stackLayoutItemCounts
           : Array.from({ length: stackLayoutCount }, (_, index) =>
               index === Number(assignment.stackLayoutIndex ?? 0) ? Number(assignment.stackCount ?? 1) || 1 : 1);
-        const layout = dataviewReconstruction.exactTypeStackPixelLayout(
+        return dataviewReconstruction.exactTypeStackPixelLayout(
           rawCounts.map((stackCount) => ({ stackCount })),
           uniformScale,
         );
+      }
+
+      function individualUnitStackLayoutItem(assignment, uniformScale) {
+        const layout = individualUnitStackPixelLayout(assignment, uniformScale);
         const index = Math.max(0, Math.min(layout.length - 1, Number(assignment.stackLayoutIndex ?? 0) || 0));
         return layout[index] ?? dataviewReconstruction.exactTypeStackPixelLayout(
           [{ stackCount: assignment.stackCount ?? 1 }],
@@ -7090,6 +7200,29 @@
 
       function individualUnitStackLayoutOffset(assignment, uniformScale) {
         return individualUnitStackLayoutItem(assignment, uniformScale)?.offset ?? { x: 0, y: 0 };
+      }
+
+      function stackLayoutBounds(layout) {
+        return unionMarkerRects(layout.map((item) => item.footprintRect));
+      }
+
+      function clampedStackLayoutShift(anchorX, anchorY, layout) {
+        const bounds = stackLayoutBounds(layout);
+        if (!bounds) return { x: 0, y: 0 };
+        const padding = 1;
+        const overlayWidth = Math.max(1, spriteOverlay.clientWidth || spriteOverlay.getBoundingClientRect().width);
+        const overlayHeight = Math.max(1, spriteOverlay.clientHeight || spriteOverlay.getBoundingClientRect().height);
+        let x = 0;
+        let y = 0;
+        if (bounds.width <= overlayWidth - padding * 2) {
+          if (anchorX + bounds.left < padding) x = padding - (anchorX + bounds.left);
+          else if (anchorX + bounds.right > overlayWidth - padding) x = overlayWidth - padding - (anchorX + bounds.right);
+        }
+        if (bounds.height <= overlayHeight - padding * 2) {
+          if (anchorY + bounds.top < padding) y = padding - (anchorY + bounds.top);
+          else if (anchorY + bounds.bottom > overlayHeight - padding) y = overlayHeight - padding - (anchorY + bounds.bottom);
+        }
+        return { x, y };
       }
 
       function individualUnitStackGroups(assignments) {
@@ -7278,6 +7411,8 @@
           anchorKey: row.anchorKey,
           itemCount: row.itemCount,
           rowWidthPx: Math.round(row.rowWidthPx * 1000) / 1000,
+          columnHeightPx: Math.round(row.columnHeightPx * 1000) / 1000,
+          layoutDirection: row.layoutDirection,
           items: row.items.map((item) => ({
             markerKey: item.markerKey,
             stackLayoutIndex: item.stackLayoutIndex,
@@ -7874,6 +8009,7 @@
           currentMappedAssignments,
           mapRenderedCategorizedAssignments,
           mapRenderedVillagerAssignments,
+          populationSummary: currentReconstructionSnapshot?.population ?? null,
           markerCount: individualUnitMarkerNodes.size,
         });
       }

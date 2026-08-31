@@ -40,6 +40,8 @@ export interface DataviewMarkerStackLayoutItem {
   readonly footprintRect: DataviewMarkerRect;
   readonly metrics: DataviewMarkerStackLayoutMetrics;
   readonly rowWidthPx: number;
+  readonly columnHeightPx: number;
+  readonly layoutDirection: "vertical";
 }
 
 export interface DataviewMotionSegment {
@@ -223,8 +225,46 @@ export interface DataviewRenderSnapshot {
   readonly seconds: number;
   readonly assignments: readonly DataviewUnitAssignment[];
   readonly markerGroups: readonly DataviewUnitAssignment[];
+  readonly population: DataviewPopulationSummary;
   readonly diagnostics: DataviewRenderDiagnostics;
   readonly checksum: string;
+}
+
+export interface DataviewPopulationSummary {
+  readonly schema: "aoe-sim.dataview-population-summary/v1";
+  readonly seconds: number;
+  readonly players: readonly DataviewPlayerPopulationSummary[];
+  readonly workerTotalsByPlayer: Record<string, number>;
+  readonly mapPositionedWorkersByPlayer: Record<string, number>;
+  readonly positionUnknownWorkersByPlayer: Record<string, number>;
+  readonly totalWorkers: number;
+}
+
+export interface DataviewPlayerPopulationSummary {
+  readonly player: number;
+  readonly workers: DataviewWorkerPopulationSummary;
+}
+
+export interface DataviewWorkerPopulationSummary {
+  readonly total: number;
+  readonly resourceCounts: Record<string, number>;
+  readonly resourceTotal: number;
+  readonly other: number;
+  readonly equationMatchesTotal: boolean;
+  readonly mapPositioned: number;
+  readonly positionKnown: number;
+  readonly positionUnknown: number;
+  readonly lifecycleFiltered: number;
+  readonly starting: number;
+  readonly queueEstimated: number;
+  readonly observedActor: number;
+  readonly sourceActorWorkers: number;
+  readonly replayEndSurvivalUnresolved: number;
+  readonly evidenceCounts: Record<string, number>;
+  readonly evidenceQualityCounts: Record<string, number>;
+  readonly birthKindCounts: Record<string, number>;
+  readonly assignmentCounts: Record<string, number>;
+  readonly source: "gameplay-timeline-active-workers";
 }
 
 export interface DataviewRenderDiagnostics {
@@ -243,6 +283,9 @@ export interface DataviewRenderDiagnostics {
   readonly mixedPositionGroups: number;
   readonly exactTypeGroupKeys: readonly string[];
   readonly disappearedSupportedUnits: number;
+  readonly workerTotalsByPlayer: Record<string, number>;
+  readonly mapRenderedWorkersByPlayer: Record<string, number>;
+  readonly positionUnknownWorkersByPlayer: Record<string, number>;
 }
 
 export interface DataviewSeekParityResult {
@@ -281,6 +324,7 @@ const UNIT_MARKER_COUNT_GAP_PX = 2;
 const UNIT_MARKER_ROW_GAP_PX = 3;
 const UNIT_MARKER_COUNT_DIGIT_EM = 0.72;
 const UNIT_MARKER_COUNT_PADDING_PX = 1;
+const WORKER_RESOURCE_COUNT_KEYS = ["Food", "Wood", "Gold", "Stone"] as const;
 const SPRITE_KEYS = Object.freeze([
   "villagers",
   "archer",
@@ -372,13 +416,15 @@ export function buildDataviewRenderSnapshot(options: {
   const assignments = dedupeActiveIndividualUnitAssignments(rawAssignments)
     .map((assignment) => freezeAssignment(assignment));
   const markerGroups = groupExactTypeMarkers(assignments).map((assignment) => freezeAssignment(assignment));
-  const diagnostics = renderDiagnostics(units, assignments, markerGroups, seconds);
-  const checksum = snapshotChecksum(seconds, assignments, markerGroups, diagnostics);
+  const population = buildPopulationSummary(units, assignments, seconds);
+  const diagnostics = renderDiagnostics(units, assignments, markerGroups, seconds, population);
+  const checksum = snapshotChecksum(seconds, assignments, markerGroups, population, diagnostics);
   return Object.freeze({
     schema: "aoe-sim.dataview-render-snapshot/v1",
     seconds,
     assignments,
     markerGroups,
+    population,
     diagnostics,
     checksum,
   });
@@ -853,35 +899,37 @@ export function exactTypeStackPixelLayout(
     const countPartWidth = countDigits ? metrics.markerBoxSizePx / 2 + metrics.countGapPx + countWidthPx : 0;
     return cleanNumber(metrics.spriteSizePx / 2 + Math.max(metrics.spriteSizePx / 2, countPartWidth));
   });
-  const rowWidthPx = cleanNumber(
-    widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * metrics.itemGapPx,
+  const itemHeightPx = cleanNumber(Math.max(metrics.spriteSizePx, metrics.countFontSizePx));
+  const rowWidthPx = cleanNumber(Math.max(...widths));
+  const columnHeightPx = cleanNumber(
+    stackCounts.length * itemHeightPx + Math.max(0, stackCounts.length - 1) * metrics.itemGapPx,
   );
-  let cursor = -rowWidthPx / 2;
+  const markerCenterX = cleanNumber(-rowWidthPx / 2 + metrics.spriteSizePx / 2);
+  let cursor = -columnHeightPx / 2;
   return Object.freeze(stackCounts.map((stackCount, index) => {
     const countText = exactTypeStackCountText(stackCount);
     const countDigits = countText.length;
     const countWidthPx = countDigits
       ? cleanNumber(countDigits * metrics.countDigitWidthPx + metrics.countPaddingPx)
       : 0;
-    const footprintLeft = cursor;
-    const markerCenterX = cleanNumber(footprintLeft + metrics.spriteSizePx / 2);
-    const offset = freezePoint({ x: markerCenterX, y: 0 });
+    const markerCenterY = cleanNumber(cursor + itemHeightPx / 2);
+    const offset = freezePoint({ x: markerCenterX, y: markerCenterY });
     const spriteRect = freezeRect({
       left: markerCenterX - metrics.spriteSizePx / 2,
-      top: -metrics.spriteSizePx / 2,
+      top: markerCenterY - metrics.spriteSizePx / 2,
       right: markerCenterX + metrics.spriteSizePx / 2,
-      bottom: metrics.spriteSizePx / 2,
+      bottom: markerCenterY + metrics.spriteSizePx / 2,
     });
     const countRect = countDigits
       ? freezeRect({
           left: markerCenterX + metrics.markerBoxSizePx / 2 + metrics.countGapPx,
-          top: -metrics.countFontSizePx / 2,
+          top: markerCenterY - metrics.countFontSizePx / 2,
           right: markerCenterX + metrics.markerBoxSizePx / 2 + metrics.countGapPx + countWidthPx,
-          bottom: metrics.countFontSizePx / 2,
+          bottom: markerCenterY + metrics.countFontSizePx / 2,
         })
       : null;
     const footprintRect = unionMarkerRects(countRect ? [spriteRect, countRect] : [spriteRect]);
-    cursor += (widths[index] ?? 0) + metrics.itemGapPx;
+    cursor += itemHeightPx + metrics.itemGapPx;
     return Object.freeze({
       index,
       stackCount,
@@ -894,6 +942,8 @@ export function exactTypeStackPixelLayout(
       footprintRect,
       metrics,
       rowWidthPx,
+      columnHeightPx,
+      layoutDirection: "vertical",
     });
   }));
 }
@@ -1264,18 +1314,158 @@ function unitCategoryForMapSpriteKey(spriteKey: string, category: string | null 
   return category ?? SPRITE_CATEGORIES.get(key) ?? null;
 }
 
+function buildPopulationSummary(
+  units: readonly DataviewTimelineUnit[],
+  assignments: readonly DataviewUnitAssignment[],
+  seconds: number
+): DataviewPopulationSummary {
+  const players = [...new Set([
+    ...units.map((unit) => numericId(unit.player) ?? 0),
+    ...assignments.map((assignment) => assignment.player),
+  ])].filter((player) => player > 0).sort((a, b) => a - b);
+  const playerSummaries = players.map((player) => Object.freeze({
+    player,
+    workers: buildWorkerPopulationSummary(player, units, assignments, seconds),
+  }));
+  const workerTotalsByPlayer = freezeCountObject(Object.fromEntries(
+    playerSummaries.map((row) => [String(row.player), row.workers.total]),
+  ));
+  const mapPositionedWorkersByPlayer = freezeCountObject(Object.fromEntries(
+    playerSummaries.map((row) => [String(row.player), row.workers.mapPositioned]),
+  ));
+  const positionUnknownWorkersByPlayer = freezeCountObject(Object.fromEntries(
+    playerSummaries.map((row) => [String(row.player), row.workers.positionUnknown]),
+  ));
+  return Object.freeze({
+    schema: "aoe-sim.dataview-population-summary/v1",
+    seconds: cleanTime(seconds),
+    players: Object.freeze(playerSummaries),
+    workerTotalsByPlayer,
+    mapPositionedWorkersByPlayer,
+    positionUnknownWorkersByPlayer,
+    totalWorkers: playerSummaries.reduce((sum, row) => sum + row.workers.total, 0),
+  });
+}
+
+function buildWorkerPopulationSummary(
+  player: number,
+  units: readonly DataviewTimelineUnit[],
+  assignments: readonly DataviewUnitAssignment[],
+  seconds: number
+): DataviewWorkerPopulationSummary {
+  const playerWorkers = units.filter((unit) => timelineUnitPlayer(unit) === player && timelineUnitIsWorker(unit));
+  const activeWorkers = playerWorkers.filter((unit) => timelineUnitActiveAt(unit, seconds));
+  const lifecycleFiltered = playerWorkers.filter((unit) => timelineUnitLifecycleFilteredAt(unit, seconds));
+  const workerAssignments = assignments.filter((assignment) => assignment.player === player && assignment.worker);
+  const positionKnownKeys = new Set(workerAssignments
+    .filter((assignment) => assignment.positionCredible)
+    .map(activeIndividualUnitIdentityKey));
+  const mapPositionedKeys = new Set(workerAssignments
+    .filter((assignment) => assignment.mapRendered)
+    .map(activeIndividualUnitIdentityKey));
+  const assignmentByKey = new Map(workerAssignments.map((assignment) => [
+    activeIndividualUnitIdentityKey(assignment),
+    assignment,
+  ]));
+  const resourceCounts = emptyWorkerResourceCounts();
+  activeWorkers.forEach((unit) => {
+    const assignment = assignmentByKey.get(timelineUnitIdentityKey(unit));
+    const resource = workerResourceCountKey(assignment?.villagerTaskAssignment);
+    resourceCounts[resource ?? "Other"] = (resourceCounts[resource ?? "Other"] ?? 0) + 1;
+  });
+  const resourceTotal = WORKER_RESOURCE_COUNT_KEYS.reduce((sum, resource) => sum + (resourceCounts[resource] ?? 0), 0);
+  const evidenceCounts = countRecord(activeWorkers.map((unit) => unitTimelineEvidenceClass(unit)));
+  const evidenceQualityCounts = countRecord(activeWorkers.map((unit) => unitTimelineEvidenceQuality(unit)));
+  const birthKindCounts = countRecord(activeWorkers.map((unit) => unit.birth_kind ?? "unknown"));
+  const assignmentCounts = countRecord(activeWorkers.map((unit) => {
+    const assignment = assignmentByKey.get(timelineUnitIdentityKey(unit));
+    return workerResourceCountKey(assignment?.villagerTaskAssignment) ?? "position-unknown-or-unassigned";
+  }));
+  return Object.freeze({
+    total: activeWorkers.length,
+    resourceCounts: freezeCountObject(resourceCounts),
+    resourceTotal,
+    other: resourceCounts.Other ?? 0,
+    equationMatchesTotal: resourceTotal + (resourceCounts.Other ?? 0) === activeWorkers.length,
+    mapPositioned: mapPositionedKeys.size,
+    positionKnown: positionKnownKeys.size,
+    positionUnknown: Math.max(0, activeWorkers.length - positionKnownKeys.size),
+    lifecycleFiltered: lifecycleFiltered.length,
+    starting: activeWorkers.filter((unit) => unit.birth_kind === "starting_actor").length,
+    queueEstimated: activeWorkers.filter((unit) => unit.birth_kind === "queue_estimate").length,
+    observedActor: activeWorkers.filter((unit) => unit.birth_kind === "observed_actor").length,
+    sourceActorWorkers: activeWorkers.filter((unit) => numericId(unit.source_actor_id) !== null).length,
+    replayEndSurvivalUnresolved: activeWorkers.filter((unit) =>
+      String(unit.end_reason ?? "").includes("survival-unresolved-through-replay-end")).length,
+    evidenceCounts: freezeCountObject(evidenceCounts),
+    evidenceQualityCounts: freezeCountObject(evidenceQualityCounts),
+    birthKindCounts: freezeCountObject(birthKindCounts),
+    assignmentCounts: freezeCountObject(assignmentCounts),
+    source: "gameplay-timeline-active-workers",
+  });
+}
+
+function emptyWorkerResourceCounts(): Record<string, number> {
+  return {
+    Food: 0,
+    Wood: 0,
+    Gold: 0,
+    Stone: 0,
+    Other: 0,
+  };
+}
+
+function workerResourceCountKey(value: unknown): "Food" | "Wood" | "Gold" | "Stone" | null {
+  const key = normalizedLookupName(value);
+  if (key === "food") return "Food";
+  if (key === "wood") return "Wood";
+  if (key === "gold") return "Gold";
+  if (key === "stone") return "Stone";
+  return null;
+}
+
+function timelineUnitPlayer(unit: DataviewTimelineUnit): number {
+  return numericId(unit.player) ?? 0;
+}
+
+function timelineUnitIsWorker(unit: DataviewTimelineUnit): boolean {
+  return Boolean(unit.worker || unit.category === "villagers");
+}
+
+function timelineUnitIdentityKey(unit: DataviewTimelineUnit): string {
+  const player = timelineUnitPlayer(unit);
+  const actorId = numericId(unit.source_actor_id);
+  if (actorId !== null) return `actor:${player}:${actorId}`;
+  return `stable:${player}:${unit.stable_id ?? unit.id ?? ""}`;
+}
+
+function timelineUnitActiveAt(unit: DataviewTimelineUnit, seconds: number): boolean {
+  const birthTime = finiteNumber(unit.birth_time, Number.NaN);
+  const visibleUntil = finiteNumber(unit.visible_until, Number.POSITIVE_INFINITY);
+  return Number.isFinite(birthTime)
+    && seconds + VISIBILITY_EPSILON >= birthTime
+    && seconds <= visibleUntil + VISIBILITY_EPSILON;
+}
+
+function timelineUnitLifecycleFilteredAt(unit: DataviewTimelineUnit, seconds: number): boolean {
+  const birthTime = finiteNumber(unit.birth_time, Number.NaN);
+  const visibleUntil = finiteNumber(unit.visible_until, Number.POSITIVE_INFINITY);
+  return Number.isFinite(birthTime)
+    && seconds + VISIBILITY_EPSILON >= birthTime
+    && seconds > visibleUntil + VISIBILITY_EPSILON;
+}
+
 function renderDiagnostics(
   units: readonly DataviewTimelineUnit[],
   assignments: readonly DataviewUnitAssignment[],
   markerGroups: readonly DataviewUnitAssignment[],
-  seconds: number
+  seconds: number,
+  population: DataviewPopulationSummary
 ): DataviewRenderDiagnostics {
   const mapRendered = assignments.filter((assignment) => assignment.mapRendered);
   const assignedIds = new Set(assignments.map((assignment) => assignment.stableId));
   const lifecycleFiltered = units.filter((unit) => {
-    const birthTime = finiteNumber(unit.birth_time, Number.NaN);
-    const visibleUntil = finiteNumber(unit.visible_until, Number.POSITIVE_INFINITY);
-    return Number.isFinite(birthTime) && seconds >= visibleUntil && seconds >= birthTime;
+    return timelineUnitLifecycleFilteredAt(unit, seconds);
   });
   const stalePositionFiltered = units.filter((unit) => {
     const stableId = String(unit.stable_id ?? unit.id ?? "");
@@ -1312,6 +1502,9 @@ function renderDiagnostics(
       .map((assignment) => `${assignment.stackAnchorPositionKey}:${assignment.stackUnitTypeKey}:${assignment.stackCount}`)
       .sort()),
     disappearedSupportedUnits: lifecycleFiltered.length,
+    workerTotalsByPlayer: population.workerTotalsByPlayer,
+    mapRenderedWorkersByPlayer: population.mapPositionedWorkersByPlayer,
+    positionUnknownWorkersByPlayer: population.positionUnknownWorkersByPlayer,
   });
 }
 
@@ -1368,6 +1561,7 @@ function snapshotChecksum(
   seconds: number,
   assignments: readonly DataviewUnitAssignment[],
   markerGroups: readonly DataviewUnitAssignment[],
+  population: DataviewPopulationSummary,
   diagnostics: DataviewRenderDiagnostics
 ): string {
   const assignmentText = assignments
@@ -1407,7 +1601,16 @@ function snapshotChecksum(
     diagnostics.mapRendered,
     diagnostics.lifecycleFiltered,
     diagnostics.stalePositionFiltered,
+    JSON.stringify(population.workerTotalsByPlayer),
+    JSON.stringify(population.mapPositionedWorkersByPlayer),
+    JSON.stringify(population.positionUnknownWorkersByPlayer),
   ].join("||"));
+}
+
+function freezeCountObject(record: Record<string, number>): Record<string, number> {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(record).sort((a, b) => a[0].localeCompare(b[0])),
+  ));
 }
 
 function countRecord(values: readonly unknown[], asText?: false): Record<string, number>;
