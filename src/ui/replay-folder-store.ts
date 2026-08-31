@@ -42,6 +42,15 @@ export async function writeReplayFolderSelection(selection: PersistedReplayFolde
   }
 }
 
+export async function clearReplayFolderSelection(): Promise<void> {
+  const db = await openReplayFolderDatabase();
+  try {
+    await deleteActiveRecord(db);
+  } finally {
+    db.close();
+  }
+}
+
 function openReplayFolderDatabase(): Promise<IDBDatabase> {
   if (!globalThis.indexedDB) {
     throw new Error("IndexedDB is unavailable, so this browser cannot remember a replay folder handle.");
@@ -105,6 +114,24 @@ function writeActiveRecord(db: IDBDatabase, record: ReplayFolderRecord): Promise
     };
     transaction.onabort = () => {
       reject(indexedDbError("Saving replay folder handle was aborted", transaction.error));
+    };
+  });
+}
+
+function deleteActiveRecord(db: IDBDatabase): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(ACTIVE_RECORD_ID);
+    request.onerror = () => {
+      reject(indexedDbError("Could not clear saved replay folder handle", request.error));
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => {
+      reject(indexedDbError("Could not finish clearing saved replay folder handle", transaction.error));
+    };
+    transaction.onabort = () => {
+      reject(indexedDbError("Clearing saved replay folder handle was aborted", transaction.error));
     };
   });
 }
