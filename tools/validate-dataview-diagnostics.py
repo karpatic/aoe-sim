@@ -118,7 +118,8 @@ def main() -> int:
             layout = record(row.get("layout_at_fit_scale"))
             if not rect_is_valid(record(layout.get("sprite_rect"))):
                 errors.append(f"t={seconds}: invalid stack sprite rectangle")
-            if row.get("stack_count", 0) > 1 and not rect_is_valid(record(layout.get("count_rect"))):
+            represented_stack_count = number(layout.get("represented_stack_count"), 1)
+            if row.get("stack_count", 0) > represented_stack_count and not rect_is_valid(record(layout.get("count_rect"))):
                 errors.append(f"t={seconds}: stacked marker is missing a count rectangle")
             if not rect_is_valid(record(layout.get("footprint_rect"))):
                 errors.append(f"t={seconds}: invalid stack footprint rectangle")
@@ -164,7 +165,7 @@ def main() -> int:
     if len(synthetic_groups) != 3:
         errors.append("synthetic mixed grouping did not produce three exact-type markers")
     if synthetic.get("expected_stack_counts") != [7, 12, 123]:
-        errors.append("synthetic mixed grouping did not cover one-, two-, and three-digit counts")
+        errors.append("synthetic mixed grouping did not cover inline, overflow, and mounted stack counts")
     if synthetic.get("footprint_intersection_count") != 0:
         errors.append("synthetic mixed grouping footprints intersect")
     if synthetic.get("layout_direction") != "vertical":
@@ -172,8 +173,36 @@ def main() -> int:
     if not synthetic_task.get("passed"):
         errors.append("synthetic worker task fixture failed")
     layout_items = [record(item) for item in list_value(synthetic.get("layout_items_at_fit_scale"))]
-    if sorted(record(item).get("count_digits", 0) for item in layout_items) != [1, 2, 3]:
-        errors.append("synthetic mixed grouping count digits are not 1, 2, and 3")
+    if sorted(record(item).get("count_digits", 0) for item in layout_items) != [0, 2, 3]:
+        errors.append("synthetic mixed grouping count digits are not inline, 2, and 3")
+    if not any(
+        record(item).get("stack_count") == 7
+        and record(item).get("count_digits") == 0
+        and record(item).get("block_pixel_count") == 7
+        and record(item).get("represented_stack_count") == 7
+        for item in layout_items
+    ):
+        errors.append("synthetic seven-unit small stack is not represented as seven inline pixels")
+    if not any(
+        record(item).get("stack_count") == 12
+        and record(item).get("count_digits") == 2
+        and record(item).get("block_columns") == 3
+        and record(item).get("block_rows") == 3
+        and record(item).get("block_pixel_count") == 9
+        and record(item).get("represented_stack_count") == 9
+        for item in layout_items
+    ):
+        errors.append("synthetic twelve-unit small stack does not use a 3x3 block plus count")
+    if not any(
+        record(item).get("stack_count") == 123
+        and record(item).get("count_digits") == 3
+        and record(item).get("block_columns") == 2
+        and record(item).get("block_rows") == 1
+        and record(item).get("block_pixel_count") == 2
+        and record(item).get("represented_stack_count") == 1
+        for item in layout_items
+    ):
+        errors.append("synthetic mounted stack does not use a two-subcell block plus count")
     for top_index in range(1, len(layout_items)):
         previous = record(layout_items[top_index - 1].get("offset"))
         current = record(layout_items[top_index].get("offset"))

@@ -43,12 +43,11 @@
     .map-chat-message { max-width: 100%; padding: .18rem .38rem; color: #fff; background: rgba(8, 10, 12, .72); border-left: .3rem solid var(--player-color, #888); font: 700 .86rem/1.25 system-ui, sans-serif; text-shadow: 0 1px 2px #000, 1px 0 2px #000; overflow-wrap: anywhere; animation: map-chat-lifetime 6s linear forwards; }
     .map-chat-speaker { color: var(--player-color, #fff); }
     @keyframes map-chat-lifetime { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
-    .unit-marker { position: absolute; z-index: 5; display: grid; place-items: center; width: var(--unit-marker-size, 15px); height: var(--unit-marker-size, 15px); padding: 0; border: 0; color: #fff; background: transparent; image-rendering: pixelated; isolation: isolate; overflow: visible; transform: translate(-50%, -50%); will-change: left, top; }
-    .unit-marker-image { position: relative; z-index: 1; display: block; width: var(--unit-marker-sprite-size, calc(var(--unit-marker-size, 15px) - 1px)); height: var(--unit-marker-sprite-size, calc(var(--unit-marker-size, 15px) - 1px)); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)); pointer-events: none; }
-    .unit-marker[data-reconciliation-status^="anonymous"] { border-style: dashed; }
-    .unit-marker[data-reconciliation-status^="ambiguous"] { border-style: dotted; }
+    .unit-marker { position: absolute; z-index: 5; display: grid; place-items: center; width: var(--unit-marker-width, var(--unit-marker-size, 2px)); height: var(--unit-marker-height, var(--unit-marker-size, 2px)); padding: 0; border: 0; color: #fff; background: transparent; image-rendering: pixelated; isolation: isolate; overflow: visible; transform: translate(-50%, -50%); will-change: left, top; }
+    .unit-marker-block { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(var(--unit-marker-block-columns, 1), minmax(0, 1fr)); grid-template-rows: repeat(var(--unit-marker-block-rows, 1), minmax(0, 1fr)); width: 100%; height: 100%; transform: rotate(var(--unit-marker-map-angle, -45deg)); transform-origin: center; pointer-events: none; }
+    .unit-marker-pixel { display: block; width: 100%; height: 100%; background: var(--player-color, #fff); }
     .unit-marker-count { position: absolute; z-index: 2; top: 50%; left: calc(100% + var(--unit-marker-count-gap, 2px)); display: none; width: var(--unit-marker-count-width, auto); min-width: 0; padding: 0; border: 0; border-radius: 0; color: #fff; background: transparent; font: 850 var(--unit-marker-count-font-size, 8px)/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; text-align: left; text-shadow: 0 1px 0 #111, 1px 0 0 #111; transform: translateY(-50%); white-space: nowrap; overflow-wrap: normal; }
-    .unit-marker[data-stack-count]:not([data-stack-count="1"]) .unit-marker-count { display: inline-block; }
+    .unit-marker[data-stack-count-overflow="true"] .unit-marker-count { display: inline-block; }
     .party-sprite-strip { position: absolute; display: none; align-items: center; gap: var(--strip-gap); height: var(--strip-height); padding: 0 var(--strip-padding-x); color: #fff; opacity: .96; font: bold var(--strip-font-size) sans-serif; line-height: 1; white-space: nowrap; image-rendering: pixelated; }
     .party-sprite-item { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 1px; width: auto; min-width: var(--party-entry-width); height: var(--strip-height); }
     .party-sprite-image { justify-self: center; display: block; width: var(--sprite-size); height: var(--sprite-size); object-fit: contain; image-rendering: pixelated; filter: var(--team-sprite-filter, grayscale(1) sepia(1) saturate(1.15) brightness(1.02) contrast(1.08)); }
@@ -62,7 +61,7 @@
     .swatch { display: inline-block; flex: 0 0 auto; width: 1rem; height: 1rem; margin-right: .25rem; border: 1px solid; vertical-align: text-bottom; }
     .command-symbol { display: inline-block; flex: 0 0 auto; width: 1rem; margin-right: .25rem; text-align: center; font-weight: bold; line-height: 1rem; white-space: nowrap; overflow-wrap: normal; vertical-align: text-bottom; }
     .outlined-command-symbol { -webkit-text-stroke: 1.5px var(--command-outline); paint-order: stroke fill; text-shadow: 0 0 1px #111; }
-    .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 1px solid #111; border-radius: 50%; vertical-align: -.05rem; }
+    .animal-symbol { display: inline-block; flex: 0 0 auto; width: .75rem; height: .75rem; margin: 0 .5rem 0 .125rem; border: 0; vertical-align: -.05rem; }
     #timeline-section { position: fixed; z-index: 20; right: auto; bottom: 0; left: 0; width: var(--map-column-width); min-width: 0; min-height: 3.35rem; margin: 0; padding: .55rem; border-top: 1px solid #333; border-right: 1px solid #333; background: rgba(255, 255, 255, .97); box-shadow: 0 -.25rem .75rem rgba(0, 0, 0, .16); }
     #timeline-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; width: 100%; margin: 0; padding: 0; }
     #timeline-slider { flex: 1 1 18rem; min-width: 0; }
@@ -131,9 +130,6 @@
     .unit-count-tile .hud-sprite-fallback { width: 1.55rem; height: 1.55rem; border: 0; border-radius: 0; background: transparent; }
     .unit-count-tile .generated-marker { border: 0; border-radius: 0; background: transparent; }
     .legend-category-icon.generated-marker { margin-right: .25rem; border: 0; border-radius: 0; color: #111; background: transparent; }
-    .unit-marker .unit-marker-fallback { position: relative; z-index: 1; display: none; width: var(--unit-marker-sprite-size, calc(var(--unit-marker-size, 15px) - 1px)); height: var(--unit-marker-sprite-size, calc(var(--unit-marker-size, 15px) - 1px)); border: 0; border-radius: 0; color: #fff; background: transparent; font-size: var(--unit-marker-font-size, 7px); text-shadow: 0 1px 0 #111; }
-    .unit-marker[data-sprite-load-state="error"] .unit-marker-image { display: none; }
-    .unit-marker[data-sprite-load-state="error"] .unit-marker-fallback { display: inline-grid; }
     .party-sprite-image.generated-marker { justify-self: center; width: var(--sprite-size); height: var(--sprite-size); border: 0; border-radius: 0; color: #fff; background: transparent; text-shadow: 0 1px 0 #111; filter: none; }
     @media (max-width: 50rem) {
       :root {
@@ -650,13 +646,14 @@
     const mapSpriteAssetSource = Object.freeze({
       commit: 'a0b0ec24fc03f3f6dca8813d195d17299a827ad4',
       path: 'dataview-viewer.html',
-      pack: 'aoe-sim-map-unit-silhouettes-v3',
+      pack: 'aoe-sim-map-unit-block-markers-v1',
       generator: 'generatedMapSpriteAsset',
-      format: 'inline 16x16 static SVG data URI',
+      format: 'CSS-rendered map-aligned block marker',
       absorbedPatchSha256: 'sha256:0e330edd37dce16f55c458705a0c4fb6451cfdfcd4c3b72584dd7d72f1a43d39',
       note: [
         'Static generated-marker category behavior reference; current map unit markers are project-original',
-        'low-resolution SVG silhouettes with CSS team tint and outline, not animated GIF/WebP bytes or animated sprite frames.',
+        'CSS-rendered low-resolution blocks using team color, not character artwork, animated GIF/WebP bytes,',
+        'or animated sprite frames.',
       ].join(' '),
     });
     const mapSpriteShapeDefinitions = Object.freeze({
@@ -702,13 +699,13 @@
     const townCenterAssetBasePath = 'https://raw.githubusercontent.com/TimMikeladze/towncenter/8e42a41642b9bdd697037f9ec6a7e975537fb3b0/public/img/';
     const townCenterMissingAsset = '';
     const categoryDefinitions = Object.freeze([
-      { key: 'villagers', label: 'Villagers', shortLabel: 'V', symbol: 'V', asset: mapSpriteMoveAssets.villagers },
-      { key: 'ranged', label: 'Archery / ranged', shortLabel: 'Bow', symbol: 'B', asset: mapSpriteMoveAssets.archer },
-      { key: 'infantry', label: 'Barracks / infantry', shortLabel: 'Sword', symbol: 'S', asset: mapSpriteMoveAssets.swordsman },
-      { key: 'cavalry', label: 'Cavalry', shortLabel: 'Cav', symbol: 'C', asset: mapSpriteMoveAssets.knight },
-      { key: 'support', label: 'Monks / support', shortLabel: 'Monk', symbol: 'Mo', asset: mapSpriteMoveAssets.monk },
-      { key: 'siege', label: 'Siege', shortLabel: 'Gear', symbol: 'G', asset: mapSpriteMoveAssets.catapult },
-      { key: 'naval', label: 'Ships / naval', shortLabel: 'Ship', symbol: 'Sh', asset: mapSpriteMoveAssets.ship },
+      { key: 'villagers', label: 'Villagers', shortLabel: 'V', symbol: 'V', asset: null },
+      { key: 'ranged', label: 'Archery / ranged', shortLabel: 'Bow', symbol: 'B', asset: null },
+      { key: 'infantry', label: 'Barracks / infantry', shortLabel: 'Sword', symbol: 'S', asset: null },
+      { key: 'cavalry', label: 'Cavalry', shortLabel: 'Cav', symbol: 'C', asset: null },
+      { key: 'support', label: 'Monks / support', shortLabel: 'Monk', symbol: 'Mo', asset: null },
+      { key: 'siege', label: 'Siege', shortLabel: 'Gear', symbol: 'G', asset: null },
+      { key: 'naval', label: 'Ships / naval', shortLabel: 'Ship', symbol: 'Sh', asset: null },
     ]);
     const categoryByKey = new Map(categoryDefinitions.map((definition) => [definition.key, definition]));
     const mapSpriteDefinitions = Object.freeze([
@@ -4306,13 +4303,13 @@
       addTeamCommandLegend('B', 'Build command', true);
       if (repairEventKeys.size) addTeamCommandLegend('R', 'Repair command', true);
       if (explicitGarrisonEvents.length) addCommandLegend('⌣◉', 'Un/garrison command', '#8b5a2b');
-      addTeamCommandLegend('×', 'Attack command destination; individual unit markers remain static symbols');
+      addTeamCommandLegend('×', 'Attack command destination; individual unit markers remain static blocks');
       addTeamCommandLegend('○', 'Target / order command');
       addTeamCommandLegend('▣', 'Movement command destination; visual interpolation keeps exact replay endpoints');
       addTeamCommandLegend('→', 'Inferred straight-line visual direction');
       const movementNote = document.createElement('p');
       movementNote.className = 'legend-note';
-      movementNote.textContent = `Individual unit markers are static generated silhouettes from the worker gameplay timeline when it is available; legacy command-position actor history remains a fallback for older data and command diagnostics only. Timeline births require producer or spawn position evidence to render on the map, while position-unknown births remain in totals without fabricated coordinates. When two evidence-backed endpoints exist, displayed marker positions use clearly labeled bounded straight-line visual interpolation and keep exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Timeline units without explicit death remain survival-unresolved.`;
+      movementNote.textContent = `Individual unit markers are static CSS-rendered blocks from the worker gameplay timeline when it is available; legacy command-position actor history remains a fallback for older data and command diagnostics only. Timeline births require producer or spawn position evidence to render on the map, while position-unknown births remain in totals without fabricated coordinates. When two evidence-backed endpoints exist, displayed marker positions use clearly labeled bounded straight-line visual interpolation and keep exact replay endpoints at their evidence times. This is not engine pathfinding, terrain avoidance, or authoritative continuous position. Marker families include: ${mapSpriteDefinitions.map((definition) => definition.label).join(', ')}. Villager task labels remain evidence metadata for food, wood, gold, stone, build, and repair classifications. Estimated queue births, anonymous estimates, ambiguous actor matches, and reconciled parser IDs are retained in marker metadata and hover details. Timeline units without explicit death remain survival-unresolved.`;
       mapResources.legendGroups.timeline.append(movementNote);
       const elevationNote = document.createElement('p');
       elevationNote.className = 'legend-note';
@@ -4332,6 +4329,16 @@
         if (normalized.includes('house') || normalized.includes('donjon')) return [2, 2];
         if (normalized.includes('wall') || normalized.includes('tower') || normalized.includes('outpost')) return [1, 1];
         return [3, 3];
+      }
+
+      function visualBuildingFootprint(row, name = buildingName(row)) {
+        const normalized = name.toLowerCase();
+        if (normalized.includes('house')) return [1, 1];
+        const [fallbackWide, fallbackHigh] = buildingFootprint(name);
+        return [
+          row.footprint?.tile_width ?? fallbackWide,
+          row.footprint?.tile_height ?? fallbackHigh,
+        ];
       }
 
       function buildingBounds(row) {
@@ -4486,26 +4493,12 @@
           }
           return;
         }
-        const [fallbackWide, fallbackHigh] = buildingFootprint(name);
-        const tilesWide = row.footprint?.tile_width ?? fallbackWide;
-        const tilesHigh = row.footprint?.tile_height ?? fallbackHigh;
+        const [tilesWide, tilesHigh] = visualBuildingFootprint(row, name);
         const width = tilesWide * cellSize;
         const height = tilesHigh * cellSize;
-        const left = row.position.x * cellSize - width / 2;
-        const top = row.position.y * cellSize - height / 2;
         const center = mapPositionToProjected(mapProjection, row.position);
         const farmStatus = farmEstimateStatus(row, currentTime);
         if (farmStatus && !farmStatus.active) {
-          drawInProjectedMapSpace(buildingContext, mapProjection, () => {
-            buildingContext.globalAlpha = .35;
-            buildingContext.fillStyle = 'rgba(120, 120, 120, .18)';
-            buildingContext.fillRect(left, top, width, height);
-            buildingContext.globalAlpha = 1;
-            buildingContext.strokeStyle = '#333';
-            buildingContext.setLineDash([2, 2]);
-            buildingContext.strokeRect(left + .5, top + .5, Math.max(1, width - 1), Math.max(1, height - 1));
-            buildingContext.setLineDash([]);
-          });
           if (buildingNeedsIcon(name)) {
             buildingContext.save();
             buildingContext.globalAlpha = .45;
@@ -4514,17 +4507,6 @@
           }
           return;
         }
-        drawInProjectedMapSpace(buildingContext, mapProjection, () => {
-          buildingContext.globalAlpha = farmStatus?.inferred ? .65 : .5;
-          buildingContext.fillStyle = name.toLowerCase() === 'farm'
-            ? (farmStatus?.inferred ? 'rgba(90, 118, 54, .65)' : '#777')
-            : (playerColors.get(row.player) ?? '#888');
-          buildingContext.fillRect(left, top, width, height);
-          buildingContext.globalAlpha = 1;
-          buildingContext.strokeStyle = '#111';
-          buildingContext.lineWidth = 1;
-          buildingContext.strokeRect(left + .5, top + .5, Math.max(1, width - 1), Math.max(1, height - 1));
-        });
         if (buildingNeedsIcon(name)) {
           drawBuildingIcon(name, center.x, center.y, width, height);
         }
@@ -4556,8 +4538,10 @@
         const drawWidth = Math.max(1, naturalWidth * scale);
         const drawHeight = Math.max(1, naturalHeight * scale);
         buildingContext.save();
+        buildingContext.translate(x, y);
+        buildingContext.rotate(mapProjection.angleRadians);
         buildingContext.imageSmoothingEnabled = false;
-        buildingContext.drawImage(image, x - drawWidth / 2, y - drawHeight / 2, drawWidth, drawHeight);
+        buildingContext.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
         buildingContext.restore();
       }
 
@@ -4576,14 +4560,34 @@
         const icon = buildingIcon(name);
         const availableSize = Math.min(availableWidth, availableHeight);
         const fontSize = Math.max(5, Math.min(8, availableSize - 2, availableSize / Math.max(1, icon.length * .7)));
+        buildingContext.save();
+        buildingContext.translate(x, y);
+        buildingContext.rotate(mapProjection.angleRadians);
         buildingContext.font = `bold ${fontSize}px sans-serif`;
         buildingContext.textAlign = 'center';
         buildingContext.textBaseline = 'middle';
         buildingContext.lineWidth = 2;
         buildingContext.strokeStyle = '#111';
-        buildingContext.strokeText(icon, x, y + .3);
+        buildingContext.strokeText(icon, 0, .3);
         buildingContext.fillStyle = '#fff';
-        buildingContext.fillText(icon, x, y + .3);
+        buildingContext.fillText(icon, 0, .3);
+        buildingContext.restore();
+      }
+
+      function drawMapAlignedBlock(layerContext, position, widthSubcells, heightSubcells, color, alpha = 1) {
+        const width = Math.max(1, Math.round((cellSize * widthSubcells) / 3));
+        const height = Math.max(1, Math.round((cellSize * heightSubcells) / 3));
+        drawInProjectedMapSpace(layerContext, mapProjection, () => {
+          layerContext.globalAlpha = alpha;
+          layerContext.fillStyle = color;
+          layerContext.fillRect(
+            position.x * cellSize - width / 2,
+            position.y * cellSize - height / 2,
+            width,
+            height,
+          );
+          layerContext.globalAlpha = 1;
+        });
       }
 
       function drawRecentEvent(row, currentTime) {
@@ -6796,7 +6800,7 @@
           `Position: ${formatMapPosition(assignment.position)}; destination: ${formatMapPosition(interpolationTo)}.`,
           `Position horizon: ${formatStatNumber(assignment.positionHorizonSeconds ?? 0)}s; final valid-until ${formatEstimatedTimelineTime(assignment.positionValidUntil)}; ${assignment.positionEndReason || 'position remains within current evidence horizon'}.`,
           `Visual interpolation: ${assignment.interpolationStatus}, ${Math.round((assignment.interpolationProgress ?? 1) * 100)}%, ${assignment.interpolationEvidenceClass}; from ${formatMapPosition(interpolationFrom)} to ${formatMapPosition(interpolationTo)}; ${assignment.interpolationKind ?? 'legacy'}; ${assignment.interpolationTimeBound ?? 'unbounded'}; terrain avoidance false.`,
-          'Static DOM marker; no animated GIF/WebP bytes or animated sprite frames.',
+          'Static DOM block marker; no character artwork, animated GIF/WebP bytes, or animated sprite frames.',
         ].filter(Boolean).join(' ');
       }
 
@@ -6805,32 +6809,29 @@
         marker.className = 'unit-marker';
         marker.dataset.markerKey = assignment.markerKey;
         marker.setAttribute('aria-hidden', 'true');
-        const image = document.createElement('img');
-        image.className = 'unit-marker-image';
-        image.alt = '';
-        image.decoding = 'async';
-        image.loading = 'eager';
-        image.setAttribute('aria-hidden', 'true');
-        image.addEventListener('load', () => {
-          marker.dataset.spriteLoadState = 'loaded';
-        });
-        image.addEventListener('error', () => {
-          marker.dataset.spriteLoadState = 'error';
-        });
-        const fallback = generatedMarker(
-          'unit-marker-fallback',
-          mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?',
-          '',
-        );
-        fallback.setAttribute('aria-hidden', 'true');
+        const block = document.createElement('span');
+        block.className = 'unit-marker-block';
+        block.setAttribute('aria-hidden', 'true');
         const count = document.createElement('span');
         count.className = 'unit-marker-count';
         count.setAttribute('aria-hidden', 'true');
-        marker.append(image, fallback, count);
+        marker.append(block, count);
         spriteOverlay.append(marker);
         individualUnitMarkerNodes.set(assignment.markerKey, marker);
         individualUnitMarkerNodesCreated += 1;
         return marker;
+      }
+
+      function syncIndividualUnitMarkerBlock(block, metrics) {
+        const pixelCount = Math.max(1, Number(metrics.blockPixelCount ?? 1) || 1);
+        while (block.childElementCount < pixelCount) {
+          const pixel = document.createElement('span');
+          pixel.className = 'unit-marker-pixel';
+          block.append(pixel);
+        }
+        while (block.childElementCount > pixelCount) {
+          block.lastElementChild?.remove();
+        }
       }
 
       function updateIndividualUnitMarker(marker, assignment, scale) {
@@ -6846,16 +6847,24 @@
         ] ?? individualUnitStackLayoutItem(assignment, uniformScale);
         const stackOffset = stackLayoutItem?.offset ?? individualUnitStackLayoutOffset(assignment, uniformScale);
         const stackLayoutMetrics = stackLayoutItem?.metrics
-          ?? dataviewReconstruction.exactTypeStackLayoutMetrics(uniformScale);
+          ?? dataviewReconstruction.exactTypeStackLayoutMetrics(uniformScale, {
+            stackCount: assignment.stackCount,
+            spriteKey: assignment.spriteKey,
+            category: assignment.category,
+          });
         const anchorX = projectedPosition.x * scale.x;
         const anchorY = projectedPosition.y * scale.y;
         const stackShift = clampedStackLayoutShift(anchorX, anchorY, stackLayout);
         marker.style.left = `${anchorX + stackOffset.x + stackShift.x}px`;
         marker.style.top = `${anchorY + stackOffset.y + stackShift.y}px`;
         marker.style.setProperty('--player-color', teamColor);
-        marker.style.setProperty('--team-sprite-filter', teamSpriteFilter(teamColor));
         marker.style.setProperty('--unit-marker-size', `${stackLayoutMetrics.markerBoxSizePx}px`);
         marker.style.setProperty('--unit-marker-sprite-size', `${stackLayoutMetrics.spriteSizePx}px`);
+        marker.style.setProperty('--unit-marker-width', `${stackLayoutMetrics.blockWidthPx}px`);
+        marker.style.setProperty('--unit-marker-height', `${stackLayoutMetrics.blockHeightPx}px`);
+        marker.style.setProperty('--unit-marker-block-columns', String(stackLayoutMetrics.blockColumns ?? 1));
+        marker.style.setProperty('--unit-marker-block-rows', String(stackLayoutMetrics.blockRows ?? 1));
+        marker.style.setProperty('--unit-marker-map-angle', `${mapProjection.angleDegrees}deg`);
         marker.style.setProperty('--unit-marker-font-size', `${Math.max(6, stackLayoutMetrics.countFontSizePx - 1)}px`);
         marker.style.setProperty('--unit-marker-count-gap', `${stackLayoutMetrics.countGapPx}px`);
         marker.dataset.player = String(assignment.player);
@@ -6910,6 +6919,7 @@
         marker.dataset.terrainAvoidance = 'false';
         marker.dataset.staticMapMarker = 'true';
         marker.dataset.animatedSpriteFrames = 'false';
+        marker.dataset.unitMarkerVisualModel = 'map-aligned-block';
         marker.dataset.stackCount = String(assignment.stackCount ?? 1);
         marker.dataset.stackAnchorPosition = formatMapPosition(assignment.position);
         marker.dataset.stackAnchorPositionKey = assignment.stackAnchorPositionKey ?? '';
@@ -6917,6 +6927,8 @@
         marker.dataset.stackLayoutIndex = String(assignment.stackLayoutIndex ?? 0);
         marker.dataset.stackLayoutCount = String(assignment.stackLayoutCount ?? 1);
         marker.dataset.stackLayoutItemCounts = (assignment.stackLayoutItemCounts ?? [assignment.stackCount ?? 1]).join(',');
+        marker.dataset.stackLayoutItemSpriteKeys = (assignment.stackLayoutItemSpriteKeys ?? [assignment.spriteKey ?? '']).join(',');
+        marker.dataset.stackLayoutItemCategories = (assignment.stackLayoutItemCategories ?? [assignment.category ?? '']).join(',');
         marker.dataset.stackOffsetPx = `${formatStatNumber(stackOffset.x, 3)},${formatStatNumber(stackOffset.y, 3)}`;
         marker.dataset.stackClampedShiftPx = `${formatStatNumber(stackShift.x, 3)},${formatStatNumber(stackShift.y, 3)}`;
         marker.dataset.stackRowWidthPx = formatStatNumber(stackLayoutItem?.rowWidthPx ?? 0, 3);
@@ -6924,6 +6936,12 @@
         marker.dataset.stackLayoutDirection = stackLayoutItem?.layoutDirection ?? '';
         marker.dataset.stackMarkerBoxSizePx = formatStatNumber(stackLayoutMetrics.markerBoxSizePx, 3);
         marker.dataset.stackSpriteSizePx = formatStatNumber(stackLayoutMetrics.spriteSizePx, 3);
+        marker.dataset.stackBlockWidthPx = formatStatNumber(stackLayoutMetrics.blockWidthPx, 3);
+        marker.dataset.stackBlockHeightPx = formatStatNumber(stackLayoutMetrics.blockHeightPx, 3);
+        marker.dataset.stackBlockColumns = String(stackLayoutMetrics.blockColumns ?? 1);
+        marker.dataset.stackBlockRows = String(stackLayoutMetrics.blockRows ?? 1);
+        marker.dataset.stackBlockPixelCount = String(stackLayoutMetrics.blockPixelCount ?? 1);
+        marker.dataset.stackRepresentedCount = String(stackLayoutMetrics.representedStackCount ?? 1);
         marker.dataset.stackCountFontSizePx = formatStatNumber(stackLayoutMetrics.countFontSizePx, 3);
         marker.dataset.stackCountGapPx = formatStatNumber(stackLayoutMetrics.countGapPx, 3);
         marker.dataset.stackItemGapPx = formatStatNumber(stackLayoutMetrics.itemGapPx, 3);
@@ -6939,45 +6957,31 @@
         marker.dataset.stackMemberIds = assignment.stackMemberIds.join(',');
         marker.dataset.stackMemberKeys = assignment.stackMemberKeys.join(',');
         marker.dataset.stackEvidenceSplit = assignment.stackEvidenceSplit;
-        const stackCountText = stackLayoutItem?.countText ?? String(assignment.stackCount ?? 1);
+        const stackCountText = stackLayoutItem?.countText
+          ?? (Number(assignment.stackCount ?? 1) > Number(stackLayoutMetrics.representedStackCount ?? 1)
+            ? String(assignment.stackCount ?? 1)
+            : '');
         marker.style.setProperty('--unit-marker-count-digits', String(stackLayoutItem?.countDigits ?? stackCountText.length));
         marker.style.setProperty('--unit-marker-count-width', `${stackLayoutItem?.countWidthPx ?? 0}px`);
         marker.style.setProperty('--unit-marker-count-font-size', `${stackLayoutMetrics.countFontSizePx}px`);
-        const record = individualUnitMarkerAssetRecord(assignment);
-        const image = marker.querySelector('.unit-marker-image');
-        const fallback = marker.querySelector('.unit-marker-fallback');
+        const block = marker.querySelector('.unit-marker-block');
         const count = marker.querySelector('.unit-marker-count');
-        if (fallback) fallback.textContent = (mapSpriteSymbols.get(assignment.spriteKey) ?? assignment.unitName ?? '?').slice(0, 3);
-        if (count) count.textContent = (assignment.stackCount ?? 1) > 1 ? stackCountText : '';
-        setGeneratedMapSpriteDatasets(marker, record);
-        if (image) {
-          const previousAsset = image.dataset.spriteAsset;
-          setGeneratedMapSpriteDatasets(image, record);
-          if (record && previousAsset !== record.key) {
-            marker.dataset.spriteLoadState = 'pending';
-            image.src = record.src;
-            if (record.src.startsWith('data:image/svg+xml')) marker.dataset.spriteLoadState = 'loaded';
-          } else if (record && record.src.startsWith('data:image/svg+xml')) {
-            marker.dataset.spriteLoadState = 'loaded';
-          } else if (record && image.complete && image.naturalWidth > 0) {
-            marker.dataset.spriteLoadState = 'loaded';
-          } else if (!record) {
-            marker.dataset.spriteLoadState = 'error';
-            image.removeAttribute('src');
-          }
-        } else {
-          marker.dataset.spriteLoadState = record ? 'loaded' : 'error';
+        if (block) {
+          syncIndividualUnitMarkerBlock(block, stackLayoutMetrics);
+          block.style.setProperty('--player-color', teamColor);
         }
+        if (count) count.textContent = stackCountText;
+        marker.dataset.stackCountOverflow = String(Boolean(stackCountText));
+        marker.dataset.spriteLoadState = 'block';
+        setGeneratedMapSpriteDatasets(marker, null);
         marker.title = unitMarkerTitle(assignment);
       }
 
       function markerPixelVisibilityState(marker) {
         const bounds = marker.getBoundingClientRect();
         const style = getComputedStyle(marker);
-        const image = marker.querySelector('.unit-marker-image');
-        const fallback = marker.querySelector('.unit-marker-fallback');
-        const imageStyle = image ? getComputedStyle(image) : null;
-        const fallbackStyle = fallback ? getComputedStyle(fallback) : null;
+        const block = marker.querySelector('.unit-marker-block');
+        const blockStyle = block ? getComputedStyle(block) : null;
         const cssVisible = (
           bounds.width > 0
           && bounds.height > 0
@@ -6985,22 +6989,15 @@
           && style.visibility !== 'hidden'
           && Number(style.opacity || 1) > 0
         );
-        const imageVisible = Boolean(
-          image
-            && imageStyle
-            && imageStyle.display !== 'none'
-            && imageStyle.visibility !== 'hidden'
-            && Number(imageStyle.opacity || 1) > 0,
+        const blockVisible = Boolean(
+          block
+            && blockStyle
+            && blockStyle.display !== 'none'
+            && blockStyle.visibility !== 'hidden'
+            && Number(blockStyle.opacity || 1) > 0
+            && block.childElementCount > 0,
         );
-        const fallbackVisible = Boolean(
-          fallback
-            && fallbackStyle
-            && fallbackStyle.display !== 'none'
-            && fallbackStyle.visibility !== 'hidden'
-            && Number(fallbackStyle.opacity || 1) > 0,
-        );
-        const spriteLoaded = marker.dataset.spriteLoadState === 'loaded';
-        const pixelVisible = Boolean(cssVisible && ((spriteLoaded && imageVisible) || fallbackVisible));
+        const pixelVisible = Boolean(cssVisible && blockVisible);
         const stackBounds = mapStack.getBoundingClientRect();
         const clipped = (
           bounds.right < stackBounds.left
@@ -7011,8 +7008,9 @@
         return {
           pixelVisible: pixelVisible && !clipped,
           cssVisible,
-          imageVisible,
-          fallbackVisible,
+          imageVisible: false,
+          fallbackVisible: false,
+          blockVisible,
           clipped,
           width: bounds.width,
           height: bounds.height,
@@ -7056,14 +7054,9 @@
       }
 
       function measuredIndividualUnitMarkerFootprint(marker, overlayBounds) {
-        const image = marker.querySelector('.unit-marker-image');
-        const fallback = marker.querySelector('.unit-marker-fallback');
+        const block = marker.querySelector('.unit-marker-block');
         const count = marker.querySelector('.unit-marker-count');
-        const imageRect = marker.dataset.spriteLoadState === 'error'
-          ? null
-          : elementRectRelativeToOverlay(image, overlayBounds);
-        const fallbackRect = elementRectRelativeToOverlay(fallback, overlayBounds);
-        const spriteRect = imageRect ?? fallbackRect;
+        const spriteRect = elementRectRelativeToOverlay(block, overlayBounds);
         const countRect = count?.textContent
           ? elementRectRelativeToOverlay(count, overlayBounds)
           : null;
@@ -7195,7 +7188,11 @@
           : Array.from({ length: stackLayoutCount }, (_, index) =>
               index === Number(assignment.stackLayoutIndex ?? 0) ? Number(assignment.stackCount ?? 1) || 1 : 1);
         return dataviewReconstruction.exactTypeStackPixelLayout(
-          rawCounts.map((stackCount) => ({ stackCount })),
+          rawCounts.map((stackCount, index) => ({
+            stackCount,
+            spriteKey: assignment.stackLayoutItemSpriteKeys?.[index] ?? assignment.spriteKey,
+            category: assignment.stackLayoutItemCategories?.[index] ?? assignment.category,
+          })),
           uniformScale,
         );
       }
@@ -7204,7 +7201,11 @@
         const layout = individualUnitStackPixelLayout(assignment, uniformScale);
         const index = Math.max(0, Math.min(layout.length - 1, Number(assignment.stackLayoutIndex ?? 0) || 0));
         return layout[index] ?? dataviewReconstruction.exactTypeStackPixelLayout(
-          [{ stackCount: assignment.stackCount ?? 1 }],
+          [{
+            stackCount: assignment.stackCount ?? 1,
+            spriteKey: assignment.spriteKey,
+            category: assignment.category,
+          }],
           uniformScale,
         )[0];
       }
@@ -7291,11 +7292,15 @@
         return [...byPosition.values()].flatMap((groupsAtPosition) => {
           const sorted = [...groupsAtPosition].sort(individualUnitStackGroupSort);
           const stackLayoutItemCounts = Object.freeze(sorted.map((group) => group.stackCount));
+          const stackLayoutItemSpriteKeys = Object.freeze(sorted.map((group) => group.spriteKey ?? ''));
+          const stackLayoutItemCategories = Object.freeze(sorted.map((group) => group.category ?? ''));
           return sorted.map((group, index) => Object.freeze({
             ...group,
             stackLayoutIndex: index,
             stackLayoutCount: sorted.length,
             stackLayoutItemCounts,
+            stackLayoutItemSpriteKeys,
+            stackLayoutItemCategories,
           }));
         });
       }
@@ -7325,6 +7330,7 @@
             cssVisible: false,
             imageVisible: false,
             fallbackVisible: false,
+            blockVisible: false,
             clipped: false,
             width: 0,
             height: 0,
@@ -7334,6 +7340,7 @@
             marker.dataset.cssVisible = String(visibility.cssVisible);
             marker.dataset.imageVisible = String(visibility.imageVisible);
             marker.dataset.fallbackVisible = String(visibility.fallbackVisible);
+            marker.dataset.blockVisible = String(visibility.blockVisible);
             marker.dataset.clippedByMapStack = String(visibility.clipped);
             marker.dataset.renderedPixelSize = `${Math.round(visibility.width)}x${Math.round(visibility.height)}`;
             marker.dataset.layerOrder = 'sprite-overlay-above-resource-building-gameplay-canvases';
@@ -7608,7 +7615,6 @@
         });
         nonTreeResources.forEach((resource) => {
           const currentPosition = resourcePositionAt(resource, seconds);
-          const center = mapPositionToProjected(mapProjection, currentPosition);
           const animalStyle = mapResources.animalStyles.get(resource.name);
           if (animalStyle) {
             const isAnimal = mapResources.animalNames.has(resource.name);
@@ -7621,29 +7627,16 @@
             }
             visibleGaiaFood += 1;
             if (isAnimal) visibleAnimals += 1;
-            resourceContext.globalAlpha = window && seconds >= window.start
+            const alpha = window && seconds >= window.start
               ? Math.max(0, 1 - (seconds - window.start) / 300)
               : 1;
-            resourceContext.beginPath();
-            resourceContext.arc(center.x, center.y, 3.5, 0, Math.PI * 2);
-            resourceContext.fillStyle = animalStyle.color;
-            resourceContext.fill();
-            resourceContext.strokeStyle = animalStyle.color === '#111' ? '#fff' : '#111';
-            resourceContext.lineWidth = 1;
-            resourceContext.stroke();
-            resourceContext.globalAlpha = 1;
+            drawMapAlignedBlock(resourceContext, currentPosition, 1, 1, animalStyle.color, alpha);
             return;
           }
           const style = mapResources.resourceStyles.get(resource.name);
-          resourceContext.globalAlpha = depletedIds.has(resource.instance_id) || estimatedDepletedIds.has(resource.instance_id)
+          const alpha = depletedIds.has(resource.instance_id) || estimatedDepletedIds.has(resource.instance_id)
             || constructionDepletedIds.has(resource.instance_id) ? .25 : 1;
-          resourceContext.beginPath();
-          resourceContext.arc(center.x, center.y, 2.4, 0, Math.PI * 2);
-          resourceContext.fillStyle = style.color;
-          resourceContext.fill();
-          resourceContext.lineWidth = 1;
-          resourceContext.strokeStyle = '#111';
-          resourceContext.stroke();
+          drawMapAlignedBlock(resourceContext, currentPosition, 3, 3, style.color, alpha);
         });
         estimatedDepletedNodes.forEach((node) => {
           if (!node.position || depletedIds.has(node.instance_id)) return;
@@ -8094,12 +8087,13 @@
       ];
       const animalStyles = new Map([
         ...controllableFoodNames.map((name) => [name, { category: 'controllable', color: '#fff' }]),
+        ['Deer', { category: 'non-controllable', color: '#6b3f22' }],
         ['Wild Boar', { category: 'non-controllable', color: '#6b3f22' }],
         ['Ibex', { category: 'non-controllable', color: '#6b3f22' }],
         ['Forage Bush', { category: 'non-controllable', color: '#6b3f22' }],
         ['Fruit Bush', { category: 'non-controllable', color: '#6b3f22' }],
       ]);
-      const animalNames = new Set([...controllableFoodNames, 'Wild Boar', 'Ibex']);
+      const animalNames = new Set([...controllableFoodNames, 'Deer', 'Wild Boar', 'Ibex']);
       const isTreeResource = (object) => {
         const name = String(object?.name ?? '');
         return name.startsWith('Tree (') || treeResourceNames.has(name);

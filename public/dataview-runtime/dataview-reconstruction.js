@@ -2,8 +2,9 @@
 (function () {
 "use strict";
 const VISIBILITY_EPSILON = 0.001;
-const UNIT_MARKER_BASE_SIZE_PX = 15;
-const UNIT_MARKER_MIN_SIZE_PX = 11;
+const UNIT_MARKER_GRID_CELL_SIZE_PX = 6;
+const UNIT_MARKER_GRID_SUBCELLS = 3;
+const UNIT_MARKER_MIN_BLOCK_SIZE_PX = 1;
 const UNIT_MARKER_BASE_COUNT_FONT_SIZE_PX = 8;
 const UNIT_MARKER_MIN_COUNT_FONT_SIZE_PX = 7;
 const UNIT_MARKER_COUNT_GAP_PX = 2;
@@ -637,22 +638,36 @@ function groupExactTypeMarkers(assignments) {
             ...groupsAtPosition
         ].sort(individualUnitStackGroupSort);
         const stackLayoutItemCounts = Object.freeze(sorted.map((group)=>group.stackCount));
+        const stackLayoutItemSpriteKeys = Object.freeze(sorted.map((group)=>group.spriteKey));
+        const stackLayoutItemCategories = Object.freeze(sorted.map((group)=>group.category ?? ""));
         return sorted.map((group, index)=>freezeAssignment({
                 ...group,
                 stackLayoutIndex: index,
                 stackLayoutCount: sorted.length,
-                stackLayoutItemCounts
+                stackLayoutItemCounts,
+                stackLayoutItemSpriteKeys,
+                stackLayoutItemCategories
             }));
     }));
 }
-function exactTypeStackLayoutMetrics(uniformScale) {
+function exactTypeStackLayoutMetrics(uniformScale, item = {}) {
     const scale = Math.max(0.1, Number.isFinite(uniformScale) ? uniformScale : 1);
-    const markerBoxSizePx = cleanNumber(Math.max(UNIT_MARKER_MIN_SIZE_PX, UNIT_MARKER_BASE_SIZE_PX * scale));
-    const spriteSizePx = cleanNumber(Math.max(9, markerBoxSizePx - 1));
+    const block = markerBlockFootprint(item);
+    const subcellSize = UNIT_MARKER_GRID_CELL_SIZE_PX / UNIT_MARKER_GRID_SUBCELLS;
+    const blockWidthPx = cleanNumber(Math.max(UNIT_MARKER_MIN_BLOCK_SIZE_PX, block.widthSubcells * subcellSize * scale));
+    const blockHeightPx = cleanNumber(Math.max(UNIT_MARKER_MIN_BLOCK_SIZE_PX, block.heightSubcells * subcellSize * scale));
+    const markerBoxSizePx = cleanNumber(Math.max(blockWidthPx, blockHeightPx));
+    const spriteSizePx = markerBoxSizePx;
     const countFontSizePx = cleanNumber(Math.max(UNIT_MARKER_MIN_COUNT_FONT_SIZE_PX, UNIT_MARKER_BASE_COUNT_FONT_SIZE_PX * scale));
     return Object.freeze({
         markerBoxSizePx,
         spriteSizePx,
+        blockWidthPx,
+        blockHeightPx,
+        blockColumns: block.widthSubcells,
+        blockRows: block.heightSubcells,
+        blockPixelCount: block.pixelCount,
+        representedStackCount: block.representedStackCount,
         countFontSizePx,
         countGapPx: cleanNumber(Math.max(1.5, UNIT_MARKER_COUNT_GAP_PX * scale)),
         itemGapPx: cleanNumber(Math.max(3, UNIT_MARKER_ROW_GAP_PX * scale)),
@@ -661,23 +676,30 @@ function exactTypeStackLayoutMetrics(uniformScale) {
     });
 }
 function exactTypeStackPixelLayout(items, uniformScale) {
-    const metrics = exactTypeStackLayoutMetrics(uniformScale);
-    const stackCounts = items.length ? items.map((item)=>positiveStackCount(item.stackCount)) : [
-        1
+    const layoutItems = items.length ? items : [
+        {
+            stackCount: 1
+        }
     ];
-    const widths = stackCounts.map((stackCount)=>{
-        const countDigits = exactTypeStackCountText(stackCount).length;
+    const metricsByItem = layoutItems.map((item)=>exactTypeStackLayoutMetrics(uniformScale, item));
+    const stackCounts = layoutItems.map((item)=>positiveStackCount(item.stackCount));
+    const maxBlockWidthPx = cleanNumber(Math.max(...metricsByItem.map((metrics)=>metrics.blockWidthPx)));
+    const widths = stackCounts.map((stackCount, index)=>{
+        const metrics = metricsByItem[index] ?? exactTypeStackLayoutMetrics(uniformScale);
+        const countDigits = exactTypeStackCountText(stackCount, metrics.representedStackCount).length;
         const countWidthPx = countDigits ? cleanNumber(countDigits * metrics.countDigitWidthPx + metrics.countPaddingPx) : 0;
-        const countPartWidth = countDigits ? metrics.markerBoxSizePx / 2 + metrics.countGapPx + countWidthPx : 0;
-        return cleanNumber(metrics.spriteSizePx / 2 + Math.max(metrics.spriteSizePx / 2, countPartWidth));
+        const rightWidthPx = metrics.blockWidthPx / 2 + (countDigits ? metrics.countGapPx + countWidthPx : 0);
+        return cleanNumber(maxBlockWidthPx / 2 + Math.max(metrics.blockWidthPx / 2, rightWidthPx));
     });
-    const itemHeightPx = cleanNumber(Math.max(metrics.spriteSizePx, metrics.countFontSizePx));
+    const itemHeightsPx = metricsByItem.map((metrics)=>cleanNumber(Math.max(metrics.blockHeightPx, metrics.countFontSizePx)));
     const rowWidthPx = cleanNumber(Math.max(...widths));
-    const columnHeightPx = cleanNumber(stackCounts.length * itemHeightPx + Math.max(0, stackCounts.length - 1) * metrics.itemGapPx);
-    const markerCenterX = cleanNumber(-rowWidthPx / 2 + metrics.spriteSizePx / 2);
+    const columnHeightPx = cleanNumber(itemHeightsPx.reduce((sum, height)=>sum + height, 0) + Math.max(0, stackCounts.length - 1) * (metricsByItem[0]?.itemGapPx ?? 0));
     let cursor = -columnHeightPx / 2;
     return Object.freeze(stackCounts.map((stackCount, index)=>{
-        const countText = exactTypeStackCountText(stackCount);
+        const metrics = metricsByItem[index] ?? exactTypeStackLayoutMetrics(uniformScale);
+        const itemHeightPx = itemHeightsPx[index] ?? metrics.blockHeightPx;
+        const markerCenterX = cleanNumber(-rowWidthPx / 2 + maxBlockWidthPx / 2);
+        const countText = exactTypeStackCountText(stackCount, metrics.representedStackCount);
         const countDigits = countText.length;
         const countWidthPx = countDigits ? cleanNumber(countDigits * metrics.countDigitWidthPx + metrics.countPaddingPx) : 0;
         const markerCenterY = cleanNumber(cursor + itemHeightPx / 2);
@@ -686,15 +708,15 @@ function exactTypeStackPixelLayout(items, uniformScale) {
             y: markerCenterY
         });
         const spriteRect = freezeRect({
-            left: markerCenterX - metrics.spriteSizePx / 2,
-            top: markerCenterY - metrics.spriteSizePx / 2,
-            right: markerCenterX + metrics.spriteSizePx / 2,
-            bottom: markerCenterY + metrics.spriteSizePx / 2
+            left: markerCenterX - metrics.blockWidthPx / 2,
+            top: markerCenterY - metrics.blockHeightPx / 2,
+            right: markerCenterX + metrics.blockWidthPx / 2,
+            bottom: markerCenterY + metrics.blockHeightPx / 2
         });
         const countRect = countDigits ? freezeRect({
-            left: markerCenterX + metrics.markerBoxSizePx / 2 + metrics.countGapPx,
+            left: markerCenterX + metrics.blockWidthPx / 2 + metrics.countGapPx,
             top: markerCenterY - metrics.countFontSizePx / 2,
-            right: markerCenterX + metrics.markerBoxSizePx / 2 + metrics.countGapPx + countWidthPx,
+            right: markerCenterX + metrics.blockWidthPx / 2 + metrics.countGapPx + countWidthPx,
             bottom: markerCenterY + metrics.countFontSizePx / 2
         }) : null;
         const footprintRect = unionMarkerRects(countRect ? [
@@ -935,6 +957,12 @@ function timelineUnitAssignment(unit, seconds, dimension, workerTaskState) {
         stackLayoutCount: 1,
         stackLayoutItemCounts: [
             1
+        ],
+        stackLayoutItemSpriteKeys: [
+            spriteKey
+        ],
+        stackLayoutItemCategories: [
+            category ?? ""
         ]
     });
     return [
@@ -959,6 +987,12 @@ function freezeAssignment(assignment) {
         ]),
         stackLayoutItemCounts: Object.freeze([
             ...assignment.stackLayoutItemCounts
+        ]),
+        stackLayoutItemSpriteKeys: Object.freeze([
+            ...assignment.stackLayoutItemSpriteKeys
+        ]),
+        stackLayoutItemCategories: Object.freeze([
+            ...assignment.stackLayoutItemCategories
         ])
     });
 }
@@ -1125,8 +1159,45 @@ function positiveStackCount(value) {
     const count = Number(value);
     return Number.isSafeInteger(count) && count > 0 ? count : 1;
 }
-function exactTypeStackCountText(stackCount) {
-    return stackCount > 1 ? String(stackCount) : "";
+function markerBlockFootprint(item) {
+    const stackCount = positiveStackCount(item.stackCount);
+    const base = baseMarkerBlockFootprint(item.spriteKey, item.category);
+    if (base.widthSubcells === 1 && base.heightSubcells === 1 && stackCount > 1) {
+        const represented = Math.min(9, stackCount);
+        const widthSubcells = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(represented))));
+        const heightSubcells = Math.min(3, Math.max(1, Math.ceil(represented / widthSubcells)));
+        return {
+            widthSubcells,
+            heightSubcells,
+            pixelCount: represented,
+            representedStackCount: represented
+        };
+    }
+    return {
+        widthSubcells: base.widthSubcells,
+        heightSubcells: base.heightSubcells,
+        pixelCount: base.widthSubcells * base.heightSubcells,
+        representedStackCount: 1
+    };
+}
+function baseMarkerBlockFootprint(spriteKey, category) {
+    const key = canonicalMapSpriteKey(spriteKey) ?? "";
+    const resolvedCategory = unitCategoryForMapSpriteKey(key, typeof category === "string" ? category : null);
+    if (resolvedCategory === "siege" || key === "elephant") return {
+        widthSubcells: 2,
+        heightSubcells: 2
+    };
+    if (resolvedCategory === "cavalry" || key === "camel" || key === "knight" || key === "cavalryArcher" || key === "scout") return {
+        widthSubcells: 2,
+        heightSubcells: 1
+    };
+    return {
+        widthSubcells: 1,
+        heightSubcells: 1
+    };
+}
+function exactTypeStackCountText(stackCount, representedStackCount = 1) {
+    return stackCount > representedStackCount ? String(stackCount) : "";
 }
 function individualUnitTypeStackKey(assignment, spriteKey) {
     const unitId = numericId(assignment.resolvedUnitId ?? assignment.unitIdentity?.unit_id);

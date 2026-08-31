@@ -482,6 +482,8 @@ function compactSnapshot(snapshot) {
       stack_layout_index: group.stackLayoutIndex,
       stack_layout_count: group.stackLayoutCount,
       stack_layout_item_counts: group.stackLayoutItemCounts,
+      stack_layout_item_sprite_keys: group.stackLayoutItemSpriteKeys,
+      stack_layout_item_categories: group.stackLayoutItemCategories,
       layout_at_fit_scale: layoutDiagnosticForGroup(group, 1),
       evidence_split: group.stackEvidenceSplit,
     })),
@@ -489,11 +491,21 @@ function compactSnapshot(snapshot) {
 }
 
 function layoutDiagnosticForGroup(group, uniformScale) {
+  const spriteKeys = asArray(group.stackLayoutItemSpriteKeys);
+  const categories = asArray(group.stackLayoutItemCategories);
   const layout = exactTypeStackPixelLayout(
-    asArray(group.stackLayoutItemCounts).map((stackCount) => ({ stackCount })),
+    asArray(group.stackLayoutItemCounts).map((stackCount, index) => ({
+      stackCount,
+      spriteKey: spriteKeys[index] ?? group.spriteKey,
+      category: categories[index] ?? group.category,
+    })),
     uniformScale,
   );
-  const item = layout[group.stackLayoutIndex] ?? exactTypeStackPixelLayout([{ stackCount: group.stackCount }], uniformScale)[0];
+  const item = layout[group.stackLayoutIndex] ?? exactTypeStackPixelLayout([{
+    stackCount: group.stackCount,
+    spriteKey: group.spriteKey,
+    category: group.category,
+  }], uniformScale)[0];
   return compactLayoutItem(item ?? {
     offset: exactTypeStackPixelOffset(group.stackLayoutIndex, group.stackLayoutCount, uniformScale),
     spriteRect: null,
@@ -504,6 +516,7 @@ function layoutDiagnosticForGroup(group, uniformScale) {
 
 function compactLayoutItem(item) {
   return {
+    stack_count: number(item.stackCount, 0),
     offset: item.offset,
     sprite_rect: compactRect(item.spriteRect),
     count_rect: compactRect(item.countRect),
@@ -516,6 +529,12 @@ function compactLayoutItem(item) {
     layout_direction: item.layoutDirection ?? "",
     marker_box_size_px: number(item.metrics?.markerBoxSizePx, 0),
     sprite_size_px: number(item.metrics?.spriteSizePx, 0),
+    block_width_px: number(item.metrics?.blockWidthPx, 0),
+    block_height_px: number(item.metrics?.blockHeightPx, 0),
+    block_columns: number(item.metrics?.blockColumns, 0),
+    block_rows: number(item.metrics?.blockRows, 0),
+    block_pixel_count: number(item.metrics?.blockPixelCount, 0),
+    represented_stack_count: number(item.metrics?.representedStackCount, 0),
     count_font_size_px: number(item.metrics?.countFontSizePx, 0),
     count_gap_px: number(item.metrics?.countGapPx, 0),
     item_gap_px: number(item.metrics?.itemGapPx, 0),
@@ -584,11 +603,36 @@ function exactTypeSyntheticDiagnostic() {
   };
   const snapshot = buildDataviewRenderSnapshot({ gameplayTimeline, seconds: 10, dimension: 120 });
   const groups = snapshot.markerGroups.slice().sort((a, b) => a.stackLayoutIndex - b.stackLayoutIndex);
-  const layout = exactTypeStackPixelLayout(groups.map((group) => ({ stackCount: group.stackCount })), 1);
+  const layout = exactTypeStackPixelLayout(
+    groups.map((group) => ({
+      stackCount: group.stackCount,
+      spriteKey: group.spriteKey,
+      category: group.category,
+    })),
+    1,
+  );
   const intersections = layoutIntersections(layout);
   const observedCounts = groups.map((group) => group.stackCount);
   const observedCountSet = new Set(observedCounts);
-  const observedDigits = layout.map((item) => item.countDigits).filter((digits) => digits > 0);
+  const inlineSmallStack = layout.some((item) =>
+    item.stackCount === 7
+      && item.countDigits === 0
+      && item.metrics?.blockPixelCount === 7
+      && item.metrics?.representedStackCount === 7);
+  const overflowSmallStack = layout.some((item) =>
+    item.stackCount === 12
+      && item.countDigits === 2
+      && item.metrics?.blockColumns === 3
+      && item.metrics?.blockRows === 3
+      && item.metrics?.blockPixelCount === 9
+      && item.metrics?.representedStackCount === 9);
+  const mountedStack = layout.some((item) =>
+    item.stackCount === 123
+      && item.countDigits === 3
+      && item.metrics?.blockColumns === 2
+      && item.metrics?.blockRows === 1
+      && item.metrics?.blockPixelCount === 2
+      && item.metrics?.representedStackCount === 1);
   const vertical = layout.every((item, index) =>
     item.layoutDirection === "vertical"
       && (index === 0 || item.offset.y > layout[index - 1].offset.y)
@@ -607,6 +651,8 @@ function exactTypeSyntheticDiagnostic() {
       stack_layout_index: group.stackLayoutIndex,
       stack_layout_count: group.stackLayoutCount,
       stack_layout_item_counts: group.stackLayoutItemCounts,
+      stack_layout_item_sprite_keys: group.stackLayoutItemSpriteKeys,
+      stack_layout_item_categories: group.stackLayoutItemCategories,
       layout_at_fit_scale: layoutDiagnosticForGroup(group, 1),
     })),
     layout_items_at_fit_scale: layout.map(compactLayoutItem),
@@ -618,7 +664,9 @@ function exactTypeSyntheticDiagnostic() {
       && snapshot.markerGroups.length === expectedCounts.length
       && snapshot.diagnostics.mixedPositionGroups === 1
       && expectedCounts.every((count) => observedCountSet.has(count))
-      && [1, 2, 3].every((digits) => observedDigits.includes(digits))
+      && inlineSmallStack
+      && overflowSmallStack
+      && mountedStack
       && vertical
       && intersections.length === 0,
   };
